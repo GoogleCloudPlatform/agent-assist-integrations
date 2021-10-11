@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "module": "CommonJS",
+    "esModuleInterop": true,
+    "target": "ES5",
+    "moduleResolution": "node",
+    "sourceMap": true,
+    "outDir": "dist",
+    "skipLibCheck": true,
+  },
+  "lib": ["es2015"]
+}
