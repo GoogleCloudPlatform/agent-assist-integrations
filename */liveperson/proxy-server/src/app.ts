@@ -33,7 +33,9 @@ const authMiddleware: RequestHandler = (req, res, next) => {
     jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch (err) {
-    res.status(401).json({ error: 'Could not authenticate user' });
+    res
+      .status(401)
+      .json({ error: { code: 401, message: 'Could not authenticate user' } });
   }
 };
 
@@ -50,10 +52,10 @@ app.get('/ping', (req, res) => {
 app.use(
   [
     '/v2beta1/projects/:projectId',
-    '/v2beta1/projects/:projectId/locations/:locationId'
+    '/v2beta1/projects/:projectId/locations/:locationId',
   ],
   authMiddleware,
-  dialogflowv2beta1Router,
+  dialogflowv2beta1Router
 );
 
 app.use('/auth', authRouter);
