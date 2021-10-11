@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base href="/" />
+    <title>Agent Assist UI Modules</title>
+    <link
+      href="https://fonts.googleapis.com/css?family=Roboto"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css?family=Roboto:medium"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css?family=Google+Sans:medium"
+      rel="stylesheet"
+    />
+    <style>
+      .authenticate-message {
+        font-family: 'Roboto', sans-serif;
+        font-size: 12px;
+        color: #333;
+      }
+    </style>
+    <!-- WebComponents polyfill. Needed for rendering web components in older browsers. -->
+    <script src="https://www.gstatic.com/external_hosted/document_register_element/document-register-element.js"></script>
+    <!-- Core UI module container. Loads all UI module-specific scripts. -->
+    <script src="https://www.gstatic.com/agent-assist-ui-modules/container.js"></script>
+  </head>
+  <body>
+    <% if (!authResponse) { %>
+    <p class="authenticate-message">
+      Could not authenticate agent. Please reload window to try again.</a>.
+    </p>
+    <% } else {%>
+    <script>
+      var proxyServer = `<%- proxyServer %>`;
+      var authResponse = JSON.parse(`<%- JSON.stringify(authResponse) %>`);
+      var state = JSON.parse(`<%- JSON.stringify(state) %>`);
+      var accessToken = `<%- accessToken %>`;
+
+      window.addEventListener('load', function () {
+        var uiModulesEl = document.createElement('agent-assist-ui-modules');
+
+        var attributes = [
+          ['agent-desktop', 'LivePerson'],
+          ['features', state.features],
+          ['conversation-profile', state.conversationProfile],
+          ['auth-token', accessToken],
+          ['use-custom-conversation-id', 'true'],
+          ['custom-api-endpoint', proxyServer],
+        ];
+
+        for (var [attribute, value] of attributes) {
+          uiModulesEl.setAttribute(attribute, value);
+        }
+
+        // Add additional configuration here.
+        uiModulesEl.config = {};
+
+        document.body.appendChild(uiModulesEl);
+
+        setInterval(refreshAuthToken, 60000 * 5);
+      });
+
+      window.addEventListener('aa-dialogflow-api-authentication-error', refreshAuthToken);
+
+      async function refreshAuthToken() {
+        var refreshUrl = `${proxyServer}/auth/refresh`;
+
+        return fetch(refreshUrl, {
+          method: 'POST',
+          headers: [['Content-Type', 'application/json']],
+          body: JSON.stringify(authResponse),
+        })
+          .then(function (res) {
+            return res.json();
+          })
+          .then(function (response) {
+            if (response && response.access_token) {
+              authResponse = response.auth_response;
+              var uiModulesEl = document.querySelector(
+                'agent-assist-ui-modules'
+              );
+              uiModulesEl.setAttribute('auth-token', response.access_token);
+            } else {
+              initiateAuthFlow();
+            }
+          })
+          .catch(function () {
+            initiateAuthFlow();
+          });
+      }
+
+      function initiateAuthFlow() {
+        var authenticateMessageClassName = 'authenticate-message';
+
+        var authenticateMessageEl = document.querySelector(
+          '.' + authenticateMessageClassName
+        );
+
+        if (!authenticateMessageEl) {
+          var uiModulesEl = document.querySelector('agent-assist-ui-modules');
+
+          if (uiModulesEl) {
+            uiModulesEl.remove();
+          }
+
+          var p = document.createElement('p');
+          p.innerText = 'Session expired. Please reload window to sign in.';
+          p.classList.add(authenticateMessageClassName);
+          document.body.appendChild(p);
+        }
+      }
+    </script>
+    <% } %>
+  </body>
+</html>

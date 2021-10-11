@@ -1,0 +1,21 @@
+{
+  "name": "liveperson-app",
+  "version": "1.0.0",
+  "description": "Example Conversational Cloud application for LivePerson",
+  "main": "index.js",
+  "dependencies": {
+    "client-oauth2": "^4.3.3",
+    "dotenv": "^10.0.0",
+    "ejs": "^3.1.6",
+    "express": "^4.17.1",
+    "jsonwebtoken": "^8.5.1",
+    "node-fetch": "^3.0.0"
+  },
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Gabor Szekely",
+  "license": "ISC"
+}
