@@ -1,5 +1,0 @@
-{
-  "assetsFolder": "./src/assets",
-  "functionsFolder": "./src/functions",
-  "runtime": "node18" 	/* The version of Node.js to deploy the build to. */
-}
