@@ -37,29 +37,34 @@ const LP_ACCESS_TOKEN_URI = `https://${
 router.get('/token', async (req, res) => {
   const accessToken = req.headers.authorization;
 
-  // Call LP API with credentials
-  const response = await fetch(
-      `https://${LP_ACCOUNT_CONFIG_READONLY_DOMAIN}/api/account/${
-          LP_ACCOUNT_ID}/configuration/le-agents/status-reasons`,
-      {
-        headers: [['Authorization', `Bearer ${accessToken}`]],
-      });
+  try {
+    // Call LP API with credentials
+    const response = await fetch(
+        `https://${LP_ACCOUNT_CONFIG_READONLY_DOMAIN}/api/account/${
+            LP_ACCOUNT_ID}/configuration/le-agents/status-reasons`,
+        {
+          headers: [['Authorization', `Bearer ${accessToken}`]],
+        });
 
-  const {status} = response;
+    const {status} = response;
 
-  if (status === 200) {
-    // Generate custom JWT to authenticate client in proxy server.
-    const token = generateJwt();
+    if (status === 200) {
+      // Generate custom JWT to authenticate client in proxy server.
+      const token = generateJwt();
 
-    res.json({token});
-    return;
-  }
+      res.json({token});
+      return;
+    }
 
-  if (status === 401 || status === 403) {
-    res.status(response.status).json({error: 'Could not authenticate user'});
-  } else {
-    console.log('[DF Proxy Server error] [auth /token] ', response.status);
-    res.status(response.status).json({error: 'Server error'});
+    if (status === 401 || status === 403) {
+      res.status(response.status).json({error: 'Could not authenticate user'});
+    } else {
+      console.log('[DF Proxy Server error] [auth /token] ', response.status);
+      res.status(response.status).json({error: 'Server error'});
+    }
+  } catch (err) {
+    console.log('[DF Proxy Server error] [auth /token] ', err);
+    res.status(500).json({error: 'Server error'});
   }
 });
 
