@@ -18,11 +18,12 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import express, { RequestHandler } from 'express';
 import jwt from 'jsonwebtoken';
+import path from 'path';
 
 import { authRouter } from './routers/auth/auth.router';
 import { dialogflowv2beta1Router } from './routers/v2beta1';
 
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -50,10 +51,13 @@ app.get('/ping', (req, res) => {
 });
 
 app.use(
-  [
-    '/v2beta1/projects/:projectId',
-    '/v2beta1/projects/:projectId/locations/:locationId',
-  ],
+  '/v2beta1/projects/:projectId',
+  authMiddleware,
+  dialogflowv2beta1Router
+);
+
+app.use(
+  '/v2beta1/projects/:projectId/locations/:locationId',
   authMiddleware,
   dialogflowv2beta1Router
 );
