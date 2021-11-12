@@ -18,8 +18,9 @@ import dotenv from 'dotenv';
 import {Router} from 'express';
 import jwt from 'jsonwebtoken';
 import fetch from 'node-fetch';
+import path from 'path';
 
-dotenv.config();
+dotenv.config({path: path.resolve(__dirname, '../../../.env')});
 
 const router = Router();
 
