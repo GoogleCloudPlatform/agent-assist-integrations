@@ -50,7 +50,7 @@ Example:
 ></agent-assist-ui-modules-container>
 ```
 
-<b>Attributes</b>
+### Attributes
 
 | Atribute name | Expected values | Description |
 | ----------- | ----------- | ----------- |
@@ -65,6 +65,20 @@ Example:
 | custom-api-endpoint | string | The URL of the Dialogflow proxy server, if one is used. |
 | show-header | "true" \| "false" | Whether to show an “Agent Assist suggestions” header. Defaults to "false". |
 | dark-mode-background | string | The hexidecimal color value for the background color to use for dark mode. |
+
+### Inputs
+
+| Input name | Expected values | Description |
+| ----------- | ----------- | ----------- |
+| config | UiModulesContainerConfig | A set of additional module-specific configurations that can be provided to the container. |
+
+Unlike attributes, inputs cannot be included in an HTML tag directly. Instead, they must be assigned to the JavaScript reference of the web component.
+
+Example:
+```
+const container = document.querySelector('agent-assist-ui-modules-container');
+container.input = someValue;
+```
 
 <br>
 
@@ -199,6 +213,20 @@ Then, you can embed the component in the page using the following tag:
 ```
 <agent-assist-knowledge-assist></agent-assist-knowledge-assist>
 ```
+
+<b>Attributes</b>
+
+| Atribute name | Expected values | Description |
+| ----------- | ----------- | ----------- |
+| features | Comma-separated string specifying one or more Knowledge Assist feature: <br>“ARTICLE_SUGGESTION”, “FAQ”, “ARTICLE_SEARCH” | Comma-separated string specifying one or more Knowledge Assist feature. |
+
+<b>Inputs</b>
+
+| Input name | Expected values | Description |
+| ----------- | ----------- | ----------- |
+| config | KnowledgeAssistConfig | A set of additional configurations that can specify how suggested articles are surfaced. |
+
+<br>
 
 #### <b>Smart Reply</b>
 
@@ -348,6 +376,10 @@ window.addEventListener('aa-analyze-content-response-received', (response) => {
 
 ### Types
 
+#### <b>AnalyzeContentRequest</b>
+
+See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/AnalyzeContentRequest).
+
 #### <b>AnalyzeContentRequestDetails</b>
 
 ```
@@ -359,14 +391,9 @@ interface AnalyzeContentRequestDetails {
 }
 ```
 
-#### <b>ParticipantRole</b>
+#### <b>AnalyzeContentResponse</b>
 
-See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.conversations.participants#Participant.Role).
-
-#### <b>AnalyzeContentRequest</b>
-
-See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/AnalyzeContentRequest).
-
+See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/AnalyzeContentResponse).
 
 #### <b>AnalyzeContentResponseDetails</b>
 
@@ -377,14 +404,96 @@ interface AnalyzeContentResponseDetails {
 }
 ```
 
-#### <b>AnalyzeContentResponse</b>
+#### <b>AnswerRecord</b>
 
-See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/AnalyzeContentResponse).
-
+See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.answerRecords#AnswerRecord).
 
 #### <b>Conversation</b>
 
 See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.conversations#Conversation).
+
+#### <b>GoogleRpcStatus</b>
+
+See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rpc/google.rpc#google.rpc.Status).
+
+#### <b>KnowledgeAssistConfig</b>
+
+```
+/** Optional configurations for the Knowledge Assist module. */
+interface KnowledgeAssistConfig {
+  /**
+    * Configuration to specify how articles should open in the user's browser.
+    */
+  articleLinkConfig?: {
+    /**
+      * Whether to open the article in a new tab, or as a popup. Defaults to
+      * new tab.
+      */
+    target?: 'blank' | 'popup';
+    /**
+      * Options to configure the popup's size and location. See
+      * https://developer.mozilla.org/en-US/docs/Web/API/Window/open#window_features.
+      */
+    popupWindowOptions?: string;
+    /**
+      * The field name on the document metadata if a separate article link
+      * source is provided.
+      */
+    linkMetadataKey?: string;
+  }
+}
+```
+
+#### <b>MatSnackBarConfig</b>
+
+See [Material Design documentation](https://material.angular.io/components/snack-bar/api#MatSnackBarConfig).
+
+#### <b>ParticipantRole</b>
+
+See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.conversations.participants#Participant.Role).
+
+#### <b>PatchAnswerRecordPayload</b>
+
+```
+interface PatchAnswerRecordPayload {
+  payload: {
+    answerRecord: AnswerRecord;
+    previousAnswerRecord?: AnswerRecord|undefined;
+  }
+  options: {updateMask: string;};
+}
+```
+
+#### <b>SearchArticlesResponse</b>
+
+See private API documentation.
+
+#### <b>SmartReplyAnswer</b>
+
+See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/SuggestSmartRepliesResponse#SmartReplyAnswer).
+
+#### <b>SnackbarNotificationPayload</b>
+
+#### <b>SuggestConversationSummaryResponse</b>
+
+See [private API documentation](https://cloud.google.com/dialogflow/priv/docs/reference/rest/v2beta1/SuggestConversationSummaryResponse).
+
+#### <b>SuggestionFeatureType</b>
+
+See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.conversationProfiles#ConversationProfile.Type).
+
+```
+/**
+ * Payload for snackbar notification actions. Allows users to configure snackbar
+ * message, dismiss button text, and dismiss callback.
+ */
+interface SnackbarNotificationPayload {
+  message: string;
+  dismissLabel?: string|undefined;
+  config?: MatSnackBarConfig|undefined;
+  dismissCallback?: () => void;
+}
+```
 
 #### <b>UiModuleError</b>
 
@@ -403,57 +512,17 @@ interface UiModuleError {
 }
 ```
 
-#### <b>SuggestionFeatureType</b>
-
-See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.conversationProfiles#ConversationProfile.Type).
-
-#### <b>GoogleRpcStatus</b>
-
-See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rpc/google.rpc#google.rpc.Status).
-
-#### <b>PatchAnswerRecordPayload</b>
-
-```
-interface PatchAnswerRecordPayload {
-  payload: {
-    answerRecord: AnswerRecord;
-    previousAnswerRecord?: AnswerRecord|undefined;
-  }
-  options: {updateMask: string;};
-}
-```
-
-#### <b>AnswerRecord</b>
-
-See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.answerRecords#AnswerRecord).
-
-#### <b>SnackbarNotificationPayload</b>
+#### <b>UiModulesContainerConfig</b>
 
 ```
 /**
- * Payload for snackbar notification actions. Allows users to configure snackbar
- * message, dismiss button text, and dismiss callback.
+ * Configuration object to pass the UI Modules container. Allows users to define
+ * module-specific configurations.
  */
-interface SnackbarNotificationPayload {
-  message: string;
-  dismissLabel?: string|undefined;
-  config?: MatSnackBarConfig|undefined;
-  dismissCallback?: () => void;
+interface UiModuleContainerConfig {
+  /** Optional configurations for the Knowledge Assist module. */
+  knowledgeAssistConfig?: KnowledgeAssistConfig;
 }
+
 ```
 
-#### <b>MatSnackBarConfig</b>
-
-See [Material Design documentation](https://material.angular.io/components/snack-bar/api#MatSnackBarConfig).
-
-#### <b>SmartReplyAnswer</b>
-
-See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/SuggestSmartRepliesResponse#SmartReplyAnswer).
-
-#### <b>SuggestConversationSummaryResponse</b>
-
-See [private API documentation](https://cloud.google.com/dialogflow/priv/docs/reference/rest/v2beta1/SuggestConversationSummaryResponse).
-
-#### <b>SearchArticlesResponse</b>
-
-See private API documentation.
