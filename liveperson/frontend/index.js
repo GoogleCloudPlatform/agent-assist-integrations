@@ -15,11 +15,14 @@
  */
 
 import ClientOAuth2 from 'client-oauth2';
+import cookieParser from 'cookie-parser';
+import {createHmac} from 'crypto';
 import dotenv from 'dotenv';
 import express from 'express';
 import fetch from 'node-fetch';
 import path, {dirname} from 'path';
 import {fileURLToPath} from 'url';
+import {uuid} from 'uuidv4';
 
 dotenv.config();
 
@@ -31,6 +34,7 @@ app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'ejs');
 
 app.use(express.json());
+app.use(cookieParser());
 
 const {
   LP_SENTINEL_DOMAIN,
@@ -39,6 +43,7 @@ const {
   LP_CLIENT_SECRET,
   APPLICATION_SERVER_URL,
   DF_PROXY_SERVER_URL,
+  SECRET_PHRASE,
 } = process.env;
 
 const LP_AUTHORIZATION_URI = `https://${
@@ -54,6 +59,8 @@ const client = new ClientOAuth2({
   accessTokenUri: LP_ACCESS_TOKEN_URI,
 });
 
+const getHmacHasher = () => createHmac('sha256', SECRET_PHRASE);
+
 /**
  * Entry point for the LivePerson OAuth flow.
  *
@@ -63,8 +70,19 @@ const client = new ClientOAuth2({
 app.get('/', (req, res) => {
   const {conversationProfile, features} = req.query;
 
-  const state = Buffer.from(JSON.stringify({conversationProfile, features}))
-                    .toString('base64url');
+  // A random ID to associate with this request. This will be included
+  // in the request as well as cached in the client browser. When the OAuth flow
+  // is finished redirecting, we will verify that the two IDs match.
+  const requestId = uuid();
+  const hashedRequestId = getHmacHasher().update(requestId).digest('hex');
+
+  const state =
+      Buffer
+          .from(JSON.stringify(
+              {conversationProfile, features, requestId: hashedRequestId}))
+          .toString('base64url');
+
+  res.setHeader('Set-Cookie', `requestId=${requestId}; SameSite=None; Secure`);
 
   const redirectUri = client.code.getUri({state});
 
@@ -85,6 +103,15 @@ app.get('/home', async (req, res) => {
 
   const decodedState =
       JSON.parse(Buffer.from(state, 'base64url').toString('ascii'));
+
+  const requestId = req.cookies.requestId;
+  const hashedRequestId = getHmacHasher().update(requestId).digest('hex');
+
+  if (decodedState.requestId !== hashedRequestId) {
+    res.status(500).send(
+        'Invalid request. Please clear your cookies and try again.');
+    return;
+  }
 
   const authEntryPointUrl = new URL(APPLICATION_SERVER_URL);
   authEntryPointUrl.searchParams.set(
