@@ -28,91 +28,132 @@
     <script src="https://www.gstatic.com/agent-assist-ui-modules/container.js"></script>
   </head>
   <body>
-    <% if (!authResponse) { %>
-    <p class="authenticate-message">
-      Could not authenticate agent. Please reload window to try again.</a>.
-    </p>
-    <% } else {%>
     <script>
-      var proxyServer = `<%- proxyServer %>`;
-      var authResponse = JSON.parse(`<%- JSON.stringify(authResponse) %>`);
-      var state = JSON.parse(`<%- JSON.stringify(state) %>`);
-      var accessToken = `<%- accessToken %>`;
-
       window.addEventListener('load', function () {
-        var uiModulesEl = document.createElement('agent-assist-ui-modules');
-
-        var attributes = [
-          ['agent-desktop', 'LivePerson'],
-          ['features', state.features],
-          ['conversation-profile', state.conversationProfile],
-          ['auth-token', accessToken],
-          ['use-custom-conversation-id', 'true'],
-          ['custom-api-endpoint', proxyServer],
-        ];
-
-        for (var [attribute, value] of attributes) {
-          uiModulesEl.setAttribute(attribute, value);
-        }
-
-        // Add additional configuration here.
-        uiModulesEl.config = {};
-
-        document.body.appendChild(uiModulesEl);
-
-        setInterval(refreshAuthToken, 60000 * 5);
-      });
-
-      window.addEventListener('aa-dialogflow-api-authentication-error', refreshAuthToken);
-
-      async function refreshAuthToken() {
-        var refreshUrl = `${proxyServer}/auth/refresh`;
-
-        return fetch(refreshUrl, {
-          method: 'POST',
+        fetch('/auth', {
           headers: [['Content-Type', 'application/json']],
-          body: JSON.stringify(authResponse),
         })
           .then(function (res) {
-            return res.json();
+            var status = res.status;
+
+            return res.json().then(function (data) {
+              if (status !== 200) {
+                throw { data, status };
+              }
+              return data;
+            });
           })
-          .then(function (response) {
-            if (response && response.access_token) {
-              authResponse = response.auth_response;
-              var uiModulesEl = document.querySelector(
-                'agent-assist-ui-modules'
+          .then(function (data) {
+            var proxyServer = data.proxyServer;
+            var authResponse = data.authResponse;
+            var state = data.state;
+            var accessToken = data.accessToken;
+
+            var uiModulesEl = document.createElement('agent-assist-ui-modules');
+
+            var attributes = [
+              ['agent-desktop', 'LivePerson'],
+              ['features', state.features],
+              ['conversation-profile', state.conversationProfile],
+              ['auth-token', accessToken],
+              ['use-custom-conversation-id', 'true'],
+              ['custom-api-endpoint', proxyServer],
+            ];
+
+            for (var [attribute, value] of attributes) {
+              uiModulesEl.setAttribute(attribute, value);
+            }
+
+            // Add additional configuration here.
+            uiModulesEl.config = {};
+
+            document.body.appendChild(uiModulesEl);
+
+            setInterval(refreshAuthToken, 60000 * 5);
+
+            window.addEventListener(
+              'aa-dialogflow-api-authentication-error',
+              refreshAuthToken
+            );
+
+            async function refreshAuthToken() {
+              var refreshUrl = `${proxyServer}/auth/refresh`;
+
+              return fetch(refreshUrl, {
+                method: 'POST',
+                headers: [['Content-Type', 'application/json']],
+                body: JSON.stringify(authResponse),
+              })
+                .then(function (res) {
+                  return res.json();
+                })
+                .then(function (response) {
+                  if (response && response.access_token) {
+                    authResponse = response.auth_response;
+                    var uiModulesEl = document.querySelector(
+                      'agent-assist-ui-modules'
+                    );
+                    uiModulesEl.setAttribute(
+                      'auth-token',
+                      response.access_token
+                    );
+                  } else {
+                    initiateAuthFlow();
+                  }
+                })
+                .catch(function () {
+                  initiateAuthFlow();
+                });
+            }
+
+            function initiateAuthFlow() {
+              var authenticateMessageClassName = 'authenticate-message';
+
+              var authenticateMessageEl = document.querySelector(
+                '.' + authenticateMessageClassName
               );
-              uiModulesEl.setAttribute('auth-token', response.access_token);
-            } else {
-              initiateAuthFlow();
+
+              if (!authenticateMessageEl) {
+                var uiModulesEl = document.querySelector(
+                  'agent-assist-ui-modules'
+                );
+
+                if (uiModulesEl) {
+                  uiModulesEl.remove();
+                }
+
+                var p = document.createElement('p');
+                p.innerText =
+                  'Session expired. Please reload window to sign in.';
+                p.classList.add(authenticateMessageClassName);
+                document.body.appendChild(p);
+              }
             }
           })
-          .catch(function () {
-            initiateAuthFlow();
+          .catch(err => {
+            if (err.status === 401) {
+              // Redirect to auth entrypoint if authorization code could not be verified.
+              window.location.href = err.data.authEntryPoint;
+            } else {
+              handle500AuthResponse(err);
+            }
           });
-      }
+      });
 
-      function initiateAuthFlow() {
-        var authenticateMessageClassName = 'authenticate-message';
+      function handle500AuthResponse(err) {
+        var p = document.createElement('p');
+        p.innerText = 'Could not authenticate agent. ' + err.data.error;
+        document.body.appendChild(p);
 
-        var authenticateMessageEl = document.querySelector(
-          '.' + authenticateMessageClassName
-        );
-
-        if (!authenticateMessageEl) {
-          var uiModulesEl = document.querySelector('agent-assist-ui-modules');
-
-          if (uiModulesEl) {
-            uiModulesEl.remove();
-          }
-
-          var p = document.createElement('p');
-          p.innerText = 'Session expired. Please reload window to sign in.';
-          p.classList.add(authenticateMessageClassName);
-          document.body.appendChild(p);
+        if (err.data.authEntryPoint) {
+          var button = document.createElement('button');
+          button.innerText = 'Try again';
+          button.addEventListener('click', function () {
+            window.location.href = err.data.authEntryPoint;
+          });
+          document.body.appendChild(button);
         }
       }
     </script>
-    <% } %>
   </body>
 </html>

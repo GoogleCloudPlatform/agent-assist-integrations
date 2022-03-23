@@ -16,13 +16,13 @@
 
 import ClientOAuth2 from 'client-oauth2';
 import cookieParser from 'cookie-parser';
-import {createHmac} from 'crypto';
+import { createHmac } from 'crypto';
 import dotenv from 'dotenv';
 import express from 'express';
 import fetch from 'node-fetch';
-import path, {dirname} from 'path';
-import {fileURLToPath} from 'url';
-import {uuid} from 'uuidv4';
+import path, { dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { uuid } from 'uuidv4';
 
 dotenv.config();
 
@@ -46,10 +46,8 @@ const {
   SECRET_PHRASE,
 } = process.env;
 
-const LP_AUTHORIZATION_URI = `https://${
-    LP_SENTINEL_DOMAIN}/sentinel/api/account/${LP_ACCOUNT_ID}/authorize?v=1.0`;
-const LP_ACCESS_TOKEN_URI = `https://${
-    LP_SENTINEL_DOMAIN}/sentinel/api/account/${LP_ACCOUNT_ID}/token?v=1.0`;
+const LP_AUTHORIZATION_URI = `https://${LP_SENTINEL_DOMAIN}/sentinel/api/account/${LP_ACCOUNT_ID}/authorize?v=1.0`;
+const LP_ACCESS_TOKEN_URI = `https://${LP_SENTINEL_DOMAIN}/sentinel/api/account/${LP_ACCOUNT_ID}/token?v=1.0`;
 
 const client = new ClientOAuth2({
   clientId: LP_CLIENT_ID,
@@ -61,6 +59,17 @@ const client = new ClientOAuth2({
 
 const getHmacHasher = () => createHmac('sha256', SECRET_PHRASE);
 
+const getAuthEntryPoint = state => {
+  const entryPointUrl = new URL(APPLICATION_SERVER_URL);
+  entryPointUrl.searchParams.set(
+    'conversationProfile',
+    state.conversationProfile
+  );
+  entryPointUrl.searchParams.set('features', state.features);
+
+  return entryPointUrl.toString();
+};
+
 /**
  * Entry point for the LivePerson OAuth flow.
  *
@@ -68,7 +77,7 @@ const getHmacHasher = () => createHmac('sha256', SECRET_PHRASE);
  * registration.
  */
 app.get('/', (req, res) => {
-  const {conversationProfile, features} = req.query;
+  const { conversationProfile, features } = req.query;
 
   // A random ID to associate with this request. This will be included
   // in the request as well as cached in the client browser. When the OAuth flow
@@ -76,15 +85,17 @@ app.get('/', (req, res) => {
   const requestId = uuid();
   const hashedRequestId = getHmacHasher().update(requestId).digest('hex');
 
-  const state =
-      Buffer
-          .from(JSON.stringify(
-              {conversationProfile, features, requestId: hashedRequestId}))
-          .toString('base64url');
+  const state = Buffer.from(
+    JSON.stringify({
+      conversationProfile,
+      features,
+      requestId: hashedRequestId,
+    })
+  ).toString('base64url');
 
   res.setHeader('Set-Cookie', `requestId=${requestId}; SameSite=None; Secure`);
 
-  const redirectUri = client.code.getUri({state});
+  const redirectUri = client.code.getUri({ state });
 
   res.redirect(redirectUri);
 });
@@ -100,25 +111,37 @@ app.get('/home', async (req, res) => {
   const code = String(req.query.code || '');
   const error = String(req.query.error || '');
   const state = String(req.query.state || '');
-
-  const decodedState =
-      JSON.parse(Buffer.from(state, 'base64url').toString('ascii'));
-
-  const requestId = req.cookies.requestId;
+  const { requestId } = req.cookies;
   const hashedRequestId = getHmacHasher().update(requestId).digest('hex');
+  let decodedState;
 
-  if (decodedState.requestId !== hashedRequestId) {
-    res.status(500).send(
-        'Invalid request. Please clear your cookies and try again.');
+  try {
+    decodedState = JSON.parse(
+      Buffer.from(state, 'base64url').toString('ascii')
+    );
+
+    if (!decodedState.conversationProfile || !decodedState.features) {
+      throw new Error();
+    }
+  } catch {
+    res
+      .status(500)
+      .send(
+        'Invalid request. Please specify a valid conversation profile and ' +
+          "features list in your entrypoint URL's query parameters.\n\n" +
+          'Example: https://my-application.com?conversationProfile=projects/foo/locations/global/conversationProfiles/bar&features=SMART_REPLY,ARTICLE_SUGGESTION'
+      );
     return;
   }
 
-  const authEntryPointUrl = new URL(APPLICATION_SERVER_URL);
-  authEntryPointUrl.searchParams.set(
-      'conversationProfile', decodedState.conversationProfile);
-  authEntryPointUrl.searchParams.set('features', decodedState.features);
+  if (decodedState.requestId !== hashedRequestId) {
+    res
+      .status(500)
+      .send('Invalid request. Please clear your cookies and try again.');
+    return;
+  }
 
-  const authEntryPoint = authEntryPointUrl.toString();
+  const authEntryPoint = getAuthEntryPoint(decodedState);
 
   // If no code or error is present, redirect user to the standard auth flow.
   if (!code && !error) {
@@ -126,35 +149,67 @@ app.get('/home', async (req, res) => {
     return;
   }
 
-  try {
-    const response = await client.code.getToken(req.originalUrl, {
-      body: {
-        client_id: LP_CLIENT_ID,
-        client_secret: LP_CLIENT_SECRET,
-      },
+  res.render('home');
+});
+
+/**
+ * Fetches a LivePerson authentication token using the authorization code from
+ * the OAuth redirect.
+ */
+app.get('/auth', async (req, res) => {
+  let authEntryPoint;
+  const { referer } = req.headers;
+
+  if (!referer) {
+    res.status(500).json({
+      error: 'No referer header in request.',
     });
+    return;
+  }
+
+  try {
+    const redirectUri = new URL(referer);
+
+    const decodedState = JSON.parse(
+      Buffer.from(redirectUri.searchParams.get('state'), 'base64url').toString(
+        'ascii'
+      )
+    );
+    authEntryPoint = getAuthEntryPoint(decodedState);
+
+    const response = await client.code.getToken(
+      `${redirectUri.pathname}?${redirectUri.searchParams.toString()}`,
+      {
+        body: {
+          client_id: LP_CLIENT_ID,
+          client_secret: LP_CLIENT_SECRET,
+        },
+      }
+    );
 
     const jwtResponse = await fetch(`${DF_PROXY_SERVER_URL}/auth/token`, {
       headers: [['Authorization', response.accessToken]],
     });
 
     if (jwtResponse.status === 200) {
-      res.render('home', {
+      res.json({
         state: decodedState,
         proxyServer: DF_PROXY_SERVER_URL,
         accessToken: (await jwtResponse.json()).token,
         authResponse: response.data,
-        authEntryPoint,
       });
     } else {
-      res.render('home', {authResponse: null});
+      res.status(401).json({ error: 'Authentication failed', authEntryPoint });
     }
   } catch (error) {
     if (error.toString().includes('Client authentication failed')) {
-      res.redirect(authEntryPoint);
+      res.status(401).json({ error: 'Authentication failed', authEntryPoint });
     } else {
       console.log('[ERROR] [LivePerson token] ', error);
-      res.render('home', {authResponse: null});
+      res.status(500).json({
+        error: error.toString(),
+        authEntryPoint,
+      });
     }
   }
 });
