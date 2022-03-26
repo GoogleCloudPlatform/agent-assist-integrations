@@ -3,7 +3,13 @@
 ## Introduction
 
 The Agent Assist modules are a set of pre-built, customizable UI components that can be embedded in any web application to surface [Google Agent Assist](https://cloud.google.com/agent-assist) suggestions. These are made available as a set of JavaScript Web Components and services hosted on Google's GStatic domain.
-In addition to the components themselves, a set of reference implementations will also be provided that will provide examples of how the modules can be integrated into certain agent desktop platforms. 
+In addition to the components themselves, a set of reference implementations will also be provided that will demonstrate how the modules can be integrated into select agent desktop platforms. 
+
+<br>
+
+## Disclaimer
+
+This product is covered by the [Pre-GA Offerings Terms](https://cloud.google.com/terms/service-terms#1) of the Google Cloud Terms of Service. Pre-GA products might have limited support, and changes to pre-GA products might not be compatible with other pre-GA versions. For more information, see the [launch stage descriptions](https://cloud.google.com/products#product-launch-stages).
 
 <br>
 
@@ -23,7 +29,7 @@ There are two primary approaches for integrating the Agent Assist modules into y
 
 ## Managed container
 
-In the managed container approach, we will provide a single component that renders the desired Agent Assist features in a unified panel. This panel will also handle all shared module concerns, including the loading of connectors and any error messaging. This is the approach we recommend if integrating the modules into a third-party agent desktop such as LivePerson or Genesys Cloud, or where minimal to no customization is required. 
+In the managed container approach, we will provide a single component that renders the desired Agent Assist features in a unified panel. This panel will also handle all shared module concerns, including the loading of connectors and any error messaging. This is the approach we recommend if integrating the modules into a third-party agent desktop such as LivePerson or Genesys Cloud, or when minimal to no customization is required. 
 
 After the container component is initialized, it will load all necessary dependencies. Only a single script should need to be imported in this case, no matter how many Agent Assist features are used. 
 
@@ -56,7 +62,7 @@ Example:
 | ----------- | ----------- | ----------- |
 | features | Comma-separated string specifying one or more of the below Agent Assist features: <br>“SMART_REPLY”, “ARTICLE_SUGGESTION”, “FAQ”, “ARTICLE_SEARCH”, “CONVERSATION_SUMMARIZATION”, “DIALOGFLOW_ASSIST” | Comma-separated string specifying one or more Agent Assist features. |
 | api-headers  | String in the format of "header1:value,header2:value,..." | Comma-separated list of api headers to include in the call to the Dialogflow proxy server, if one is used. |
-| conversation-profile | String in the format of "projects/<project_id>/conversationProfiles/<conversation_profile_id>" | Conversation profile resource name. |
+| conversation-profile | String in the format of "projects/<project_id>/locations/<location>/conversationProfiles/<conversation_profile_id>" | Conversation profile resource name. |
 | use-custom-conversation-id | "true" \| "false" | Whether to use the conversation ID assigned by the agent desktop (defaults to true). If not, it will generate a new one for each conversation. |
 | agent-desktop | “LivePerson” \| “GenesysCloud” | The agent desktop plaform the modules will be integrated in. |
 | auth-token | string | The Bearer token used to authenticate the agent when calling the Dialogflow API or proxy server. If calling the Dialogflow API directly, this should be a valid Google OAuth token. |
@@ -271,18 +277,18 @@ Not yet available - coming soon.
 If integrating the Agent Assist modules into a non-supported agent desktop, a custom connector may need to be written that can facilitate interactions between the agent desktop and the UI modules. This connector will need to be responsible for a handful of operations, including:
 
 1. Dispatching an event to initialize the Dialogflow conversation once the conversation ID is available.
-     - Event name: `aa-conversation-initialization-requested`
+     - Event name: `conversation-initialization-requested`
 2. Notifying the module system when the conversation details are available.
-     - Event name: `aa-conversation-details-received`
+     - Event name: `conversation-details-received`
 3. For voice conversations, dispatching an event whenever a new utterance is registered from the agent or customer.
-     - Event name: `aa-analyze-content-requested`
+     - Event name: `analyze-content-requested`
 4. Notifying the module system when 'dark mode' has been toggled in the primary application.
-     - Event name: `aa-dark-mode-toggled`
+     - Event name: `dark-mode-toggled`
 
 In addition, the connector should subscribe to the following events to update the agent desktop UI where applicable:
 
 1. For Smart Reply, update the agent's input field whenever a Smart Reply chip is selected.
-     - Event name: `aa-smart-reply-chip-selected`
+     - Event name: `smart-reply-chip-selected`
 
 The events mentioned above, including their corresponding payloads, can be found in the [table below](#agent-assist-module-events).
 
@@ -290,7 +296,7 @@ Example dispatching of an event:
 
 ```
 if (newMessageFromHumanAgent) {
-  window.dispatchEvent(new CustomEvent('aa-analyze-content-requested', {
+  dispatchAgentAssistEvent('analyze-content-requested', {
     detail: {
       participantRole: 'HUMAN_AGENT',
       request: {
@@ -298,14 +304,14 @@ if (newMessageFromHumanAgent) {
         messageSendTime: new Date().toISOString()
       }
     }
-  }));
+  });
 }
 ```
 
 Example subscribing to an event:
 
 ```
-window.addEventListener('aa-smart-reply-chip-selected', (event) => {
+addAgentAssistEventListener('smart-reply-chip-selected', (event) => {
   const chipContent = event.details;
   // Populate the agent chat box with the selected Smart Reply chip.
 });
@@ -317,7 +323,7 @@ window.addEventListener('aa-smart-reply-chip-selected', (event) => {
 
 ### Communication
 
-All communication between the Agent Assist Modules and the connectors happens through the dispatching of custom events on the global Window object. As an example, when an Agent Assist suggestion is received, a connector service will dispatch an 'aa-analyze-content-received' event, which the UI Modules will be subscribed to.
+All communication between the Agent Assist Modules and the connectors happens through the dispatching of custom events on the global Window object. As an example, when an Agent Assist suggestion is received, a connector service will dispatch an 'analyze-content-received' event, which the UI Modules will be subscribed to.
 
 Example:
 
@@ -325,15 +331,15 @@ In the connector service:
 
 ```
 this.api.analyzeContent(...).then((response) => {
-  window.dispatchEvent(new CustomEvent('aa-analyze-content-response-received', {
-    detail: {response}}));
+  dispatchAgentAssistEvent('analyze-content-response-received', {
+    detail: {response}});
 });
 ```
 
 In the module:
 
 ```
-window.addEventListener('aa-analyze-content-response-received', (response) => {
+addAgentAssistEventListener('analyze-content-response-received', (response) => {
   // Use the AnalyzeContent response to render suggestions in the UI.
 });
 ```
@@ -343,34 +349,35 @@ window.addEventListener('aa-analyze-content-response-received', (response) => {
 | Event name | Payload | Description |
 | ----------- | ----------- | ----------- |
 | <b>General</b> |
-| 'aa-analyze-content-requested' | AnalyzeContentRequestDetails | Dispatched when an AnalyzeContent request should be made. |
-| 'aa-analyze-content-response-received' | AnalyzeContentResponseDetails | Dispatched when a new AnalyzeContent response has been received. |
-| 'aa-conversation-completed' | void | Dispatched when the Dialogflow conversation has completed. |
-| 'aa-conversation-details-received' | ConversationDetails | Dispatched when conversation details are received from the SDK (including agent and customer info). |
-| 'aa-conversation-initialization-requested' | string | Dispatched when the Dialogflow conversation should be initialized. Payload should be the conversation ID. |
-| 'aa-conversation-initialized' | Conversation | Dispatched when the Dialogflow conversation has been initialized. |
-| 'aa-dark-mode-toggled' | boolean | Dispatched when dark mode has been set in the agent desktop. |
-| 'aa-dialogflow-api-error' | UiModuleError \| null | Dispatched when a Dialogflow API error is encountered. |
-| 'aa-dialogflow-api-authentication-error' | void | Dispatched when a Dialogflow API authentication (401) error encountered. |
-| 'aa-patch-answer-record-requested' | PatchAnswerRecordPayload | Disaptched when an answer record should be updated. |
-| 'aa-patch-answer-record-received' | AnswerRecord | Dispatched when an answer record has been successfully updated. |
-| 'aa-snackbar-notification-requested' | SnackbarNotificationPayload | Disaptched when a snackbar notification is requested. |
+| 'analyze-content-requested' | AnalyzeContentRequestDetails | Dispatched when an AnalyzeContent request should be made. |
+| 'analyze-content-response-received' | AnalyzeContentResponseDetails | Dispatched when a new AnalyzeContent response has been received. |
+| 'conversation-completed' | void | Dispatched when the Dialogflow conversation has completed. |
+| 'conversation-details-received' | ConversationDetails | Dispatched when conversation details are received from the SDK (including agent and customer info). |
+| 'conversation-initialization-requested' | string | Dispatched when the Dialogflow conversation should be initialized. Payload should be the conversation ID. |
+| 'conversation-initialized' | ConversationInitializedPayload | Dispatched when the Dialogflow conversation has been initialized. |
+| 'dark-mode-toggled' | boolean | Dispatched when dark mode has been set in the agent desktop. |
+| 'dialogflow-api-error' | UiModuleError \| null | Dispatched when a Dialogflow API error is encountered. |
+| 'dialogflow-api-authentication-error' | void | Dispatched when a Dialogflow API authentication (401) error encountered. |
+| 'new-message-received' | Message | Dispatched when a new customer or agent utterance has been received (during voice conversations). |
+| 'patch-answer-record-requested' | PatchAnswerRecordPayload | Disaptched when an answer record should be updated. |
+| 'patch-answer-record-received' | AnswerRecord | Dispatched when an answer record has been successfully updated. |
+| 'snackbar-notification-requested' | SnackbarNotificationPayload | Disaptched when a snackbar notification is requested. |
 | <b>Smart Reply</b> |
-| 'aa-smart-reply-selected' | string |  Dispatched when a Smart Reply chip is selected. |
-| 'aa-smart-reply-follow-up-suggestions-received' |  SmartReplyAnswer[] |  Dispatched when Smart Reply follow-up suggestions have been received. |
+| 'smart-reply-selected' | SmartReplySelection |  Dispatched when a Smart Reply chip is selected. |
+| 'smart-reply-follow-up-suggestions-received' |  SmartReplyAnswer[] |  Dispatched when Smart Reply follow-up suggestions have been received. |
 | <b>Conversation Summarization</b> |
-| 'aa-conversation-summarization-requested' | void | Dispatched when a conversation summarization is requested. |
-| 'aa-conversation-summarization-received' | SuggestConversationSummaryResponse | Dispatched when a conversation summarization has been received. |
+| 'conversation-summarization-requested' | void | Dispatched when a conversation summarization is requested. |
+| 'conversation-summarization-received' | SuggestConversationSummaryResponse | Dispatched when a conversation summarization has been received. |
 | <b>Article Search</b> |
-| 'aa-article-search-requested' | string | Dispatched when an article search is requested. Payload should be the query text. |
-| 'aa-article-search-response-received' | ArticleSearchResponse | Dispatch when an article search response has been received.
+| 'article-search-requested' | string | Dispatched when an article search is requested. Payload should be the query text. |
+| 'article-search-response-received' | ArticleSearchResponse | Dispatch when an article search response has been received.
 | <b>Connector-related</b> |
-| 'aa-agent-desktop-connector-initialized' | void | Dispatched when the agent desktop connector has been initialized. |
-| 'aa-api-connector-initialized' | void | Dispatched when the API connector has been initialized. |
-| 'aa-event-based-connector-initialized' | void | Dispatched when the event-based connector has been initialized. |
-| 'aa-agent-desktop-connector-initialization-failed' | void | Dispatched if the agent desktop connector initialization failed. |
-| 'aa-api-connector-initialization-failed' | void | Dispatched if the API connector initialization failed. |
-| 'aa-event-based-connector-initialization-failed' | void | Dispatched if the event-based connector initialization failed. |
+| 'agent-desktop-connector-initialized' | void | Dispatched when the agent desktop connector has been initialized. |
+| 'api-connector-initialized' | void | Dispatched when the API connector has been initialized. |
+| 'event-based-connector-initialized' | void | Dispatched when the event-based connector has been initialized. |
+| 'agent-desktop-connector-initialization-failed' | void | Dispatched if the agent desktop connector initialization failed. |
+| 'api-connector-initialization-failed' | void | Dispatched if the API connector initialization failed. |
+| 'event-based-connector-initialization-failed' | void | Dispatched if the event-based connector initialization failed. |
 
 <br>
 
@@ -412,6 +419,20 @@ See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/re
 
 See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.conversations#Conversation).
 
+### <b>ConversationInitializedPayload</b>
+
+/**
+ * Includes the details of the initialized conversation, including the
+ * conversation and participants.
+ */
+interface ConversationInitializedPayload {
+  conversation: Conversation;
+  participants: {
+    END_USER: Participant;
+    HUMAN_AGENT: Participant;
+  }
+}
+
 #### <b>GoogleRpcStatus</b>
 
 See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rpc/google.rpc#google.rpc.Status).
@@ -448,6 +469,14 @@ interface KnowledgeAssistConfig {
 
 See [Material Design documentation](https://material.angular.io/components/snack-bar/api#MatSnackBarConfig).
 
+#### <b>Message</b>
+
+See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/Message#Message)
+
+#### <b>Participant</b>
+
+See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.conversations.participants#Participant)
+
 #### <b>ParticipantRole</b>
 
 See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.conversations.participants#Participant.Role).
@@ -471,6 +500,14 @@ See private API documentation.
 #### <b>SmartReplyAnswer</b>
 
 See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/SuggestSmartRepliesResponse#SmartReplyAnswer).
+
+#### <b>SmartReplySelection</b>
+/** Details regarding an Agent Assist Smart Reply selection. */
+interface SuggestionFeatureSelection {
+  displayTime: string|undefined;
+  clickTime: string;
+  answer: SmartReplyAnswer;
+}
 
 #### <b>SnackbarNotificationPayload</b>
 
