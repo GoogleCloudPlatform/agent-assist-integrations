@@ -323,7 +323,7 @@ addAgentAssistEventListener('smart-reply-chip-selected', (event) => {
 
 ### Communication
 
-All communication between the Agent Assist Modules and the connectors happens through the dispatching of custom events on the global Window object. As an example, when an Agent Assist suggestion is received, a connector service will dispatch an 'analyze-content-received' event, which the UI Modules will be subscribed to.
+All communication between the Agent Assist Modules and the connectors happens through the dispatching of custom events. As an example, when an Agent Assist suggestion is received, a connector service will dispatch an 'analyze-content-received' event, which the UI Modules will be subscribed to.
 
 Example:
 
@@ -421,6 +421,7 @@ See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/re
 
 ### <b>ConversationInitializedPayload</b>
 
+```
 /**
  * Includes the details of the initialized conversation, including the
  * conversation and participants.
@@ -432,6 +433,7 @@ interface ConversationInitializedPayload {
     HUMAN_AGENT: Participant;
   }
 }
+```
 
 #### <b>GoogleRpcStatus</b>
 
@@ -502,12 +504,14 @@ See private API documentation.
 See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/SuggestSmartRepliesResponse#SmartReplyAnswer).
 
 #### <b>SmartReplySelection</b>
+```
 /** Details regarding an Agent Assist Smart Reply selection. */
 interface SuggestionFeatureSelection {
   displayTime: string|undefined;
   clickTime: string;
   answer: SmartReplyAnswer;
 }
+```
 
 #### <b>SnackbarNotificationPayload</b>
 
@@ -560,6 +564,5 @@ interface UiModuleContainerConfig {
   /** Optional configurations for the Knowledge Assist module. */
   knowledgeAssistConfig?: KnowledgeAssistConfig;
 }
-
 ```
 
