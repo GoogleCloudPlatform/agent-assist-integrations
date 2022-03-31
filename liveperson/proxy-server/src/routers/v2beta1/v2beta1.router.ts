@@ -15,14 +15,42 @@
  */
 
 import { Router } from 'express';
-
 import { getHandler, patchHandler, postHandler } from '../../helpers';
 
 const router = Router({ mergeParams: true });
 
-router.get(['/conversations/*', '/answerRecords/*'], getHandler);
-router.post(
-    ['/conversations', '/conversations/*', '/answerRecords/*'], postHandler);
-router.patch(['/answerRecords/*'], patchHandler);
+const GET_ROUTES: string[] = [
+  '/conversations/:conversationId', // Get conversation
+  '/conversations/:conversationId/suggestions::action', // Search articles
+  '/conversations/:conversationId/participants', // List participants
+  '/conversations/:conversationId/participants/:participantId', // Get participant
+  '/conversations/:conversationId/messages', // List participants
+  '/answerRecords/:answerRecordId', // Get answer record
+];
+
+const POST_ROUTES: string[] = [
+  '/conversations', // Create new conversations
+  '/conversations/:conversationId/suggestions::action', // Generate summary
+  '/conversations/:conversationId/participants', // Create new participant
+  '/conversations/:conversationId/participants/:participantId/suggestions::action', // Suggest smart replies
+  '/conversations/:conversationId/participants/:participantId::action', // Create new AnalyzeContent request
+  '/answerRecords/:answerRecordId', // Create answer record
+];
+
+const PATCH_ROUTES: string[] = [
+  '/answerRecords/:answerRecordId', // Patch answer record
+];
+
+for (const route of GET_ROUTES) {
+  router.get(route, getHandler);
+}
+
+for (const route of POST_ROUTES) {
+  router.post(route, postHandler);
+}
+
+for (const route of PATCH_ROUTES) {
+  router.patch(route, patchHandler);
+}
 
 export { router as dialogflowv2beta1Router };
