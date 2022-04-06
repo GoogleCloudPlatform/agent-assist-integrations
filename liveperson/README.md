@@ -56,7 +56,7 @@ The Manifest Schema should look like the following (please replace all instances
 
 ## 4. Update the missing environment variables
 
-Once the Conversational Cloud application has been installed, LivePerson will provide a client ID and client secret. Please go back and update both of the `.env` files from above and include the correct values for `LP_CLIENT_ID` and `LP_CLIENT_SECRET`. Once that is done, re-deploy both applications.
+Once the Conversational Cloud application has been installed, LivePerson will provide a client ID and client secret. Please go back and update the environment variables of both services to include the correct values for `LP_CLIENT_ID` and `LP_CLIENT_SECRET`. Once that is done, re-deploy both applications.
 
 ## 5. Configure LivePerson widget
 

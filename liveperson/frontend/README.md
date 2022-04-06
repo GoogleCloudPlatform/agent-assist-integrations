@@ -6,8 +6,8 @@ The purpose of this guide is to set up an application server that can be used in
 
 Although it is possible to set up this integration deployment on any hosting platform, these instructions will use [Google's Cloud Run](https://cloud.google.com/run/) or [App Engine](https://cloud.google.com/appengine).
 
-## Initial setup
-Open the project repository, and create a `.env` file in the `/liveperson/frontend` directory. The following environment variables will need to be defined:
+## Configuration
+When deploying the service, the following environment variables will need to be defined:
 
 `LP_ACCOUNT_ID`
 LivePerson account ID.
@@ -62,24 +62,6 @@ The deployment processes outlined in this README utilize gcloud CLI commands. Fo
 3. Go into the Dialogflow agent’s settings and check the Project ID associated with the agent. The GCP Project configured in the gcloud CLI should match the agent’s Project ID.
 4. If the project IDs do not match, run ``gcloud config set project PROJECT-ID``, replacing PROJECT-ID with the Project ID from step 3.
 
-### App Engine
-https://cloud.google.com/appengine/docs/standard/nodejs/quickstart
-
-
-Once the gcloud CLI has been configured, create an App Engine application in your Google Cloud project if one does not exist:
-
-```
-gcloud app create --project=[YOUR_PROJECT_ID]
-```
-
-Then, navigate to the `/liveperson/frontend` directory in this repository, and run:
-
-```
-gcloud app deploy
-```
-
-Once the command has been run, the CLI will display the URL to which the application will be deployed (target_url). Once you have this, please update the `APPLICATION_SERVER_URL` environment variable in your `.env` file, and run `gcloud app deploy` again. 
-
 ### Cloud Run
 
 #### Service Account Setup (GCP)
@@ -126,6 +108,12 @@ More information can be found in Cloud Run
 [documentation](https://cloud.google.com/run/docs/deploying).
 
 You can view a list of your active integration deployments under [Cloud Run](https://console.cloud.google.com/run) in the GCP Console.
+
+### Environment Variables
+
+Please follow [the following instructions](https://cloud.google.com/run/docs/configuring/environment-variables) to set the necessary environment variables.
+
+Once the service has been deployed, the CLI will output the URL that the application was deployed to (target_url). Once you have this, please set the `APPLICATION_SERVER_URL` environment variable with this value. 
 
 #### Shutting Down the Proxy Server
 

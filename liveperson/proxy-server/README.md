@@ -6,8 +6,8 @@ The purpose of this documentation is to set up a proxy server that can be used i
 
 Although it is possible to set up this integration deployment on any hosting platform, these instructions will use [Google's Cloud Run](https://cloud.google.com/run/).
 
-## Initial setup
-Open the project repository, and create a `.env` file in the `/liveperson/proxy-server` directory. The following environment variables will need to be defined:
+## Configuration
+When deploying the service, the following environment variables will need to be defined:
 
 `LP_ACCOUNT_ID`
 LivePerson account ID.
@@ -32,7 +32,7 @@ The origin URL of the UI application server. Use the URL that was generated when
 `JWT_SECRET`
 A “secret” phrase that will be used to sign the authentication tokens. Any phrase may be used, although a long, random secret is most secure. Please see best practices at https://fusionauth.io/learn/expert-advice/tokens/building-a-secure-jwt/#keys.
  
-Example .env file:
+Example values:
 
 ```
 LP_ACCOUNT_ID = 12345678
@@ -56,23 +56,6 @@ The deployment processes outlined in this README utilize gcloud CLI commands. Fo
 4. If the project IDs do not match, run ``gcloud config set project PROJECT-ID``, replacing PROJECT-ID with the Project ID from step 3.
 
 
-### App Engine
-https://cloud.google.com/appengine/docs/standard/nodejs/quickstart
-
-Once the gcloud CLI has been configured, create an App Engine application in your Google Cloud project if one does not exist:
-
-```
-gcloud app create --project=[YOUR_PROJECT_ID]
-```
-
-Then, navigate to the `/liveperson/proxy-server` directory in this repository, and run:
-
-```
-tsc && gcloud app deploy
-```
-
-Once the command has been run, the CLI will display the URL to which the application will be deployed (target_url). Once you have this, please update the `DF_PROXY_SERVER_URL` environment variable in the `.env` file located in the `/liveperson/frontend` directory, and re-deploy the UI application server. 
-
 ### Cloud Run
 
 #### Service Account Setup (GCP)
@@ -83,7 +66,7 @@ Follow the steps below to create a Service Account and set up the integration.
 
 1. Select the project associated with your Agent Assist resources.
 2. Click on the navigation menu in the GCP console, hover over "IAM & admin", and click "Service accounts".
-3. Click on "+ CREATE SERVICE ACCOUNT", fill in the details, and give it the "Dialogflow Client API" role.
+3. Click on "+ CREATE SERVICE ACCOUNT", fill in the details, and give it the "Dialogflow Agent Assist Client" role.
 
 ### Enable APIs
 
@@ -119,6 +102,12 @@ More information can be found in Cloud Run
 [documentation](https://cloud.google.com/run/docs/deploying).
 
 You can view a list of your active integration deployments under [Cloud Run](https://console.cloud.google.com/run) in the GCP Console.
+
+### Environment Variables
+
+Please follow [the following instructions](https://cloud.google.com/run/docs/configuring/environment-variables) to set the necessary environment variables.
+
+Once the service has been deployed, the CLI will output the URL that the application was deployed to (target_url). Once you have this, please update the `DF_PROXY_SERVER_URL` environment variable in the UI application server with this value. 
 
 
 #### Shutting Down the Proxy Server
