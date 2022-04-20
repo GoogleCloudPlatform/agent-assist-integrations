@@ -12,6 +12,7 @@
   "author": "Gabor Szekely",
   "license": "ISC",
   "dependencies": {
+    "client-oauth2": "^4.3.3",
     "cors": "^2.8.5",
     "dotenv": "^10.0.0",
     "express": "^4.17.1",
@@ -25,6 +26,7 @@
     "@types/dotenv": "^8.2.0",
     "@types/express": "^4.17.13",
     "@types/jsonwebtoken": "^8.5.5",
+    "@types/node-fetch": "^2.6.1",
     "ts-node-dev": "^1.1.6"
   }
 }

@@ -45,9 +45,9 @@
           })
           .then(function (data) {
             var proxyServer = data.proxyServer;
-            var authResponse = data.authResponse;
             var state = data.state;
             var accessToken = data.accessToken;
+            var refreshToken = data.refreshToken;
 
             var uiModulesEl = document.createElement('agent-assist-ui-modules');
 
@@ -77,25 +77,23 @@
             );
 
             async function refreshAuthToken() {
-              var refreshUrl = `${proxyServer}/auth/refresh`;
-
-              return fetch(refreshUrl, {
+              return fetch(`${proxyServer}/auth/refresh`, {
                 method: 'POST',
                 headers: [['Content-Type', 'application/json']],
-                body: JSON.stringify(authResponse),
+                body: JSON.stringify({ refreshToken }),
               })
                 .then(function (res) {
                   return res.json();
                 })
                 .then(function (response) {
-                  if (response && response.access_token) {
-                    authResponse = response.auth_response;
+                  if (response && response.accessToken) {
+                    refreshToken = response.refreshToken;
                     var uiModulesEl = document.querySelector(
                       'agent-assist-ui-modules'
                     );
                     uiModulesEl.setAttribute(
                       'auth-token',
-                      response.access_token
+                      response.accessToken
                     );
                   } else {
                     initiateAuthFlow();

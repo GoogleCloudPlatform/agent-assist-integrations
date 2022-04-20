@@ -14,98 +14,152 @@
  * limitations under the License.
  */
 
+import ClientOAuth2 from 'client-oauth2';
 import dotenv from 'dotenv';
-import {Router} from 'express';
+import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import fetch from 'node-fetch';
 import path from 'path';
 
-dotenv.config({path: path.resolve(__dirname, '../../../.env')});
+import {
+  generateProxyAccessToken,
+  generateProxyRefreshToken,
+} from '../../helpers/auth_helpers';
+import { decrypt } from '../../helpers/crypto_helpers';
+
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+
+const {
+  APPLICATION_SERVER_URL,
+  LP_ACCOUNT_CONFIG_READONLY_DOMAIN,
+  LP_ACCOUNT_ID,
+  LP_CLIENT_ID,
+  LP_CLIENT_SECRET,
+  LP_SENTINEL_DOMAIN,
+} = process.env;
+
+const LP_AUTHORIZATION_URI = `https://${LP_SENTINEL_DOMAIN}/sentinel/api/account/${LP_ACCOUNT_ID}/authorize?v=1.0`;
+const LP_ACCESS_TOKEN_URI = `https://${LP_SENTINEL_DOMAIN}/sentinel/api/account/${LP_ACCOUNT_ID}/token?v=1.0`;
+
+const client = new ClientOAuth2({
+  clientId: LP_CLIENT_ID,
+  clientSecret: LP_CLIENT_SECRET,
+  authorizationUri: LP_AUTHORIZATION_URI,
+  accessTokenUri: LP_ACCESS_TOKEN_URI,
+  redirectUri: `${APPLICATION_SERVER_URL}/home`,
+});
 
 const router = Router();
 
-const {
-  LP_SENTINEL_DOMAIN,
-  LP_ACCOUNT_CONFIG_READONLY_DOMAIN,
-  LP_CLIENT_ID,
-  LP_ACCOUNT_ID,
-  LP_CLIENT_SECRET
-} = process.env;
-
-const LP_ACCESS_TOKEN_URI = `https://${
-    LP_SENTINEL_DOMAIN}/sentinel/api/account/${LP_ACCOUNT_ID}/token?v=1.0`;
-
-router.get('/token', async (req, res) => {
-  const accessToken = req.headers.authorization;
-
+/**
+ * Uses the client's LivePerson OAuth token to generate a proxy server-specific
+ * access token and refresh token.
+ */
+router.post('/token', async (req, res) => {
   try {
-    // Call LP API with credentials
-    const response = await fetch(
-        `https://${LP_ACCOUNT_CONFIG_READONLY_DOMAIN}/api/account/${
-            LP_ACCOUNT_ID}/configuration/le-agents/status-reasons`,
-        {
-          headers: [['Authorization', `Bearer ${accessToken}`]],
-        });
+    const redirectUri = JSON.parse(req.body).redirectUri;
 
-    const {status} = response;
+    const { accessToken, refreshToken } = await client.code.getToken(
+      redirectUri,
+      {
+        body: {
+          client_id: LP_CLIENT_ID,
+          client_secret: LP_CLIENT_SECRET,
+        },
+      }
+    );
+
+    // Call LP API with credentials
+    const statusReasonsResponse = await fetch(
+      `https://${LP_ACCOUNT_CONFIG_READONLY_DOMAIN}/api/account/${LP_ACCOUNT_ID}/configuration/le-agents/status-reasons`,
+      {
+        headers: [['Authorization', `Bearer ${accessToken}`]],
+      }
+    );
+
+    const { status } = statusReasonsResponse;
 
     if (status === 200) {
-      // Generate custom JWT to authenticate client in proxy server.
-      const token = generateJwt();
+      const proxyAccessToken = generateProxyAccessToken();
+      const proxyRefreshToken = generateProxyRefreshToken(refreshToken);
 
-      res.json({token});
+      res.json({
+        accessToken: proxyAccessToken,
+        refreshToken: proxyRefreshToken,
+      });
       return;
     }
 
+    console.error(
+      `[ERROR] [Proxy server] [/auth/token]: status reasons ${status}`
+    );
+
     if (status === 401 || status === 403) {
-      res.status(response.status).json({error: 'Could not authenticate user'});
+      res.status(statusReasonsResponse.status).json({
+        error: 'Could not authenticate user',
+      });
     } else {
-      console.log('[DF Proxy Server error] [auth /token] ', response.status);
-      res.status(response.status).json({error: 'Server error'});
+      res
+        .status(status)
+        .json({ error: 'Error verifying LivePerson authentication token' });
     }
-  } catch (err) {
-    console.log('[DF Proxy Server error] [auth /token] ', err);
-    res.status(500).json({error: 'Server error'});
+  } catch (error) {
+    const errorMessage = error.toString();
+    console.error('[ERROR] [Proxy server] [/auth/token]: ', errorMessage);
+    if (errorMessage.includes('Client authentication failed')) {
+      res.status(401).json({ error: 'Client authentication failed' });
+    } else {
+      res.status(500).json({ error: errorMessage });
+    }
   }
 });
 
+/**
+ * Refreshes the client's proxy server access token using a refresh token
+ * returned to the client.
+ */
 router.post('/refresh', async (req, res) => {
-  const refreshToken = JSON.parse(req.body).refresh_token;
+  const proxyRefreshToken = JSON.parse(req.body).refreshToken;
 
   try {
+    const jwtPayload = jwt.verify(proxyRefreshToken, process.env.JWT_SECRET);
+
+    if (typeof jwtPayload !== 'object' || jwtPayload.type !== 'refresh') {
+      throw new Error('Invalid refresh token payload.');
+    }
+
+    const refreshToken = decrypt(jwtPayload.token);
+
     const response = await fetch(LP_ACCESS_TOKEN_URI, {
       method: 'POST',
       headers: [
         ['Content-Type', 'application/x-www-form-urlencoded;charset=UTF-8'],
       ],
       body: new URLSearchParams([
-              ['grant_type', 'refresh_token'],
-              ['refresh_token', refreshToken],
-              ['client_id', LP_CLIENT_ID],
-              ['client_secret', LP_CLIENT_SECRET],
-            ]).toString()
+        ['grant_type', 'refresh_token'],
+        ['refresh_token', refreshToken],
+        ['client_id', LP_CLIENT_ID],
+        ['client_secret', LP_CLIENT_SECRET],
+      ]).toString(),
     });
 
     if (response.status === 200) {
-      const token = generateJwt();
-      res.status(200).json(
-          {access_token: token, auth_response: await response.json()});
+      const newProxyAccessToken = generateProxyAccessToken();
+      const newProxyRefreshToken = generateProxyRefreshToken(refreshToken);
+      res.status(200).json({
+        accessToken: newProxyAccessToken,
+        refreshToken: newProxyRefreshToken,
+      });
     } else {
-      console.log('[DF Proxy Server error] [auth /refresh] ', response.status);
-      res.status(response.status).json({error: 'Could not refresh token'});
+      console.error(
+        `[ERROR] [Proxy server] [/auth/refresh]: LP refresh ${response.status}`
+      );
+      res.status(response.status).json({ error: 'Could not refresh token' });
     }
   } catch (err) {
-    console.log('[DF Proxy Server error] [auth /refresh]', err);
-    res.status(500).json({error: 'Could not refresh token'});
+    console.error('[ERROR] [Proxy server] [/auth/refresh]: ', err);
+    res.status(500).json({ error: 'Could not refresh token' });
   }
 });
 
-function generateJwt() {
-  return jwt.sign(
-      {},
-      process.env.JWT_SECRET,
-      {expiresIn: '1h'},
-  );
-}
-
-export {router as authRouter};
+export { router as authRouter };

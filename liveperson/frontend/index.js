@@ -161,9 +161,9 @@ app.get('/auth', async (req, res) => {
   const { referer } = req.headers;
 
   if (!referer) {
-    res.status(500).json({
-      error: 'No referer header in request.',
-    });
+    const errorMessage = 'No referer header in request';
+    console.log('[ERROR] [Application server] [/auth]: ', errorMessage);
+    res.status(500).json({ error: errorMessage });
     return;
   }
 
@@ -177,40 +177,36 @@ app.get('/auth', async (req, res) => {
     );
     authEntryPoint = getAuthEntryPoint(decodedState);
 
-    const response = await client.code.getToken(
-      `${redirectUri.pathname}?${redirectUri.searchParams.toString()}`,
-      {
-        body: {
-          client_id: LP_CLIENT_ID,
-          client_secret: LP_CLIENT_SECRET,
-        },
-      }
-    );
-
-    const jwtResponse = await fetch(`${DF_PROXY_SERVER_URL}/auth/token`, {
-      headers: [['Authorization', response.accessToken]],
+    const tokenResponse = await fetch(`${DF_PROXY_SERVER_URL}/auth/token`, {
+      method: 'POST',
+      headers: [['Content-Type', 'application/json']],
+      body: JSON.stringify({
+        redirectUri: `${
+          redirectUri.pathname
+        }?${redirectUri.searchParams.toString()}`,
+      }),
     });
 
-    if (jwtResponse.status === 200) {
+    if (tokenResponse.status === 200) {
+      const { accessToken, refreshToken } = await tokenResponse.json();
       res.json({
         state: decodedState,
         proxyServer: DF_PROXY_SERVER_URL,
-        accessToken: (await jwtResponse.json()).token,
-        authResponse: response.data,
+        accessToken,
+        refreshToken,
       });
     } else {
-      res.status(401).json({ error: 'Authentication failed', authEntryPoint });
+      const { error } = await tokenResponse.json();
+      console.log('[ERROR] [Application server] [/auth]: ', error);
+      res.status(tokenResponse.status).json({ error, authEntryPoint });
     }
   } catch (error) {
-    if (error.toString().includes('Client authentication failed')) {
-      res.status(401).json({ error: 'Authentication failed', authEntryPoint });
-    } else {
-      console.log('[ERROR] [LivePerson token] ', error);
-      res.status(500).json({
-        error: error.toString(),
-        authEntryPoint,
-      });
-    }
+    const errorMessage = error.toString();
+    console.log('[ERROR] [Application server] [/auth]: ', errorMessage);
+    res.status(500).json({
+      error: errorMessage,
+      authEntryPoint,
+    });
   }
 });
 
