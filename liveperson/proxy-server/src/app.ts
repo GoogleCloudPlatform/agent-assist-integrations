@@ -14,9 +14,15 @@
  * limitations under the License.
  */
 
+import timeout from 'connect-timeout';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import express, { RequestHandler } from 'express';
+import express, {
+  NextFunction,
+  Request,
+  RequestHandler,
+  Response,
+} from 'express';
 import jwt from 'jsonwebtoken';
 import path from 'path';
 
@@ -40,11 +46,24 @@ const authMiddleware: RequestHandler = (req, res, next) => {
   }
 };
 
+// Set 30s timeout for all requests.
+// Following instructions from
+// https://github.com/expressjs/timeout#as-top-level-middleware)
+app.use(timeout('30s'));
+
 app.use(cors({ origin: process.env.APPLICATION_SERVER_URL }));
+app.use(haltOnTimedout);
 
 // Keep request body as plain text, since we are passing it directly to the
 // Dialogflow API.
 app.use(express.text({ type: 'application/json' }));
+app.use(haltOnTimedout);
+
+function haltOnTimedout(req: Request, res: Response, next: NextFunction) {
+  if (!req.timedout) {
+    next();
+  }
+}
 
 app.get('/ping', (req, res) => {
   res.status(200).send('OK');

@@ -15,11 +15,11 @@
  */
 
 import ClientOAuth2 from 'client-oauth2';
+import timeout from 'connect-timeout';
 import cookieParser from 'cookie-parser';
 import { createHmac } from 'crypto';
 import dotenv from 'dotenv';
 import express from 'express';
-import fetch from 'node-fetch';
 import path, { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { uuid } from 'uuidv4';
@@ -33,8 +33,18 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'ejs');
 
+// Set 30s timeout for all requests.
+// Following instructions from
+// https://github.com/expressjs/timeout#as-top-level-middleware)
+app.use(timeout('30s'));
 app.use(express.json());
+app.use(haltOnTimedout);
 app.use(cookieParser());
+app.use(haltOnTimedout);
+
+function haltOnTimedout(req, res, next) {
+  if (!req.timedout) next();
+}
 
 const {
   LP_SENTINEL_DOMAIN,
