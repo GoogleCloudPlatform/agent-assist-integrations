@@ -20,6 +20,7 @@ import cookieParser from 'cookie-parser';
 import { createHmac } from 'crypto';
 import dotenv from 'dotenv';
 import express from 'express';
+import fetch from 'node-fetch';
 import path, { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { uuid } from 'uuidv4';
