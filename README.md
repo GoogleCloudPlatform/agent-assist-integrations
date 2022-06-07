@@ -349,28 +349,31 @@ addAgentAssistEventListener('analyze-content-response-received', (response) => {
 | Event name | Payload | Description |
 | ----------- | ----------- | ----------- |
 | <b>General</b> |
+| 'active-conversation-selected' | string | Dispatched when a new conversation has been selected. Payload should be the conversation name. |
 | 'analyze-content-requested' | AnalyzeContentRequestDetails | Dispatched when an AnalyzeContent request should be made. |
-| 'analyze-content-response-received' | AnalyzeContentResponseDetails | Dispatched when a new AnalyzeContent response has been received. |
+| 'analyze-content-response-received' | PayloadWithConversationName<AnalyzeContentResponseDetails> | Dispatched when a new AnalyzeContent response has been received. |
 | 'conversation-completed' | void | Dispatched when the Dialogflow conversation has completed. |
-| 'conversation-details-received' | ConversationDetails | Dispatched when conversation details are received from the SDK (including agent and customer info). |
+| 'conversation-details-received' | PayloadWithConversationName<ConversationDetails> | Dispatched when conversation details are received from the SDK (including agent and customer info). |
 | 'conversation-initialization-requested' | string | Dispatched when the Dialogflow conversation should be initialized. Payload should be the conversation ID. |
 | 'conversation-initialized' | ConversationInitializedPayload | Dispatched when the Dialogflow conversation has been initialized. |
 | 'dark-mode-toggled' | boolean | Dispatched when dark mode has been set in the agent desktop. |
 | 'dialogflow-api-error' | UiModuleError \| null | Dispatched when a Dialogflow API error is encountered. |
 | 'dialogflow-api-authentication-error' | void | Dispatched when a Dialogflow API authentication (401) error encountered. |
+| 'list-messages-requested' | string | Dispatched with a conversation name to list historical messages for. |
+| 'list-messages-response-received' | PayloadWithConversationName<ListMessagesResponse> | Dispatched when messages have been listed for a given conversation. |
 | 'new-message-received' | Message | Dispatched when a new customer or agent utterance has been received (during voice conversations). |
 | 'patch-answer-record-requested' | PatchAnswerRecordPayload | Disaptched when an answer record should be updated. |
-| 'patch-answer-record-received' | AnswerRecord | Dispatched when an answer record has been successfully updated. |
+| 'patch-answer-record-received' | PayloadWithConversationName<AnswerRecord> | Dispatched when an answer record has been successfully updated. |
 | 'snackbar-notification-requested' | SnackbarNotificationPayload | Disaptched when a snackbar notification is requested. |
 | <b>Smart Reply</b> |
 | 'smart-reply-selected' | SmartReplySelection |  Dispatched when a Smart Reply chip is selected. |
-| 'smart-reply-follow-up-suggestions-received' |  SmartReplyAnswer[] |  Dispatched when Smart Reply follow-up suggestions have been received. |
+| 'smart-reply-follow-up-suggestions-received' |  PayloadWithConversationName<SmartReplyAnswer[]> |  Dispatched when Smart Reply follow-up suggestions have been received. |
 | <b>Conversation Summarization</b> |
 | 'conversation-summarization-requested' | void | Dispatched when a conversation summarization is requested. |
-| 'conversation-summarization-received' | SuggestConversationSummaryResponse | Dispatched when a conversation summarization has been received. |
+| 'conversation-summarization-received' | PayloadWithConversationName<SuggestConversationSummaryResponse> | Dispatched when a conversation summarization has been received. |
 | <b>Article Search</b> |
 | 'article-search-requested' | string | Dispatched when an article search is requested. Payload should be the query text. |
-| 'article-search-response-received' | ArticleSearchResponse | Dispatch when an article search response has been received.
+| 'article-search-response-received' | PayloadWithConversationName<ArticleSearchResponse> | Dispatch when an article search response has been received.
 | <b>Connector-related</b> |
 | 'agent-desktop-connector-initialized' | void | Dispatched when the agent desktop connector has been initialized. |
 | 'api-connector-initialized' | void | Dispatched when the API connector has been initialized. |
@@ -467,6 +470,10 @@ interface KnowledgeAssistConfig {
 }
 ```
 
+#### <b>ListMessagesResponse</b>
+
+See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/ListMessagesResponse)
+
 #### <b>MatSnackBarConfig</b>
 
 See [Material Design documentation](https://material.angular.io/components/snack-bar/api#MatSnackBarConfig).
@@ -492,6 +499,15 @@ interface PatchAnswerRecordPayload {
     previousAnswerRecord?: AnswerRecord|undefined;
   }
   options: {updateMask: string;};
+}
+```
+
+#### <b>PayloadWithConversationName</b>
+
+```
+interface PayloadWithConversationName<T> {
+  conversationName: string;
+  payload: T;
 }
 ```
 
