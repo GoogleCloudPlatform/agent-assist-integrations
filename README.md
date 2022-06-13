@@ -60,14 +60,13 @@ Example:
 
 | Atribute name | Expected values | Description |
 | ----------- | ----------- | ----------- |
-| features | Comma-separated string specifying one or more of the below Agent Assist features: <br>“SMART_REPLY”, “ARTICLE_SUGGESTION”, “FAQ”, “ARTICLE_SEARCH”, “CONVERSATION_SUMMARIZATION”, “DIALOGFLOW_ASSIST” | Comma-separated string specifying one or more Agent Assist features. |
+| features | Comma-separated string specifying one or more of the below Agent Assist features: <br>“SMART_REPLY”, “ARTICLE_SUGGESTION”, “FAQ”, “ARTICLE_SEARCH”, “CONVERSATION_SUMMARIZATION” | Comma-separated string specifying one or more Agent Assist features. |
 | api-headers  | String in the format of "header1:value,header2:value,..." | Comma-separated list of api headers to include in the call to the Dialogflow proxy server, if one is used. |
 | conversation-profile | String in the format of "projects/<project_id>/locations/<location>/conversationProfiles/<conversation_profile_id>" | Conversation profile resource name. |
-| use-custom-conversation-id | "true" \| "false" | Whether to use the conversation ID assigned by the agent desktop (defaults to true). If not, it will generate a new one for each conversation. |
-| agent-desktop | “LivePerson” \| “GenesysCloud” | The agent desktop plaform the modules will be integrated in. |
+| agent-desktop | “LivePerson” \| "Custom" | The agent desktop plaform the modules will be integrated in. |
 | auth-token | string | The Bearer token used to authenticate the agent when calling the Dialogflow API or proxy server. If calling the Dialogflow API directly, this should be a valid Google OAuth token. |
 | api-key | string | API key used to call the Dialogflow proxy server. |
-| channel | “chat” \| ”voice” \| ”omnichannel” | The communication channel that will be used (chat conversation, voice conversation, or both). |
+| channel | “chat” \| ”voice” | The communication channel that will be used (chat conversation, voice conversation, or both). |
 | custom-api-endpoint | string | The URL of the Dialogflow proxy server, if one is used. |
 | show-header | "true" \| "false" | Whether to show an “Agent Assist suggestions” header. Defaults to "false". |
 | dark-mode-background | string | The hexidecimal color value for the background color to use for dark mode. |
@@ -127,10 +126,10 @@ Below is the full TypeScript interface for the connector configuration object.
 ```
 interface ConnectorConfig {
   /** Communication mode for the UI modules application. */
-  channel: 'chat'|'voice'|'omnichannel';
+  channel: 'chat'|'voice';
 
   /** Agent desktop to use. */
-  agentDesktop: 'LivePerson'|'Genesys'|'SalesForce'|'Custom';
+  agentDesktop: 'LivePerson'|'Custom';
 
   /** Conversation profile name to use. */
   conversationProfileName: string;
@@ -174,12 +173,6 @@ interface ConnectorConfig {
     /** Endpoint to which the connection will be established. */
     notifierServerEndpoint: string;
   }
-
-  /**
-   * Whether to use a custom conversation ID when creating a new Dialogflow
-   * conversation. Defaults to false.
-   */
-  useCustomConversationId?: boolean;
 }
 
 ```
@@ -349,17 +342,21 @@ addAgentAssistEventListener('analyze-content-response-received', (response) => {
 | Event name | Payload | Description |
 | ----------- | ----------- | ----------- |
 | <b>General</b> |
-| 'active-conversation-selected' | string | Dispatched when a new conversation has been selected. Payload should be the conversation name. |
+| 'active-conversation-selected' | ActiveConversationSelectedPayload | Dispatched when a new conversation has been selected. |
 | 'analyze-content-requested' | AnalyzeContentRequestDetails | Dispatched when an AnalyzeContent request should be made. |
 | 'analyze-content-response-received' | PayloadWithConversationName<AnalyzeContentResponseDetails> | Dispatched when a new AnalyzeContent response has been received. |
 | 'conversation-completed' | void | Dispatched when the Dialogflow conversation has completed. |
 | 'conversation-details-received' | PayloadWithConversationName<ConversationDetails> | Dispatched when conversation details are received from the SDK (including agent and customer info). |
-| 'conversation-initialization-requested' | string | Dispatched when the Dialogflow conversation should be initialized. Payload should be the conversation ID. |
+| 'conversation-model-requested' | ConversationModelRequestedPayload | Dispatched to fetch a conversation model resource. |
+| 'conversation-model-received' | ConversationModel \| null | Dispatched when a conversation model resource has been received. |
+| 'conversation-profile-requested' | ConversationProfileRequestedPayload | Dispatched to fetch a conversation profile resource. |
+| 'conversation-profile-received' | ConversationProfile | Dispatched when a conversation profile resource has been received. |
+| 'conversation-initialization-requested' | ConversationInitializationRequestedPayload | Dispatched when the Dialogflow conversation should be initialized. |
 | 'conversation-initialized' | ConversationInitializedPayload | Dispatched when the Dialogflow conversation has been initialized. |
-| 'dark-mode-toggled' | boolean | Dispatched when dark mode has been set in the agent desktop. |
+| 'dark-mode-toggled' | DarkModeToggledPayload | Dispatched when dark mode has been set in the agent desktop. |
 | 'dialogflow-api-error' | UiModuleError \| null | Dispatched when a Dialogflow API error is encountered. |
 | 'dialogflow-api-authentication-error' | void | Dispatched when a Dialogflow API authentication (401) error encountered. |
-| 'list-messages-requested' | string | Dispatched with a conversation name to list historical messages for. |
+| 'list-messages-requested' | ListMessagesRequestedPayload | Dispatched with a conversation name to list historical messages for. |
 | 'list-messages-response-received' | PayloadWithConversationName<ListMessagesResponse> | Dispatched when messages have been listed for a given conversation. |
 | 'new-message-received' | Message | Dispatched when a new customer or agent utterance has been received (during voice conversations). |
 | 'patch-answer-record-requested' | PatchAnswerRecordPayload | Disaptched when an answer record should be updated. |
@@ -372,7 +369,7 @@ addAgentAssistEventListener('analyze-content-response-received', (response) => {
 | 'conversation-summarization-requested' | void | Dispatched when a conversation summarization is requested. |
 | 'conversation-summarization-received' | PayloadWithConversationName<SuggestConversationSummaryResponse> | Dispatched when a conversation summarization has been received. |
 | <b>Article Search</b> |
-| 'article-search-requested' | string | Dispatched when an article search is requested. Payload should be the query text. |
+| 'article-search-requested' | ArticleSearchRequestedPayload | Dispatched when an article search is requested. |
 | 'article-search-response-received' | PayloadWithConversationName<ArticleSearchResponse> | Dispatch when an article search response has been received.
 | <b>Connector-related</b> |
 | 'agent-desktop-connector-initialized' | void | Dispatched when the agent desktop connector has been initialized. |
@@ -385,6 +382,14 @@ addAgentAssistEventListener('analyze-content-response-received', (response) => {
 <br>
 
 ### Types
+
+#### <b>ActiveConversationSelectedPayload</b>
+
+```
+interface ActiveConversationSelectedPayload {
+  conversationName: string;
+}
+```
 
 #### <b>AnalyzeContentRequest</b>
 
@@ -418,9 +423,25 @@ interface AnalyzeContentResponseDetails {
 
 See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.answerRecords#AnswerRecord).
 
+#### <b>ArticleSearchRequestedPayload</b>
+
+```
+interface ArticleSearchRequestedPayload {
+  queryText: string;
+}
+```
+
 #### <b>Conversation</b>
 
 See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.conversations#Conversation).
+
+#### <b>ConversationInitializationRequestedPayload</b>
+
+```
+interface ConversationInitializationRequestedPayload {
+  conversationName: string;
+}
+```
 
 ### <b>ConversationInitializedPayload</b>
 
@@ -435,6 +456,38 @@ interface ConversationInitializedPayload {
     END_USER: Participant;
     HUMAN_AGENT: Participant;
   }
+}
+```
+
+#### <b>ConversationModel</b>
+
+See [API documentation](https://cloud.google.com/dialogflow/priv/docs/reference/rest/v2beta1/projects.conversationModels#resource:-conversationmodel).
+
+#### <b>ConversationModelRequestedPayload</b>
+
+```
+interface ConversationModelRequestedPayload {
+  modelName: string|null;
+}
+```
+
+#### <b>ConversationProfile</b>
+
+See [API documentation](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.conversationProfiles#resource:-conversationprofile).
+
+#### <b>ConversationProfileRequestedPayload</b>
+
+```
+interface ConversationProfileRequestedPayload {
+  conversationProfileName: string;
+}
+```
+
+#### <b>DarkModeToggledPayload</b>
+
+```
+interface DarkModeToggledPayload {
+  on: boolean;
 }
 ```
 
@@ -467,6 +520,13 @@ interface KnowledgeAssistConfig {
       */
     linkMetadataKey?: string;
   }
+}
+```
+
+#### <b>ListMessagesRequestedPayload</b>
+
+```interface ListMessagesRequestedPayload {
+  conversationName: string;
 }
 ```
 
@@ -581,4 +641,3 @@ interface UiModuleContainerConfig {
   knowledgeAssistConfig?: KnowledgeAssistConfig;
 }
 ```
-
