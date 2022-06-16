@@ -17,8 +17,27 @@
 import { Request, Response } from 'express';
 import { GoogleAuth } from 'google-auth-library';
 
-const getTargetUrl = (path: string) =>
-  `https://dialogflow.googleapis.com${path}`;
+/** Gets the target location from a URL path. */
+function getTargetLocation(path: string) {
+  const [, location] =
+    path.match(/\/projects\/[^/]+\/locations\/([^/]+)/) || [];
+
+  return location || 'global';
+}
+
+/** Gets the Dialogflow API endpoint for a given location. */
+function getRegionalDialogflowApiEndpoint(location: string | null | undefined) {
+  const prefix = (!location || location === 'global') ? '' : `${location}-`;
+
+  return `https://${prefix}dialogflow.googleapis.com`;
+}
+
+function getTargetUrl(path: string) {
+  const location = getTargetLocation(path);
+  const apiEndpoint = getRegionalDialogflowApiEndpoint(location);
+
+  return `${apiEndpoint}${path}`;
+}
 
 const auth = new GoogleAuth({
   scopes: ['https://www.googleapis.com/auth/dialogflow'],
