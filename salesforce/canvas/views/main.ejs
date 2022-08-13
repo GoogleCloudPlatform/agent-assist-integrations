@@ -1,0 +1,234 @@
+<html>
+  <head>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Open+Sans&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css?family=Product+Sans"
+      rel="stylesheet"
+    />
+    <% if (debug === 'true') { %>
+    <script>
+      window._uiModuleFlags = { debug: true };
+    </script>
+    <% } %>
+
+    <script src="javascripts/canvas-all.js"></script>
+    <!-- WebComponents polyfill. Needed for rendering web components in older browsers. -->
+    <script src="https://www.gstatic.com/external_hosted/document_register_element/document-register-element.js"></script>
+    <script src="https://www.gstatic.com/agent-assist-ui-modules/container.js"></script>
+    <script src="https://www.gstatic.com/agent-assist-ui-modules/transcript.js"></script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background-color: #fff;
+        font-family: 'Open Sans', sans-serif;
+      }
+
+      .header-bar > h2 {
+        color: #5f6368;
+        display: flex;
+        align-items: center;
+        font-family: 'Product Sans', Arial, sans-serif;
+        font-size: 22px;
+        font-weight: 300;
+        line-height: 24px;
+        margin-top: 16px;
+        padding-left: 8px;
+        position: relative;
+        top: -1.5px;
+        vertical-align: middle;
+      }
+
+      .header-bar > h2 > img {
+        margin-top: 2px;
+        margin-right: 8px;
+      }
+
+      .app-container {
+        display: flex;
+        gap: 60px;
+        justify-content: space-between;
+      }
+
+      .messages-container,
+      .ui-modules-container {
+        flex: 1;
+        height: 80vh;
+      }
+
+      .proxy-number {
+        color: #222;
+      }
+
+      .header-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="header-bar">
+      <h2>
+        <img
+          src="https://www.gstatic.com/images/branding/googlelogo/svg/googlelogo_clr_74x24px.svg"
+        />
+        Contact Center AI
+      </h2>
+      <div class="status-container"></div>
+    </div>
+    <div class="app-container">
+      <div class="messages-container">
+        <!-- The UI module that renders the conversation transcript. -->
+        <agent-assist-transcript></agent-assist-transcript>
+      </div>
+
+      <div class="ui-modules-container"></div>
+    </div>
+    <script>
+      var UI_MODULES_EL_SELECTOR = 'agent-assist-ui-modules';
+      var proxyServerEndpoint = '<%= proxyServer %>';
+      var conversationName = '<%= conversationName %>';
+      var conversationProfile = '<%= conversationProfile %>';
+      var features = '<%= features %>';
+      var salesforceContext = JSON.parse(
+        '<%- JSON.stringify(salesforceContext) %>'
+      );
+      // Dialogflow-specific authentication token.
+      var authToken;
+
+      window.addEventListener('load', function () {
+        // Exchanges the agent's Salesforce OAuth token for one that can be used to call the
+        // Dialogflow API.
+        registerAuthToken('<%= salesforceToken %>').then(function (
+          dialogflowToken
+        ) {
+          authToken = dialogflowToken;
+
+          // Set the active conversation once the API connection is established.
+          addAgentAssistEventListener('api-connector-initialized', function () {
+            dispatchAgentAssistEvent('active-conversation-selected', {
+              detail: { conversationName: conversationName },
+            });
+          });
+
+          // Logs the customer and agent participant details to the console for testing purposes.
+          addAgentAssistEventListener(
+            'conversation-initialized',
+            function (event) {
+              if (event.detail.participants) {
+                console.log(
+                  'Customer participant: ',
+                  event.detail.participants.END_USER
+                );
+                console.log(
+                  'Agent participant: ',
+                  event.detail.participants.HUMAN_AGENT
+                );
+              }
+            }
+          );
+
+          // Initializes the core UI modules.
+          initializeSuggestionModules();
+
+          // After an hour, refresh to avoid token expiration.
+          // Note: Default token expiration is 2 hours, but can be changed by the
+          // Salesforce Canvas application management settings
+          setTimeout(refreshAuthToken, 3600 * 1000);
+        });
+      });
+
+      /**
+       * Exchanges the agent's Salesforce OAuth token for one that can be used to call the
+       * Dialogflow API.
+       **/
+      function registerAuthToken(salesforceToken) {
+        return fetch(proxyServerEndpoint + '/register', {
+          method: 'POST',
+          headers: [['Authorization', salesforceToken]],
+        })
+          .then(function (res) {
+            return res.json();
+          })
+          .then(function (body) {
+            return body.token;
+          });
+      }
+
+      /**
+       * Refreshes the agent's Salesforce auth token, and exchanges it for a new Dialogflow-specific
+       * auth token.
+       **/
+      function refreshAuthToken() {
+        Sfdc.canvas.client.refreshSignedRequest(function (data) {
+          if (data.status === 200) {
+            var signedRequest = data.payload.response;
+            var part = signedRequest.split('.')[1];
+            var obj = JSON.parse(Sfdc.canvas.decode(part));
+            var salesforceToken = obj.client && obj.client.oauthToken;
+
+            if (!salesforceToken) {
+              console.error('No token present when refreshing signed request.');
+              return;
+            }
+
+            registerAuthToken(salesforceToken)
+              .then(function (dialogflowToken) {
+                authToken = dialogflowToken;
+
+                var uiModulesEl = document.querySelector(
+                  UI_MODULES_EL_SELECTOR
+                );
+                if (uiModulesEl) {
+                  uiModulesEl.setAttribute('auth-token', authToken);
+                }
+              })
+              .catch(function (err) {
+                console.error('Could not register OAuth token.', err);
+              });
+          } else {
+            console.error('Could not refresh OAuth token.');
+          }
+        });
+      }
+
+      /**
+       * Initializes the core UI modules that surface suggestions to the agent.
+       */
+      function initializeSuggestionModules() {
+        var uiModulesEl = document.createElement(UI_MODULES_EL_SELECTOR);
+
+        var attributes = [
+          ['custom-api-endpoint', proxyServerEndpoint],
+          ['notifier-server-endpoint', proxyServerEndpoint],
+          ['event-based-library', 'SocketIo'],
+          ['channel', 'voice'],
+          ['agent-desktop', 'Custom'],
+          ['features', features],
+          ['conversation-profile', conversationProfile],
+          ['auth-token', authToken],
+          ['use-custom-conversation-id', 'true'],
+        ];
+
+        for (var attribute of attributes) {
+          uiModulesEl.setAttribute(attribute[0], attribute[1]);
+        }
+
+        document
+          .querySelector('.ui-modules-container')
+          .appendChild(uiModulesEl);
+      }
+    </script>
+  </body>
+</html>
