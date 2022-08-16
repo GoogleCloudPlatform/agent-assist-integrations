@@ -7,8 +7,8 @@ dotenv.config();
 
 const router = express.Router();
 
-const consumerSecret = process.env.MAIN_CANVAS_CONSUMER_SECRET;
-const clientId = process.env.MAIN_CANVAS_CONSUMER_KEY;
+const consumerSecret = process.env.CANVAS_CONSUMER_SECRET;
+const clientId = process.env.CANVAS_CONSUMER_KEY;
 const proxyServer = process.env.PROXY_URL;
 
 /*
