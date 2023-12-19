@@ -23,8 +23,6 @@ dotenv.config();
 
 const router = express.Router();
 
-const consumerSecret = process.env.CANVAS_CONSUMER_SECRET;
-const clientId = process.env.CANVAS_CONSUMER_KEY;
 const proxyServer = process.env.PROXY_URL;
 
 /*
@@ -32,6 +30,14 @@ const proxyServer = process.env.PROXY_URL;
  * to decode the request using our Canvas application's consumer secret
  */
 router.post('/', (req, res) => {
+  const {conversationProfile, features, page, debug} = req.query;
+
+  const consumerSecret = page === 'main_chat' ?
+      process.env.CANVAS_CHAT_CONSUMER_SECRET :
+      process.env.CANVAS_CONSUMER_SECRET;
+  const clientId = page === 'main_chat' ? process.env.CANVAS_CHAT_CONSUMER_KEY :
+                                          process.env.CANVAS_CONSUMER_KEY;
+
   if (!consumerSecret || !clientId) {
     res.send('Canvas OAuth settings missing');
   }
@@ -50,8 +56,6 @@ router.post('/', (req, res) => {
       JSON.parse(Buffer.from(encodedEnvelope, 'base64').toString('ascii'));
 
   const {context, client} = signedRequestJson;
-
-  const {conversationProfile, features, debug} = req.query;
 
   if (!features || typeof features !== 'string') {
     res.send(
@@ -84,7 +88,7 @@ router.post('/', (req, res) => {
 
   const conversationName = `${projectLocation}/conversations/${conversationId}`;
 
-  res.render('main', {
+  res.render(page ? String(page) : 'main', {
     clientId,
     proxyServer,
     salesforceToken: client.oauthToken,

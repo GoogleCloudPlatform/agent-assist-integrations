@@ -10,16 +10,17 @@
       href="https://fonts.googleapis.com/css?family=Product+Sans"
       rel="stylesheet"
     />
+
     <script>
-      window._uiModuleFlags = { debug: true };
+      window._uiModuleFlags = { debug: true, environment: 'local' };
     </script>
 
     <script src="javascripts/canvas-all.js"></script>
     <script src="javascripts/core.js"></script>
     <!-- WebComponents polyfill. Needed for rendering web components in older browsers. -->
     <script src="https://www.gstatic.com/external_hosted/document_register_element/document-register-element.js"></script>
-    <script src="https://www.gstatic.com/agent-assist-ui-modules/container.js"></script>
-    <!-- <script src="https://b2607f8b048001000002472f4c0a830e51538000000c1b800903000.proxy.googlers.com/container.js"></script> -->
+    <!-- <script src="https://www.gstatic.com/agent-assist-ui-modules/container.js"></script> -->
+    <script src="https://b2607f8b048001000002472f4c0a830e51538000000c1b800903000.proxy.googlers.com/container.js"></script>
     <script src="https://www.gstatic.com/agent-assist-ui-modules/transcript.js"></script>
     <style>
       html,
@@ -78,6 +79,12 @@
       .empty-transcript {
         color: #666;
       }
+
+      .conversations-container {
+        align-items: center;
+        display: flex;
+        gap: 8px;
+      }
     </style>
   </head>
 
@@ -89,12 +96,18 @@
         />
         Contact Center AI
       </h2>
-      <div class="status-container"></div>
+      <div class="conversations-container">
+        <button id="add-conversation">Add new</button>
+        <select name="conversations" id="conversations"></select>
+      </div>
     </div>
     <div class="app-container">
       <div class="messages-container">
         <!-- The UI module that renders the conversation transcript. -->
         <agent-assist-transcript></agent-assist-transcript>
+        Agent: <input id="agentInput" type="text" />
+        <br />
+        Customer: <input id="customerInput" type="text" />
       </div>
 
       <div class="ui-modules-container"></div>
@@ -114,7 +127,91 @@
       var eventBasedConnectionEstablished = false;
       var conversationInitialized = false;
 
+      var activeConversationName = conversationName;
+
+      function getConversationId(name) {
+        return name.split('/').slice(-1)[0];
+      }
+
+      var conversationId = getConversationId(conversationName);
+
+      var conversationsSelect = document.getElementById('conversations');
+
+      function addConversation(name) {
+        conversationsSelect.insertAdjacentHTML(
+          'beforeEnd',
+          `<option value="${name}">${getConversationId(name)}</option>`
+        );
+        conversationsSelect.value = name;
+        onConversationSelectChange({
+          target: { value: conversationsSelect.value },
+        });
+      }
+
+      function onConversationSelectChange(e) {
+        activeConversationName = e.target.value;
+
+        dispatchAgentAssistEvent('active-conversation-selected', {
+          detail: {
+            conversationName: activeConversationName,
+          },
+        });
+      }
+
+      conversationsSelect.addEventListener(
+        'change',
+        onConversationSelectChange
+      );
+
+      document
+        .getElementById('add-conversation')
+        .addEventListener('click', () => {
+          addConversation(
+            `projects/agent-assist-console-demo/locations/global/conversations/a${Math.floor(
+              Math.random() * 10000000
+            )}`
+          );
+        });
+
+      addConversation(conversationName);
+
       window.addEventListener('load', function () {
+        document
+          .getElementById('agentInput')
+          .addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+              dispatchAgentAssistEvent('analyze-content-requested', {
+                detail: {
+                  conversationId: getConversationId(activeConversationName),
+                  participantRole: 'HUMAN_AGENT',
+                  request: {
+                    textInput: { text: e.target.value },
+                    messageSendTime: new Date().toISOString(),
+                  },
+                },
+              });
+              e.target.value = '';
+            }
+          });
+
+        document
+          .getElementById('customerInput')
+          .addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+              dispatchAgentAssistEvent('analyze-content-requested', {
+                detail: {
+                  conversationId: getConversationId(activeConversationName),
+                  participantRole: 'END_USER',
+                  request: {
+                    textInput: { text: e.target.value },
+                    messageSendTime: new Date().toISOString(),
+                  },
+                },
+              });
+              e.target.value = '';
+            }
+          });
+
         // Exchanges the agent's Salesforce OAuth token for one that can be used to call the
         // Dialogflow API.
         registerAuthToken('<%= salesforceToken %>').then(function (
@@ -128,36 +225,6 @@
               detail: { conversationName: conversationName },
             });
           });
-
-          addAgentAssistEventListener(
-            'conversation-initialized',
-            function (event) {
-              conversationInitialized = true;
-
-              addConversationPhoneNumber(
-                authToken,
-                eventBasedConnectionEstablished,
-                conversationInitialized,
-                proxyServerEndpoint,
-                conversationName
-              );
-            }
-          );
-
-          addAgentAssistEventListener(
-            'event-based-connection-established',
-            function () {
-              eventBasedConnectionEstablished = true;
-
-              addConversationPhoneNumber(
-                authToken,
-                eventBasedConnectionEstablished,
-                conversationInitialized,
-                proxyServerEndpoint,
-                conversationName
-              );
-            }
-          );
 
           addAgentAssistEventListener('new-message-received', function () {
             var emptyTranscriptEl = document.querySelector('.empty-transcript');
@@ -238,9 +305,7 @@
 
         var attributes = [
           ['custom-api-endpoint', proxyServerEndpoint],
-          ['notifier-server-endpoint', proxyServerEndpoint],
-          ['event-based-library', 'SocketIo'],
-          ['channel', 'voice'],
+          ['channel', 'chat'],
           ['agent-desktop', 'Custom'],
           ['features', features],
           ['conversation-profile', conversationProfile],
