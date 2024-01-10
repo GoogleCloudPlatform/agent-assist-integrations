@@ -66,14 +66,23 @@
 
       .app-container {
         display: flex;
+        flex: 1;
         gap: 60px;
         justify-content: space-between;
+      }
+
+      .messages-container {
+        display: flex;
+        flex-direction: column;
       }
 
       .messages-container,
       .ui-modules-container {
         flex: 1;
-        height: 80vh;
+      }
+
+      .ui-modules-container {
+        padding-top: 24px;
       }
 
       .proxy-number {
@@ -86,14 +95,20 @@
         justify-content: space-between;
       }
 
-      .empty-transcript {
-        color: #666;
-      }
-
       .conversations-container {
         align-items: center;
         display: flex;
         gap: 8px;
+      }
+
+      agent-assist-transcript {
+        flex: 1;
+      }
+
+      #app {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
       }
     </style>
   </head>
@@ -119,19 +134,21 @@
         <div class="messages-container">
           <!-- The UI module that renders the conversation transcript. -->
           <agent-assist-transcript></agent-assist-transcript>
-          <q-input
-            outlined
-            v-model="agentMessage"
-            @keydown.enter.prevent="sendMessage('HUMAN_AGENT')"
-            label="Agent"
-          ></q-input>
-          <br />
-          <q-input
-            outlined
-            v-model="customerMessage"
-            @keydown.enter.prevent="sendMessage('END_USER')"
-            label="Customer"
-          ></q-input>
+          <div class="conversation-input-boxes">
+            <q-input
+              outlined
+              v-model="agentMessage"
+              @keydown.enter.prevent="sendMessage('HUMAN_AGENT')"
+              label="Agent"
+            ></q-input>
+            <br />
+            <q-input
+              outlined
+              v-model="customerMessage"
+              @keydown.enter.prevent="sendMessage('END_USER')"
+              label="Customer"
+            ></q-input>
+          </div>
         </div>
 
         <div class="ui-modules-container"></div>
@@ -237,17 +254,10 @@
       window.addEventListener('load', function () {
         // Exchanges the agent's Salesforce OAuth token for one that can be used to call the
         // Dialogflow API.
-        registerAuthToken('<%= salesforceToken %>').then(function (
+        registerAuthToken(proxyServerEndpoint, '<%= salesforceToken %>').then(function (
           dialogflowToken
         ) {
           authToken = dialogflowToken;
-
-          addAgentAssistEventListener('new-message-received', function () {
-            var emptyTranscriptEl = document.querySelector('.empty-transcript');
-            if (emptyTranscriptEl) {
-              emptyTranscriptEl.remove();
-            }
-          });
 
           // Initializes the core UI modules.
           initializeSuggestionModules();
@@ -258,23 +268,6 @@
           setTimeout(refreshAuthToken, 3600 * 1000);
         });
       });
-
-      /**
-       * Exchanges the agent's Salesforce OAuth token for one that can be used to call the
-       * Dialogflow API.
-       **/
-      function registerAuthToken(salesforceToken) {
-        return fetch(proxyServerEndpoint + '/register', {
-          method: 'POST',
-          headers: [['Authorization', salesforceToken]],
-        })
-          .then(function (res) {
-            return res.json();
-          })
-          .then(function (body) {
-            return body.token;
-          });
-      }
 
       /**
        * Refreshes the agent's Salesforce auth token, and exchanges it for a new Dialogflow-specific
@@ -293,7 +286,7 @@
               return;
             }
 
-            registerAuthToken(salesforceToken)
+            registerAuthToken(proxyServerEndpoint, salesforceToken)
               .then(function (dialogflowToken) {
                 authToken = dialogflowToken;
 

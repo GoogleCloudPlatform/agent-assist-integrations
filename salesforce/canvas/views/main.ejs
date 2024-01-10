@@ -117,7 +117,7 @@
       window.addEventListener('load', function () {
         // Exchanges the agent's Salesforce OAuth token for one that can be used to call the
         // Dialogflow API.
-        registerAuthToken('<%= salesforceToken %>').then(function (
+        registerAuthToken(proxyServerEndpoint, '<%= salesforceToken %>').then(function (
           dialogflowToken
         ) {
           authToken = dialogflowToken;
@@ -177,23 +177,6 @@
       });
 
       /**
-       * Exchanges the agent's Salesforce OAuth token for one that can be used to call the
-       * Dialogflow API.
-       **/
-      function registerAuthToken(salesforceToken) {
-        return fetch(proxyServerEndpoint + '/register', {
-          method: 'POST',
-          headers: [['Authorization', salesforceToken]],
-        })
-          .then(function (res) {
-            return res.json();
-          })
-          .then(function (body) {
-            return body.token;
-          });
-      }
-
-      /**
        * Refreshes the agent's Salesforce auth token, and exchanges it for a new Dialogflow-specific
        * auth token.
        **/
@@ -210,7 +193,7 @@
               return;
             }
 
-            registerAuthToken(salesforceToken)
+            registerAuthToken(proxyServerEndpoint, salesforceToken)
               .then(function (dialogflowToken) {
                 authToken = dialogflowToken;
 

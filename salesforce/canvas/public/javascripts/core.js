@@ -45,3 +45,20 @@ function showTelephonyNumber(number) {
     messagesContainer.insertAdjacentHTML('afterbegin', emptyTranscriptEl);
   }
 }
+
+/**
+ * Exchanges the agent's Salesforce OAuth token for one that can be used to call
+ *the Dialogflow API.
+ **/
+function registerAuthToken(proxyServerEndpoint, salesforceToken) {
+  return fetch(proxyServerEndpoint + '/register', {
+           method: 'POST',
+           headers: [['Authorization', salesforceToken]],
+         })
+      .then(function(res) {
+        return res.json();
+      })
+      .then(function(body) {
+        return body.token;
+      });
+}
