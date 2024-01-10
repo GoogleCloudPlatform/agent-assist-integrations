@@ -10,6 +10,16 @@
       href="https://fonts.googleapis.com/css?family=Product+Sans"
       rel="stylesheet"
     />
+    <link
+      href="https://fonts.googleapis.com/css?family=Roboto:100,300,400,500,700,900|Material+Icons"
+      rel="stylesheet"
+      type="text/css"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/quasar@2.14.2/dist/quasar.prod.css"
+      rel="stylesheet"
+      type="text/css"
+    />
 
     <script>
       window._uiModuleFlags = { debug: true };
@@ -89,33 +99,133 @@
   </head>
 
   <body>
-    <div class="header-bar">
-      <h2>
-        <img
-          src="https://www.gstatic.com/images/branding/googlelogo/svg/googlelogo_clr_74x24px.svg"
-        />
-        Contact Center AI
-      </h2>
-      <div class="conversations-container">
-        <button id="add-conversation">Add new</button>
-        <select name="conversations" id="conversations"></select>
+    <div id="app">
+      <div class="header-bar">
+        <h2>
+          <img
+            src="https://www.gstatic.com/images/branding/googlelogo/svg/googlelogo_clr_74x24px.svg"
+          />
+          Contact Center AI
+        </h2>
+        <div class="conversations-container">
+          <q-select
+            v-model="conversationsModel"
+            :options="conversationsOptions"
+            label="Conversations"
+          ></q-select>
+        </div>
       </div>
-    </div>
-    <div class="app-container">
-      <div class="messages-container">
-        <!-- The UI module that renders the conversation transcript. -->
-        <agent-assist-transcript></agent-assist-transcript>
-        Agent: <input id="agentInput" type="text" />
-        <br />
-        Customer: <input id="customerInput" type="text" />
-      </div>
+      <div class="app-container">
+        <div class="messages-container">
+          <!-- The UI module that renders the conversation transcript. -->
+          <agent-assist-transcript></agent-assist-transcript>
+          <q-input
+            outlined
+            v-model="agentMessage"
+            @keydown.enter.prevent="sendMessage('HUMAN_AGENT')"
+            label="Agent"
+          ></q-input>
+          <br />
+          <q-input
+            outlined
+            v-model="customerMessage"
+            @keydown.enter.prevent="sendMessage('END_USER')"
+            label="Customer"
+          ></q-input>
+        </div>
 
-      <div class="ui-modules-container"></div>
+        <div class="ui-modules-container"></div>
+      </div>
     </div>
+
+    <!-- Note - test imports need to be here. -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/quasar@2.14.2/dist/quasar.umd.prod.js"></script>
+
+    <!-- Utils -->
+    <script>
+      function getConversationId(name) {
+        return name.split('/').slice(-1)[0];
+      }
+      function createConversationName() {
+        const conversationId = `a${Math.floor(Math.random() * 10000000)}`;
+        return `projects/agent-assist-console-demo/locations/global/conversations/${conversationId}`;
+      }
+    </script>
+
+    <!-- Vue logic -->
+    <script>
+      const { createApp, ref, watch } = Vue;
+
+      const app = createApp({
+        setup() {
+          const activeConversationName = ref('');
+          const conversationsOptions = ref(['Add new']);
+          const conversationsModel = ref(null);
+          const agentMessage = ref('');
+          const customerMessage = ref('');
+
+          watch(conversationsModel, (newValue) => {
+            if (newValue === 'Add new') {
+              addConversation();
+            } else {
+              dispatchAgentAssistEvent('active-conversation-selected', {
+                detail: {
+                  conversationName: newValue,
+                },
+              });
+              activeConversationName.value = newValue;
+            }
+          });
+
+          function sendMessage(role) {
+            const message =
+              role === 'HUMAN_AGENT' ? agentMessage : customerMessage;
+
+            dispatchAgentAssistEvent('analyze-content-requested', {
+              detail: {
+                conversationId: getConversationId(activeConversationName.value),
+                participantRole: role,
+                request: {
+                  textInput: { text: message.value },
+                  messageSendTime: new Date().toISOString(),
+                },
+              },
+            });
+            message.value = '';
+          }
+
+          function addConversation() {
+            const conversationName = createConversationName();
+            conversationsOptions.value.splice(
+              conversationsOptions.value.length - 1,
+              0,
+              conversationName
+            );
+            conversationsModel.value = conversationName;
+          }
+
+          addAgentAssistEventListener('api-connector-initialized', () => {
+            addConversation();
+          });
+
+          return {
+            customerMessage,
+            agentMessage,
+            conversationsModel,
+            conversationsOptions,
+            addConversation,
+            sendMessage,
+          };
+        },
+      });
+
+      app.use(Quasar);
+      app.mount('#app');
+    </script>
     <script>
       var UI_MODULES_EL_SELECTOR = 'agent-assist-ui-modules';
       var proxyServerEndpoint = '<%= proxyServer %>';
-      var conversationName = '<%= conversationName %>';
       var conversationProfile = '<%= conversationProfile %>';
       var features = '<%= features %>';
       var salesforceContext = JSON.parse(
@@ -124,107 +234,13 @@
       // Dialogflow-specific authentication token.
       var authToken;
 
-      var eventBasedConnectionEstablished = false;
-      var conversationInitialized = false;
-
-      var activeConversationName = conversationName;
-
-      function getConversationId(name) {
-        return name.split('/').slice(-1)[0];
-      }
-
-      var conversationId = getConversationId(conversationName);
-
-      var conversationsSelect = document.getElementById('conversations');
-
-      function addConversation(name) {
-        conversationsSelect.insertAdjacentHTML(
-          'beforeEnd',
-          `<option value="${name}">${getConversationId(name)}</option>`
-        );
-        conversationsSelect.value = name;
-        onConversationSelectChange({
-          target: { value: conversationsSelect.value },
-        });
-      }
-
-      function onConversationSelectChange(e) {
-        activeConversationName = e.target.value;
-
-        dispatchAgentAssistEvent('active-conversation-selected', {
-          detail: {
-            conversationName: activeConversationName,
-          },
-        });
-      }
-
-      conversationsSelect.addEventListener(
-        'change',
-        onConversationSelectChange
-      );
-
-      document
-        .getElementById('add-conversation')
-        .addEventListener('click', () => {
-          addConversation(
-            `projects/agent-assist-console-demo/locations/global/conversations/a${Math.floor(
-              Math.random() * 10000000
-            )}`
-          );
-        });
-
-      addConversation(conversationName);
-
       window.addEventListener('load', function () {
-        document
-          .getElementById('agentInput')
-          .addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-              dispatchAgentAssistEvent('analyze-content-requested', {
-                detail: {
-                  conversationId: getConversationId(activeConversationName),
-                  participantRole: 'HUMAN_AGENT',
-                  request: {
-                    textInput: { text: e.target.value },
-                    messageSendTime: new Date().toISOString(),
-                  },
-                },
-              });
-              e.target.value = '';
-            }
-          });
-
-        document
-          .getElementById('customerInput')
-          .addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-              dispatchAgentAssistEvent('analyze-content-requested', {
-                detail: {
-                  conversationId: getConversationId(activeConversationName),
-                  participantRole: 'END_USER',
-                  request: {
-                    textInput: { text: e.target.value },
-                    messageSendTime: new Date().toISOString(),
-                  },
-                },
-              });
-              e.target.value = '';
-            }
-          });
-
         // Exchanges the agent's Salesforce OAuth token for one that can be used to call the
         // Dialogflow API.
         registerAuthToken('<%= salesforceToken %>').then(function (
           dialogflowToken
         ) {
           authToken = dialogflowToken;
-
-          // Set the active conversation once the API connection is established.
-          addAgentAssistEventListener('api-connector-initialized', function () {
-            dispatchAgentAssistEvent('active-conversation-selected', {
-              detail: { conversationName: conversationName },
-            });
-          });
 
           addAgentAssistEventListener('new-message-received', function () {
             var emptyTranscriptEl = document.querySelector('.empty-transcript');
