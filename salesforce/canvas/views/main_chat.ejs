@@ -151,7 +151,17 @@
           </div>
         </div>
 
-        <div class="ui-modules-container"></div>
+        <div class="ui-modules-container">
+          <agent-assist-ui-modules
+            v-if="authToken"
+            channel="chat"
+            agent-desktop="Custom"
+            v-bind:custom-api-endpoint="proxyServerEndpoint"
+            v-bind:features="features"
+            v-bind:conversation-profile="conversationProfile"
+            v-bind:auth-token="authToken"
+          ></agent-assist-ui-modules>
+        </div>
       </div>
     </div>
 
@@ -170,18 +180,63 @@
       }
     </script>
 
-    <!-- Vue logic -->
     <script>
+      const salesforceContext = JSON.parse(
+        '<%- JSON.stringify(salesforceContext) %>'
+      );
       const { createApp, ref, watch } = Vue;
 
       const app = createApp({
         setup() {
+          const proxyServerEndpoint = '<%= proxyServer %>';
+          const conversationProfile = ref('<%= conversationProfile %>');
+          const features = ref('<%= features %>');
           const activeConversationName = ref('');
           const conversationsOptions = ref(['Add new']);
           const conversationsModel = ref(null);
           const agentMessage = ref('');
           const customerMessage = ref('');
+          const authToken = ref(null);
 
+          // Fetch Dialogflow auth token.
+          registerAuthToken(proxyServerEndpoint, '<%= salesforceToken %>').then(
+            function (dialogflowToken) {
+              authToken.value = dialogflowToken;
+
+              // After an hour, refresh to avoid token expiration.
+              // Note: Default token expiration is 2 hours, but can be changed by the
+              // Salesforce Canvas application management settings
+              setTimeout(() => {
+                Sfdc.canvas.client.refreshSignedRequest(function (data) {
+                  if (data.status === 200) {
+                    const signedRequest = data.payload.response;
+                    const part = signedRequest.split('.')[1];
+                    const obj = JSON.parse(Sfdc.canvas.decode(part));
+                    const salesforceToken = obj.client && obj.client.oauthToken;
+
+                    if (!salesforceToken) {
+                      console.error(
+                        'No token present when refreshing signed request.'
+                      );
+                      return;
+                    }
+
+                    registerAuthToken(proxyServerEndpoint, salesforceToken)
+                      .then(function (dialogflowToken) {
+                        authToken.value = dialogflowToken;
+                      })
+                      .catch(function (err) {
+                        console.error('Could not register OAuth token.', err);
+                      });
+                  } else {
+                    console.error('Could not refresh OAuth token.');
+                  }
+                });
+              }, 3600 * 1000);
+            }
+          );
+
+          // Switch active conversation when the conversation select value changes.
           watch(conversationsModel, (newValue) => {
             if (newValue === 'Add new') {
               addConversation();
@@ -222,11 +277,16 @@
             conversationsModel.value = conversationName;
           }
 
+          // Initialize the initial conversation.
           addAgentAssistEventListener('api-connector-initialized', () => {
             addConversation();
           });
 
           return {
+            authToken,
+            proxyServerEndpoint,
+            conversationProfile,
+            features,
             customerMessage,
             agentMessage,
             conversationsModel,
@@ -239,97 +299,6 @@
 
       app.use(Quasar);
       app.mount('#app');
-    </script>
-    <script>
-      var UI_MODULES_EL_SELECTOR = 'agent-assist-ui-modules';
-      var proxyServerEndpoint = '<%= proxyServer %>';
-      var conversationProfile = '<%= conversationProfile %>';
-      var features = '<%= features %>';
-      var salesforceContext = JSON.parse(
-        '<%- JSON.stringify(salesforceContext) %>'
-      );
-      // Dialogflow-specific authentication token.
-      var authToken;
-
-      window.addEventListener('load', function () {
-        // Exchanges the agent's Salesforce OAuth token for one that can be used to call the
-        // Dialogflow API.
-        registerAuthToken(proxyServerEndpoint, '<%= salesforceToken %>').then(function (
-          dialogflowToken
-        ) {
-          authToken = dialogflowToken;
-
-          // Initializes the core UI modules.
-          initializeSuggestionModules();
-
-          // After an hour, refresh to avoid token expiration.
-          // Note: Default token expiration is 2 hours, but can be changed by the
-          // Salesforce Canvas application management settings
-          setTimeout(refreshAuthToken, 3600 * 1000);
-        });
-      });
-
-      /**
-       * Refreshes the agent's Salesforce auth token, and exchanges it for a new Dialogflow-specific
-       * auth token.
-       **/
-      function refreshAuthToken() {
-        Sfdc.canvas.client.refreshSignedRequest(function (data) {
-          if (data.status === 200) {
-            var signedRequest = data.payload.response;
-            var part = signedRequest.split('.')[1];
-            var obj = JSON.parse(Sfdc.canvas.decode(part));
-            var salesforceToken = obj.client && obj.client.oauthToken;
-
-            if (!salesforceToken) {
-              console.error('No token present when refreshing signed request.');
-              return;
-            }
-
-            registerAuthToken(proxyServerEndpoint, salesforceToken)
-              .then(function (dialogflowToken) {
-                authToken = dialogflowToken;
-
-                var uiModulesEl = document.querySelector(
-                  UI_MODULES_EL_SELECTOR
-                );
-                if (uiModulesEl) {
-                  uiModulesEl.setAttribute('auth-token', authToken);
-                }
-              })
-              .catch(function (err) {
-                console.error('Could not register OAuth token.', err);
-              });
-          } else {
-            console.error('Could not refresh OAuth token.');
-          }
-        });
-      }
-
-      /**
-       * Initializes the core UI modules that surface suggestions to the agent.
-       */
-      function initializeSuggestionModules() {
-        var uiModulesEl = document.createElement(UI_MODULES_EL_SELECTOR);
-
-        var attributes = [
-          ['custom-api-endpoint', proxyServerEndpoint],
-          ['channel', 'chat'],
-          ['agent-desktop', 'Custom'],
-          ['features', features],
-          ['conversation-profile', conversationProfile],
-          ['auth-token', authToken],
-          ['use-custom-conversation-id', 'true'],
-        ];
-
-        for (var attribute of attributes) {
-          uiModulesEl.setAttribute(attribute[0], attribute[1]);
-        }
-
-        document
-          .querySelector('.ui-modules-container')
-          .appendChild(uiModulesEl);
-      }
     </script>
   </body>
 </html>
