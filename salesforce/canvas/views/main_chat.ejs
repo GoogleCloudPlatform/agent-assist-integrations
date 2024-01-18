@@ -24,24 +24,105 @@
     <script>
       window._uiModuleFlags = { debug: true };
     </script>
+    <script>
+      const environment =
+        localStorage.getItem('ui_modules_environment') || 'prod';
+
+      const SCRIPT_SOURCES = {
+        staging: {
+          common:
+            'https://www.gstatic.com/agent-assist-ui-modules/staging/common.js',
+          container:
+            'https://www.gstatic.com/agent-assist-ui-modules/staging/container.js',
+          summarization:
+            'https://www.gstatic.com/agent-assist-ui-modules/staging/summarization.js',
+          knowledge_assist_v2:
+            'https://www.gstatic.com/agent-assist-ui-modules/staging/knowledge_assist.js',
+          transcript:
+            'https://www.gstatic.com/agent-assist-ui-modules/staging/transcript.js',
+          agent_coaching:
+            'https://www.gstatic.com/agent-assist-ui-modules/staging/agent_coaching.js',
+          smart_reply:
+            'https://www.gstatic.com/agent-assist-ui-modules/staging/smart_reply.js',
+        },
+        prod: {
+          common:
+            'https://www.gstatic.com/agent-assist-ui-modules/v1/common.js',
+          container:
+            'https://www.gstatic.com/agent-assist-ui-modules/v1/container.js',
+          summarization:
+            'https://www.gstatic.com/agent-assist-ui-modules/v1/summarization.js',
+          knowledge_assist:
+            'https://www.gstatic.com/agent-assist-ui-modules/v1/knowledge_assist.js',
+          knowledge_assist_v2:
+            'https://www.gstatic.com/agent-assist-ui-modules/v2/knowledge_assist.js',
+          transcript:
+            'https://www.gstatic.com/agent-assist-ui-modules/transcript.js',
+          agent_coaching:
+            'https://www.gstatic.com/agent-assist-ui-modules/v1/agent_coaching.js',
+          smart_reply:
+            'https://www.gstatic.com/agent-assist-ui-modules/v1/smart_reply.js',
+        },
+      };
+
+      const USER_LOCAL_ENVIRONMENTS = {
+        'gaborszekely@google.com':
+          'https://b2607f8b048001000002472f4c0a830e51538000000c1b800903000.proxy.googlers.com',
+        'nategd@google.com':
+          'https://b2607f8b048001000002bff92c0a814da15380000001243001c9900.proxy.googlers.com',
+      };
+
+      const salesforceContext = JSON.parse(
+        '<%- JSON.stringify(salesforceContext) %>'
+      );
+      const user = salesforceContext.user.email;
+      const localUrl = USER_LOCAL_ENVIRONMENTS[user];
+
+      function loadScript(component) {
+        const script = document.createElement('script');
+
+        const src =
+          environment === 'local'
+            ? `${localUrl}/${component}.js`
+            : SCRIPT_SOURCES[environment][component];
+
+        script.setAttribute('src', src);
+        document.head.appendChild(script);
+
+        return new Promise((resolve) => {
+          script.onload = () => resolve();
+        });
+      }
+
+      var scriptsLoaded = Promise.all([
+        loadScript('common'),
+        loadScript('container'),
+        loadScript('summarization'),
+        loadScript('transcript'),
+        loadScript('knowledge_assist'),
+        loadScript('knowledge_assist_v2'),
+        loadScript('smart_reply'),
+      ]);
+    </script>
 
     <script src="javascripts/canvas-all.js"></script>
     <script src="javascripts/core.js"></script>
     <!-- WebComponents polyfill. Needed for rendering web components in older browsers. -->
     <script src="https://www.gstatic.com/external_hosted/document_register_element/document-register-element.js"></script>
-    <script src="https://www.gstatic.com/agent-assist-ui-modules/container.js"></script>
-    <!-- <script src="https://b2607f8b048001000002472f4c0a830e51538000000c1b800903000.proxy.googlers.com/container.js"></script> -->
-    <script src="https://www.gstatic.com/agent-assist-ui-modules/transcript.js"></script>
     <style>
       html,
       body {
         margin: 0;
+      }
+
+      html {
         padding: 0;
       }
 
       body {
         background-color: #fff;
         font-family: 'Open Sans', sans-serif;
+        padding: 16px;
       }
 
       .header-bar > h2 {
@@ -128,6 +209,7 @@
             :options="conversationsOptions"
             label="Conversations"
           ></q-select>
+          <q-btn label="Options" color="primary" @click="dialogModel = true" />
         </div>
       </div>
       <div class="app-container">
@@ -153,7 +235,7 @@
 
         <div class="ui-modules-container">
           <agent-assist-ui-modules
-            v-if="authToken"
+            v-if="authToken && cachedComponents[0] === 'container'"
             channel="chat"
             agent-desktop="Custom"
             v-bind:custom-api-endpoint="proxyServerEndpoint"
@@ -161,8 +243,118 @@
             v-bind:conversation-profile="conversationProfile"
             v-bind:auth-token="authToken"
           ></agent-assist-ui-modules>
+          <agent-assist-summarization
+            v-if="cachedComponents.includes('summarization')"
+            show-generate-summary-button="true"
+          ></agent-assist-summarization>
+          <agent-assist-smart-reply
+            v-if="cachedComponents.includes('smart_reply')"
+          ></agent-assist-smart-reply>
+          <agent-assist-knowledge-assist
+            v-if="cachedComponents.includes('knowledge_assist')"
+            features="ARTICLE_SUGGESTION"
+          ></agent-assist-knowledge-assist>
+          <agent-assist-knowledge-assist-v2
+            v-if="cachedComponents.includes('knowledge_assist_v2')"
+          ></agent-assist-knowledge-assist-v2>
         </div>
       </div>
+      <q-dialog v-model="dialogModel">
+        <q-card>
+          <q-card-section class="row items-center q-pb-none">
+            <div class="text-h6">Options</div>
+            <q-space />
+            <q-btn icon="close" flat round dense v-close-popup />
+          </q-card-section>
+
+          <q-card-section>
+            <q-input
+              outlined
+              v-model="conversationProfile"
+              label="Conversation profile"
+            ></q-input>
+
+            <br /><br />
+            <b>Environment</b>
+            <br />
+            <q-select
+              v-model="environmentsModel"
+              :options="['local', 'staging', 'prod']"
+              label="Environment"
+            ></q-select>
+
+            <br /><br />
+            <b>Component</b>
+            <br />
+            <q-checkbox
+              v-model="componentsArray"
+              val="container"
+              label="Container"
+            ></q-checkbox>
+            <q-checkbox
+              v-model="componentsArray"
+              val="summarization"
+              label="Summarization"
+            ></q-checkbox>
+            <q-checkbox
+              v-if="environmentsModel === 'prod'"
+              v-model="componentsArray"
+              val="knowledge_assist"
+              label="Knowledge Assist"
+            ></q-checkbox>
+            <q-checkbox
+              v-model="componentsArray"
+              val="knowledge_assist_v2"
+              label="Generative Knowledge Assist"
+            ></q-checkbox>
+            <q-checkbox
+              v-model="componentsArray"
+              val="smart_reply"
+              label="Smart Reply"
+            ></q-checkbox>
+
+            <br /><br />
+            <div v-if="componentsArray[0] === 'container'">
+              <b>Features</b>
+              <br />
+              <q-checkbox
+                v-model="featuresArray"
+                val="CONVERSATION_SUMMARIZATION"
+                label="Summarization"
+              ></q-checkbox>
+              <br />
+              <q-checkbox
+                v-model="featuresArray"
+                val="KNOWLEDGE_ASSIST_V2"
+                label="Generative knowledge assist"
+              ></q-checkbox>
+              <br />
+              <q-checkbox
+                v-model="featuresArray"
+                val="AGENT_COACHING"
+                label="Agent coaching"
+              ></q-checkbox>
+              <br />
+              <q-checkbox
+                v-model="featuresArray"
+                val="SMART_REPLY"
+                label="Smart reply"
+              ></q-checkbox>
+              <br />
+              <q-checkbox
+                v-model="featuresArray"
+                val="ARTICLE_SUGGESTION"
+                label="Article suggestion"
+              ></q-checkbox>
+            </div>
+          </q-card-section>
+
+          <q-card-actions>
+            <q-btn flat @click="handleOptionsSave()">Save</q-btn>
+            <q-btn flat v-close-popup>Cancel</q-btn>
+          </q-card-actions>
+        </q-card>
+      </q-dialog>
     </div>
 
     <!-- Note - test imports need to be here. -->
@@ -181,26 +373,50 @@
     </script>
 
     <script>
-      const salesforceContext = JSON.parse(
-        '<%- JSON.stringify(salesforceContext) %>'
-      );
-      const { createApp, ref, watch } = Vue;
+      (async () => {
+        console.log('loading scripts');
+        await scriptsLoaded;
+        console.log('scripts loaded');
 
-      const app = createApp({
-        setup() {
-          const proxyServerEndpoint = '<%= proxyServer %>';
-          const conversationProfile = ref('<%= conversationProfile %>');
-          const features = ref('<%= features %>');
-          const activeConversationName = ref('');
-          const conversationsOptions = ref(['Add new']);
-          const conversationsModel = ref(null);
-          const agentMessage = ref('');
-          const customerMessage = ref('');
-          const authToken = ref(null);
+        const salesforceContext = JSON.parse(
+          '<%- JSON.stringify(salesforceContext) %>'
+        );
+        const { createApp, ref, watch } = Vue;
 
-          // Fetch Dialogflow auth token.
-          registerAuthToken(proxyServerEndpoint, '<%= salesforceToken %>').then(
-            function (dialogflowToken) {
+        const app = createApp({
+          setup() {
+            const cachedEnvironment =
+              localStorage.getItem('ui_modules_environment') || 'prod';
+            const cachedConversationProfile =
+              localStorage.getItem('ui_modules_conversation_profile') ||
+              '<%= conversationProfile %>';
+            const cachedFeatures =
+              localStorage.getItem('ui_modules_features') || '<%= features %>';
+            const cachedComponents = JSON.parse(
+              localStorage.getItem('ui_modules_components')
+            ) || ['container'];
+
+            const proxyServerEndpoint = '<%= proxyServer %>';
+            const conversationProfile = ref(cachedConversationProfile);
+            const features = ref(cachedFeatures);
+            const activeConversationName = ref('');
+            const conversationsOptions = ref(['Add new']);
+            const conversationsModel = ref(null);
+            const agentMessage = ref('');
+            const customerMessage = ref('');
+            const authToken = ref(null);
+            const dialogModel = ref(false);
+            const featuresArray = ref(
+              features.value.split(',').map((val) => val.trim())
+            );
+            const componentsArray = ref(cachedComponents);
+            const environmentsModel = ref(cachedEnvironment);
+
+            // Fetch Dialogflow auth token.
+            registerAuthToken(
+              proxyServerEndpoint,
+              '<%= salesforceToken %>'
+            ).then(function (dialogflowToken) {
               authToken.value = dialogflowToken;
 
               // After an hour, refresh to avoid token expiration.
@@ -233,72 +449,153 @@
                   }
                 });
               }, 3600 * 1000);
-            }
-          );
+            });
 
-          // Switch active conversation when the conversation select value changes.
-          watch(conversationsModel, (newValue) => {
-            if (newValue === 'Add new') {
-              addConversation();
-            } else {
-              dispatchAgentAssistEvent('active-conversation-selected', {
+            let connector;
+
+            // Connector must be initialized manually for non-container-based usage.
+            if (!cachedComponents.includes('container')) {
+              watch(authToken, (newValue) => {
+                if (!connector) {
+                  connector = new UiModulesConnector();
+                  connector.init({
+                    channel: 'chat',
+                    agentDesktop: 'Custom',
+                    conversationProfileName: cachedConversationProfile,
+                    apiConfig: {
+                      authToken: newValue,
+                      customApiEndpoint: proxyServerEndpoint,
+                    },
+                  });
+                } else {
+                  connector.setAuthToken(newValue);
+                }
+              });
+            }
+
+            // Switch active conversation when the conversation select value changes.
+            watch(conversationsModel, (newValue) => {
+              if (newValue === 'Add new') {
+                addConversation();
+              } else {
+                dispatchAgentAssistEvent('active-conversation-selected', {
+                  detail: {
+                    conversationName: newValue,
+                  },
+                });
+                activeConversationName.value = newValue;
+              }
+            });
+
+            function sendMessage(role) {
+              const message =
+                role === 'HUMAN_AGENT' ? agentMessage : customerMessage;
+
+              dispatchAgentAssistEvent('analyze-content-requested', {
                 detail: {
-                  conversationName: newValue,
+                  conversationId: getConversationId(
+                    activeConversationName.value
+                  ),
+                  participantRole: role,
+                  request: {
+                    textInput: { text: message.value },
+                    messageSendTime: new Date().toISOString(),
+                  },
                 },
               });
-              activeConversationName.value = newValue;
+              message.value = '';
             }
-          });
 
-          function sendMessage(role) {
-            const message =
-              role === 'HUMAN_AGENT' ? agentMessage : customerMessage;
+            function addConversation() {
+              const conversationName = createConversationName();
+              conversationsOptions.value.splice(
+                conversationsOptions.value.length - 1,
+                0,
+                conversationName
+              );
+              conversationsModel.value = conversationName;
+            }
 
-            dispatchAgentAssistEvent('analyze-content-requested', {
-              detail: {
-                conversationId: getConversationId(activeConversationName.value),
-                participantRole: role,
-                request: {
-                  textInput: { text: message.value },
-                  messageSendTime: new Date().toISOString(),
-                },
-              },
+            // Initialize the initial conversation.
+            addAgentAssistEventListener('api-connector-initialized', () => {
+              addConversation();
             });
-            message.value = '';
-          }
 
-          function addConversation() {
-            const conversationName = createConversationName();
-            conversationsOptions.value.splice(
-              conversationsOptions.value.length - 1,
-              0,
-              conversationName
+            // Populate agent input box with Smart Reply selection.
+            addAgentAssistEventListener(
+              'smart-reply-selected',
+              ({ detail: { answer } }) => {
+                agentMessage.value += answer.reply;
+              }
             );
-            conversationsModel.value = conversationName;
-          }
 
-          // Initialize the initial conversation.
-          addAgentAssistEventListener('api-connector-initialized', () => {
-            addConversation();
-          });
+            function handleOptionsSave() {
+              let reload = false;
 
-          return {
-            authToken,
-            proxyServerEndpoint,
-            conversationProfile,
-            features,
-            customerMessage,
-            agentMessage,
-            conversationsModel,
-            conversationsOptions,
-            addConversation,
-            sendMessage,
-          };
-        },
-      });
+              if (environmentsModel.value !== cachedEnvironment) {
+                localStorage.setItem(
+                  'ui_modules_environment',
+                  environmentsModel.value
+                );
+                reload = true;
+              }
 
-      app.use(Quasar);
-      app.mount('#app');
+              if (conversationProfile.value !== cachedConversationProfile) {
+                localStorage.setItem(
+                  'ui_modules_conversation_profile',
+                  conversationProfile.value
+                );
+                reload = true;
+              }
+
+              const componentsArrayStr = JSON.stringify(componentsArray.value);
+
+              if (componentsArrayStr !== JSON.stringify(cachedComponents)) {
+                localStorage.setItem(
+                  'ui_modules_components',
+                  componentsArrayStr
+                );
+                reload = true;
+              }
+
+              features.value = featuresArray.value.join(',');
+              if (features.value !== cachedFeatures) {
+                localStorage.setItem('ui_modules_features', features.value);
+                reload = true;
+              }
+
+              if (reload) {
+                window.location.reload();
+                return;
+              }
+
+              dialogModel.value = false;
+            }
+
+            return {
+              agentMessage,
+              authToken,
+              cachedComponents,
+              componentsArray,
+              conversationProfile,
+              conversationsModel,
+              conversationsOptions,
+              customerMessage,
+              dialogModel,
+              environmentsModel,
+              features,
+              featuresArray,
+              proxyServerEndpoint,
+              addConversation,
+              handleOptionsSave,
+              sendMessage,
+            };
+          },
+        });
+
+        app.use(Quasar);
+        app.mount('#app');
+      })();
     </script>
   </body>
 </html>
