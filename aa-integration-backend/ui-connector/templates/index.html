@@ -1,0 +1,385 @@
+<!DOCTYPE HTML>
+<html>
+
+<head>
+    <title>Interactive Demo</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"
+        integrity="sha512-bLT0Qm9VnAYZDflyKcBaQ2gg0hSYNQrJ8RilYldYQ1FxQYoCLtUjuuRuZo+fjqhx/qtq/1itJ0C2ejDxltZVFg=="
+        crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/3.0.4/socket.io.js"
+        integrity="sha512-aMGMvNYu8Ue4G+fHa359jcPb1u+ytAF+P2SCb+PxrjCdO3n3ZTxJ30zuH39rimUggmTwmh2u7wvQsDTHESnmfQ=="
+        crossorigin="anonymous"></script>
+    <script type="text/javascript" charset="utf-8">
+        $(document).ready(function () {
+            // TODO: Update the URL of your UI Connector Cloud Run Service. Keep it empty for local test/deployment.
+            let serviceUrl = '';
+
+            // Information about current conversation
+            var versionUrl = '/v2beta1/';
+            var project_id, conversation_profile_name, conversation_name, end_user_name, human_agent_name;
+            var JWT = '';
+
+            // An array of joined conversation names
+            var joined_conversations = [];
+
+            // Helper function for printing log
+            function logPrinter(action, type, msg) {
+                $('#log').prepend(
+                    $('<div/>').text(action + ' <' + type + '> ' + msg).html() + '<br><br>'
+                );
+            }
+            // Helper function for updating joined conversation names
+            function updateJoinedConversationNames() {
+                let content = '';
+                for (let i = 0; i < joined_conversations.length; i++) {
+                    content += '<br>' + $('<div/>').text(joined_conversations[i]).html();
+                }
+                $('#joined_conversations').empty().append(content);
+            }
+            // Create a socket for Cloud Pub/Sub Interceptor
+            function createSocket(jwt, url) {
+                var socket = io(url, {
+                    transports: ['websocket'],
+                    auth: {
+                        token: jwt
+                    },
+                });
+                socket.on('connect', () => {
+                    logPrinter('Listened', 'connect', 'Connected! socket.id: ' + socket.id);
+                    socket.sendBuffer = [];
+                });
+                socket.on("disconnect", (reason) => {
+                    logPrinter('Listened', 'disconnect', 'Disconnected! reason: ' + reason);
+                });
+                socket.on("connect_error", (err) => {
+                    console.log(`connect_error due to ${err.message}`);
+                });
+                socket.on('conversation-lifecycle-event', (msg) => {
+                    logPrinter('Listened', 'conversation-lifecycle-event', JSON.stringify(msg));
+                });
+                socket.on('new-message-event', (msg) => {
+                    logPrinter('Listened', 'new-message-event', JSON.stringify(msg));
+                });
+                socket.on('human-agent-assistant-event', function (msg) {
+                    logPrinter(
+                        'Listened',
+                        'human-agent-assistant-event',
+                        JSON.stringify(msg)
+                    );
+                });
+                socket.on('unauthenticated', function () {
+                    logPrinter('Listened', 'unauthenticated', '');
+                });
+                return socket;
+            }
+            // Get JWT
+            var currentSocket;
+            if (serviceUrl) { // for local dev
+                fetch(serviceUrl + '/register', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': '123',
+                    },
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        JWT = data.token;
+                        $('#log').prepend(
+                            $('<div/>').text('Received <jwt> ' + JWT).html()
+                        );
+                        // Connect to the Socket.IO server
+                        currentSocket = createSocket(JWT, serviceUrl);
+                    })
+                    .catch((error) => {
+                        console.error('Error:', error);
+                    });
+            } else { // for service deploy
+                fetch(serviceUrl + '/register', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': '123',
+                    },
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        JWT = data.token;
+                        $('#log').prepend(
+                            $('<div/>').text('Received <jwt> ' + JWT).html()
+                        );
+                        // Connect to the Socket.IO server
+                        currentSocket = createSocket(JWT, serviceUrl);
+                    })
+                    .catch((error) => {
+                        console.error('Error:', error);
+                    });
+            }
+            window.setInterval(function () {
+                $('#transport').text(currentSocket.io.engine.transport.name);
+            }, 1000);
+            $('form#set_conversation_profile').submit(function (event) {
+                conversation_profile_name = $('#conversation_profile_test_name').val();
+                $('#conversation_profile_name').text(conversation_profile_name);
+
+                project_id = conversation_profile_name.split('/')[1]
+                $('#gcp_project_id').text(project_id);
+                return false;
+            });
+            $('form#create').submit(function (event) {
+                fetch(serviceUrl + versionUrl + 'projects/' + project_id + '/locations/global/conversations', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': JWT,
+                    },
+                    body: JSON.stringify({ conversation_profile: conversation_profile_name }),
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        conversation_name = data.name;
+                        $('#conversation_name').text(conversation_name);
+                        $('#log').prepend(
+                            $('<div/>').text('Received <conversation_name> ' + JSON.stringify(data)).html() + '<br><br>'
+                        );
+                    })
+                    .catch((error) => {
+                        console.error('Error:', error);
+                    });
+                return false;
+            });
+            $('form#join').submit(function (event) {
+                currentSocket.emit('join-conversation', conversation_name, (ack, result) => {
+                    logPrinter(
+                        'Emitted',
+                        'send_message',
+                        'ACK for joining conversation: ' + ack + ',' + result
+                    )
+                    if (ack) {
+                        joined_conversations.push(conversation_name);
+                        updateJoinedConversationNames();
+                    }
+                });
+                return false;
+            });
+            $('form#leave').submit(function (event) {
+                currentSocket.emit('leave-conversation', conversation_name, (ack, result) => {
+                    logPrinter(
+                        'Emitted',
+                        'send_message',
+                        'ACK for leaving conversation: ' + ack + ',' + result
+                    )
+                    if (ack) {
+                        let index = joined_conversations.indexOf(conversation_name);
+                        if (index > -1) {
+                            joined_conversations.splice(index, 1);
+                            updateJoinedConversationNames();
+                        }
+                    }
+                });
+                return false;
+            });
+            $('form#create_user').submit(function (event) {
+                fetch(serviceUrl + versionUrl + conversation_name + '/participants', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': JWT,
+                    },
+                    body: JSON.stringify({ role: 'END_USER' }),
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        end_user_name = data.name;
+                        $('#end_user_name').text(end_user_name);
+                        $('#log').prepend(
+                            $('<div/>').text('Received <end_user_name> ' + JSON.stringify(data)).html() + '<br><br>'
+                        );
+                    })
+                    .catch((error) => {
+                        console.error('Error:', error);
+                    });
+                return false;
+            });
+            $('form#create_agent').submit(function (event) {
+                fetch(serviceUrl + versionUrl + conversation_name + '/participants', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': JWT,
+                    },
+                    body: JSON.stringify({ role: 'HUMAN_AGENT' }),
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        human_agent_name = data.name;
+                        $('#human_agent_name').text(human_agent_name);
+                        $('#log').prepend(
+                            $('<div/>').text('Received <human_agent_name> ' + JSON.stringify(data)).html() + '<br><br>'
+                        );
+                    })
+                    .catch((error) => {
+                        console.error('Error:', error);
+                    });
+                return false;
+            });
+            $('form#user_send').submit(function (event) {
+                fetch(serviceUrl + versionUrl + end_user_name + ':analyzeContent', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': JWT,
+                    },
+                    body: JSON.stringify(
+                        { text_input: { languageCode: 'en-US', text: $('#user_send_message').val() } }),
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        $('#log').prepend(
+                            $('<div/>').text('Received <analyzeContent response for user> ' + JSON.stringify(data)).html() + '<br><br>'
+                        );
+                    })
+                    .catch((error) => {
+                        console.error('Error:', error);
+                    });
+                return false;
+            });
+            $('form#agent_send').submit(function (event) {
+                fetch(serviceUrl + versionUrl + human_agent_name + ':analyzeContent', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': JWT,
+                    },
+                    body: JSON.stringify(
+                        { text_input: { languageCode: 'en-US', text: $('#agent_send_message').val() } }),
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        $('#log').prepend(
+                            $('<div/>').text('Received <analyzeContent response for agent> ' + JSON.stringify(data)).html() + '<br><br>'
+                        );
+                    })
+                    .catch((error) => {
+                        console.error('Error:', error);
+                    });
+                return false;
+            });
+            $('form#complete').submit(function (event) {
+                fetch(serviceUrl + versionUrl + conversation_name + ':complete', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': JWT,
+                    },
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        $('#log').prepend(
+                            $('<div/>').text('Received <response for complete conversation> ' + JSON.stringify(data)).html() + '<br><br>'
+                        );
+                    })
+                    .catch((error) => {
+                        console.error('Error:', error);
+                    });
+                return false;
+            });
+            $('form#join_conversation').submit(function (event) {
+                let interested_conversation_name = $('#interested_conversation').val();
+                currentSocket.emit('join-conversation', interested_conversation_name, (ack, result) => {
+                    logPrinter(
+                        'Emitted',
+                        'join-conversation',
+                        'ACK for joining conversation: ' + ack + ',' + result
+                    )
+                    if (ack) {
+                        if (joined_conversations.indexOf(interested_conversation_name) > -1) {
+                            joined_conversations.push(interested_conversation_name);
+                            updateJoinedConversationNames();
+                        }
+                    }
+                });
+                return false;
+            });
+            $('form#leave_conversation').submit(function (event) {
+                let uninterested_conversation_name = $('#uninterested_conversation').val();
+                currentSocket.emit('leave-conversation', uninterested_conversation_name, (ack, result) => {
+                    logPrinter(
+                        'Emitted',
+                        'leave-conversation',
+                        'ACK for leaving conversation: ' + ack + ',' + result
+                    )
+                    if (ack) {
+                        let index = joined_conversations.indexOf(uninterested_conversation_name);
+                        if (index > -1) {
+                            joined_conversations.splice(index, 1);
+                            updateJoinedConversationNames();
+                        }
+                    }
+                });
+                return false;
+            });
+        });
+    </script>
+</head>
+
+<body>
+    <h1>AA Integration Service - Interactive Demo</h1>
+    <p>
+        Before sending messages: Set Conversation Profile, Create Conversation, Join Conversation, Create a User
+        participant and Create an Agent
+        participant.<br>
+    </p>
+    <form id="set_conversation_profile" method="POST" action='#'>
+        <input type="text" name="conversation_profile_test_name" id="conversation_profile_test_name"
+            placeholder="projects/your-project-id/conversationProfiles/your-conversation-profile-id">
+        <input type="submit" value="Set Conversation Profile">
+    </form>
+    <form id="create" method="POST" action="#">
+        <input type="submit" value="Create Conversation">
+    </form>
+    <form id="join" method="POST" action="#">
+        <input type="submit" value="Join Current Conversation">
+    </form>
+    <form id="create_user" method="POST" action="#">
+        <input type="submit" value="Create a User participant">
+    </form>
+    <form id="create_agent" method="POST" action="#">
+        <input type="submit" value="Create an Agent participant">
+    </form>
+    <form id="user_send" method="POST" action='#'>
+        <input type="text" name="user_send_message" id="user_send_message" placeholder="Message">
+        <input type="submit" value="Send Message as End User">
+    </form>
+    <form id="agent_send" method="POST" action='#'>
+        <input type="text" name="agent_send_message" id="agent_send_message" placeholder="Message">
+        <input type="submit" value="Send Message as Human Agent">
+    </form>
+    <form id="complete" method="POST" action="#">
+        <input type="submit" value="Complete Conversation">
+    </form>
+    <form id="leave" method="POST" action="#">
+        <input type="submit" value="Leave Current Conversation">
+    </form>
+    <form id="join_conversation" method="POST" action='#'>
+        <input type="text" name="interested_conversation" id="interested_conversation" placeholder="Conversation Name">
+        <input type="submit" value="Join Another Conversation">
+    </form>
+    <form id="leave_conversation" method="POST" action='#'>
+        <input type="text" name="uninterested_conversation" id="uninterested_conversation"
+            placeholder="Conversation Name">
+        <input type="submit" value="Leave Another Conversation">
+    </form>
+    <p>
+        Current transport is: <b><span id="transport"></span></b><br>
+        GCP Project Id: <b><span id="gcp_project_id"></span></b><br>
+        Conversation Profile Name: <b><span id="conversation_profile_name"></span></b><br>
+        Conversation Name: <b><span id="conversation_name"></span></b><br>
+        End User Name: <b><span id="end_user_name"></span></b><br>
+        Human Agent Name: <b><span id="human_agent_name"></span></b><br>
+    </p>
+    <h2>Joined Conversations</h2>
+    <div id="joined_conversations"></div>
+    <h2>Log (from latest to oldest)</h2>
+    <div id="log" style="width: 90%; height: 400px; overflow:scroll; border: thin #000 solid; padding: 5px;">
+    </div>
+</body>
+
+</html>
