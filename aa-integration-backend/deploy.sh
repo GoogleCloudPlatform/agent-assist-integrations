@@ -48,6 +48,13 @@ export AGENT_ASSIST_NOTIFICATIONS_TOPIC_ID='aa-new-suggestion-topic'
 export NEW_MESSAGE_NOTIFICATIONS_TOPIC_ID='aa-new-message-topic'
 export CONVERSATION_LIFECYCLE_NOTIFICATIONS_TOPIC_ID='aa-conversation-event-topic'
 
+# The option of authenticating users when registering JWT. By default it's empty and
+# no users are allowed to register JWT via UI Connector service.
+# Supported values:
+#   1. 'Salesforce': verify the auth token using Salesforce OpenID Connect.
+#   2. 'Skip': skip auth token verification, should not be used in production.
+export AUTH_OPTION=''
+
 # TODO: Check the secret key you plan to use.
 # We recommend generating a random hash as the JWT secret key so that it cannot be guessed by attackers.
 export JWT_SECRET_KEY=`echo $RANDOM | md5sum | head -c 20;`
@@ -218,7 +225,7 @@ gcloud run deploy $CONNECTOR_SERVICE_NAME \
   --region $SERVICE_REGION \
   --vpc-connector $VPC_CONNECTOR_NAME \
   --min-instances=1 \
-  --set-env-vars REDISHOST=$REDIS_HOST,REDISPORT=$REDIS_PORT,GCP_PROJECT_ID=$GCP_PROJECT_ID \
+  --set-env-vars REDISHOST=$REDIS_HOST,REDISPORT=$REDIS_PORT,GCP_PROJECT_ID=$GCP_PROJECT_ID,AUTH_OPTION=$AUTH_OPTION \
   --update-secrets=/secret/jwt_secret_key=${JWT_SECRET_NAME}:latest
 
 

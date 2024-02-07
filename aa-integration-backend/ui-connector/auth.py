@@ -18,7 +18,7 @@ import jwt
 from flask import request, jsonify
 from functools import wraps
 
-import config
+import config, auth_options
 
 jwt_secret_key = ''  # To be loaded from config.JWT_SECRET_KEY_PATH
 
@@ -29,7 +29,13 @@ def load_jwt_secret_key():
 
 
 def check_auth(token):
-    # TODO customize your authentication method here.
+    if (config.AUTH_OPTION == 'Salesforce'):
+        return auth_options.check_salesforce_token(token)
+    elif (config.AUTH_OPTION == 'Skip'):
+        return True
+    # Customize your authentication method here.
+    # elif (config.AUTH_OPTION == 'Your Auth Option'):
+    #     return auth_options.check_my_token(token)
     return False
 
 
