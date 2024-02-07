@@ -39,3 +39,10 @@ CORS_ALLOWED_ORIGINS = '*'
 
 # Lifetime for generated JWT
 JWT_TOKEN_LIFETIME = 60  # minutes
+
+# The option of authenticating users when registering JWT. By default it's empty and
+# no users are allowed to register JWT via UI Connector service.
+# Supported values:
+#   1. 'Salesforce': verify the auth token using Salesforce OpenID Connect.
+#   2. 'Skip': skip auth token verification, should not be used in production.
+AUTH_OPTION = os.environ.get('AUTH_OPTION', '')

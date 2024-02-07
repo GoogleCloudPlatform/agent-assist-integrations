@@ -233,6 +233,7 @@ Please prepare the following environment variables as you deploy the infrastruct
 10. `VPC_CONNECTOR_NAME`: the name of your [Serverless VPC Access connector](https://cloud.google.com/run/docs/configuring/connecting-vpc#create-connector) for connecting Cloud Run services to [Memorystore for Redis](https://cloud.google.com/memorystore/docs/redis/redis-overview). 
 11. `VPC_NETWORK`: the VPC network to attach your Serverless VPC Access connector to. The value should be 'default' if you do not set up VPC for your GCP project.
 12. `REDIS_IP_RANGE`: an unreserved internal IP network for your Serverless VPC Access connector. A '/28' of unallocated space is required, for example, 10.8.0.0/28 works in most new projects.
+13. `AUTH_OPTION`: The option of authenticating users when registering JWT. By default it's empty and no users are allowed to register JWT via UI Connector service. Supported values: 'Salesforce' - verify the auth token using Salesforce OpenID Connect, 'Skip' - skip auth token verification, should not be used in production.
 
 ## Authorize GCP Processes
 Using separate GCP accounts for service administration and runtime identity in your GCP project is recommended, as service administration is mainly performed by humans with [Google accounts](https://cloud.google.com/iam/docs/overview#google_account) and the latter one is to grant Cloud Run services permissions via [service accounts](https://cloud.google.com/iam/docs/overview#service_account) to enable their access to necessary resources.
@@ -270,7 +271,14 @@ Required IAM roles for UI Connector service account:
 4. [Dialogflow Agent Assist Client(roles/dialogflow.agentAssistClient)](https://cloud.google.com/iam/docs/understanding-roles#dialogflow-roles): access Dialogflow APIs for agents to handle live conversations using Agent Assist features.
 
 ## Customize User Authentication Method
-Implement your authentication method `auth.check_auth`. If without any changes, it returns false for any token attached to JWT generation requests.
+Implement your authentication method `auth.check_auth` or specify supported methods via setting the environment variable `AUTH_OPTION`. If without any changes, it returns false for any token attached to JWT generation requests.
+```bash
+# By default it's empty and no users are allowed to register JWT via UI Connector service.
+# Supported values:
+#   1. 'Salesforce': verify the auth token using Salesforce OpenID Connect.
+#   2. 'Skip': skip auth token verification, should not be used in production.
+$ export AUTH_OPTION='Salesforce'
+```
 
 ## Customize Allowed Origins (Recommended)
 To limit the origins that can access your service, please change the value of `config.CORS_ALLOWED_ORIGINS` variable. The default value `*` will allow any origin to visit your service.
@@ -322,7 +330,7 @@ $ gcloud run deploy $CONNECTOR_IMAGE_NAME \
 --timeout 3600 \
 --region $SERVICE_REGION \
 --vpc-connector $VPC_CONNECTOR_NAME \
---set-env-vars REDISHOST=$REDIS_HOST,REDISPORT=$REDIS_PORT,GCP_PROJECT_ID=$GCP_PROJECT_ID \
+--set-env-vars REDISHOST=$REDIS_HOST,REDISPORT=$REDIS_PORT,GCP_PROJECT_ID=$GCP_PROJECT_ID,AUTH_OPTION=$AUTH_OPTION \
 --update-secrets=/secret/jwt_secret_key=${JWT_SECRET_NAME}:latest
 ```
 Note the service URL for deployed UI Connector, which will be used by clients (agent desktops).
