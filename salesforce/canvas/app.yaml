@@ -13,7 +13,7 @@
 # limitations under the License.
 
 service: canvas-demo
-runtime: nodejs16
+runtime: nodejs20
 
 handlers:
 - url: /.*
