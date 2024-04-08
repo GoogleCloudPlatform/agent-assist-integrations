@@ -46,6 +46,8 @@
             'https://www.gstatic.com/agent-assist-ui-modules/staging/agent_coaching.js',
           smart_reply:
             'https://www.gstatic.com/agent-assist-ui-modules/staging/smart_reply.js',
+          live_translation:
+            'https://www.gstatic.com/agent-assist-ui-modules/staging/live_translation.js',
         },
         prod: {
           common:
@@ -64,6 +66,8 @@
             'https://www.gstatic.com/agent-assist-ui-modules/v1/agent_coaching.js',
           smart_reply:
             'https://www.gstatic.com/agent-assist-ui-modules/v1/smart_reply.js',
+          live_translation:
+            'https://www.gstatic.com/agent-assist-ui-modules/v1/live_translation.js',
         },
       };
 
@@ -106,6 +110,7 @@
         loadScript('knowledge_assist'),
         loadScript('knowledge_assist_v2'),
         loadScript('smart_reply'),
+        loadScript('live_translation'),
       ]);
     </script>
 
@@ -261,6 +266,9 @@
           <agent-assist-knowledge-assist-v2
             v-if="cachedComponents.includes('knowledge_assist_v2')"
           ></agent-assist-knowledge-assist-v2>
+          <agent-assist-live-translation
+            v-if="cachedComponents.includes('live_translation')"
+          ></agent-assist-live-translation>
         </div>
       </div>
       <q-dialog v-model="dialogModel">
@@ -316,6 +324,11 @@
               val="smart_reply"
               label="Smart Reply"
             ></q-checkbox>
+            <q-checkbox
+              v-model="componentsArray"
+              val="live_translation"
+              label="Live Translation"
+            ></q-checkbox>
 
             <br /><br />
             <div v-if="componentsArray[0] === 'container'">
@@ -349,6 +362,11 @@
                 v-model="featuresArray"
                 val="ARTICLE_SUGGESTION"
                 label="Article suggestion"
+              ></q-checkbox>
+              <q-checkbox
+                v-model="featuresArray"
+                val="LIVE_TRANSLATION"
+                label="Live translation"
               ></q-checkbox>
             </div>
           </q-card-section>
