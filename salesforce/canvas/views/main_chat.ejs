@@ -551,14 +551,6 @@
               }
             );
 
-            // Populate agent input box with Live Translation translation.
-            addAgentAssistEventListener(
-              'live-translation-selected',
-              ({ detail: { selectedResponse } }) => {
-                agentMessage.value += selectedResponse.translation;
-              }
-            );
-
             function handleOptionsSave() {
               let reload = false;
 
