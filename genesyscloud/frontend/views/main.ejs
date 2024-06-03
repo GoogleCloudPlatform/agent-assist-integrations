@@ -97,7 +97,7 @@
       var currentConversationId = urlParams.get('conversationid');
       var gcHostOrigin = urlParams.get('gcHostOrigin');
       var gcTargetEnv = urlParams.get('gcTargetEnv');
-
+      var firstTimeLoad = false;
 
       applicationServer = applicationServer.replace(/\/$/, "");
 
@@ -105,30 +105,34 @@
       var existingUiModulesEl = document.querySelector(UI_MODULES_EL_SELECTOR);
 
       function createUIElement(accessToken) {
-        var uiModulesEl = document.createElement(UI_MODULES_EL_SELECTOR);
-        var attributes = [
-          ['agent-desktop', 'GenesysCloud'],
-          ['features', urlParams.get('features')],
-          ['conversation-profile', urlParams.get('conversationProfile')],
-          ['auth-token', accessToken],
-          ['use-custom-conversation-id', 'true'],
-          ['oauth-client-id', clientId],
-          ['redirect-uri', redirectUri],
-          ['custom-api-endpoint', proxyServerEndPoint],
-        ];
-        for (var [attribute, value] of attributes) {
-          uiModulesEl.setAttribute(attribute, value);
-        }
-
-        uiModulesEl.config = {
-          knowledgeAssistConfig: {
-            articleLinkConfig: {
-              target: 'popup',
-              popupWindowOptions: 'height=800,width=600,left=600,top=100',
-            }
+        if(existingUiModulesEl){
+          existingUiModulesEl.setAttribute('auth-token', accessToken);
+        }else{
+          var uiModulesEl = document.createElement(UI_MODULES_EL_SELECTOR);
+          var attributes = [
+            ['agent-desktop', 'GenesysCloud'],
+            ['features', urlParams.get('features')],
+            ['conversation-profile', urlParams.get('conversationProfile')],
+            ['auth-token', accessToken],
+            ['use-custom-conversation-id', 'true'],
+            ['oauth-client-id', clientId],
+            ['redirect-uri', redirectUri],
+            ['custom-api-endpoint', proxyServerEndPoint],
+          ];
+          for (var [attribute, value] of attributes) {
+            uiModulesEl.setAttribute(attribute, value);
           }
-        };
-        document.body.appendChild(uiModulesEl);
+
+          uiModulesEl.config = {
+            knowledgeAssistConfig: {
+              articleLinkConfig: {
+                target: 'popup',
+                popupWindowOptions: 'height=800,width=600,left=600,top=100',
+              }
+            }
+          };
+          document.body.appendChild(uiModulesEl);
+        }
       }
 
       /** When the first time UI module load, parse an empty token */
@@ -146,11 +150,9 @@
               }
               return res.json();
             }).then(function(body){
-              existingUiModulesEl = document.querySelector(UI_MODULES_EL_SELECTOR);
-              // remove the old unauthenticated element and create a new one
-              if(existingUiModulesEl && !accessToken){
+              firstTimeLoad = existingUiModulesEl && !accessToken;
+              if(firstTimeLoad){
                 accessToken = body.token;
-                document.body.removeChild(existingUiModulesEl);
                 createUIElement(accessToken);
               }
 
