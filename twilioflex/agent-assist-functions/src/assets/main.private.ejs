@@ -1,0 +1,358 @@
+<html>
+  <head>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Open+Sans&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css?family=Product+Sans"
+      rel="stylesheet"
+    />
+
+    <% if (debug === 'true') { %>
+      <script>
+        window._uiModuleFlags = { debug: true };
+      </script>
+    <% } %>
+    
+    <!-- WebComponents polyfill. Needed for rendering web components in older browsers. -->
+    <script src="https://www.gstatic.com/external_hosted/document_register_element/document-register-element.js"></script>
+    <script src="https://www.gstatic.com/agent-assist-ui-modules/v1.6/container.js"></script>
+    <script src="https://www.gstatic.com/agent-assist-ui-modules/transcript.js"></script>
+    <script src="https://sdk.twilio.com/js/conversations/v2.5/twilio-conversations.min.js"></script>
+    <style>
+      html,
+      body {
+        padding: 0;
+      }
+
+      body {
+        background-color: #fff;
+        font-family: 'Open Sans', sans-serif;
+      }
+
+      .header-bar > h2 {
+        color: #5f6368;
+        display: flex;
+        align-items: center;
+        font-family: 'Product Sans', Arial, sans-serif;
+        font-size: 22px;
+        font-weight: 300;
+        line-height: 24px;
+        margin-top: 16px;
+        padding-left: 8px;
+        position: relative;
+        top: -1.5px;
+        vertical-align: middle;
+      }
+
+      .header-bar > h2 > img {
+        margin-top: 2px;
+        margin-right: 8px;
+      }
+
+      .app-container {
+        display: flex;
+        gap: 60px;
+        justify-content: space-between;
+      }
+
+      .messages-container,
+      .ui-modules-container {
+        flex: 1;
+        height: 80vh;
+      }
+
+      .proxy-number {
+        color: #222;
+      }
+
+      .header-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="header-bar">
+      <h2>
+        <img
+          src="https://www.gstatic.com/images/branding/googlelogo/svg/googlelogo_clr_74x24px.svg"
+        />
+        Contact Center AI
+      </h2>
+      <div class="status-container"></div>
+    </div>
+    <div class="app-container">
+      <div class="ui-modules-container"></div>
+    </div>
+    <script>
+      const UI_MODULES_EL_SELECTOR = 'agent-assist-ui-modules';
+      const proxyServerEndpoint = '<%= proxyServer %>';
+      const applicationServer = '<%= applicationServer %>';
+      const conversationName = '<%= conversationName %>';
+      const conversationProfile = '<%= conversationProfile %>';
+      const conversationSid = '<%= conversationSid %>';
+      const agentIdentity = '<%= agentIdentity %>';
+      const features = '<%= features %>';
+      const channelType = '<%= channelType %>';
+      const debug = '<%= debug %>';
+      const agentToken = '<%= agentToken %>';
+      // Dialogflow-specific authentication token.
+      let authToken;
+
+      const chatToken = '<%= chatToken %>';
+      const client = new Twilio.Conversations.Client(chatToken);
+      let currentConversation;
+      let messages = [];
+      let participantMap;
+
+     
+
+      registerAuthToken(agentToken).then((token)=> {
+        authToken = token;
+        agentAssistListenToEvents();
+        twilioListenToEvents();
+        initializeSuggestionModules();
+      });
+      
+
+      /**************************
+       * Proxy server functions *
+       **************************/
+
+      /**
+       * Exchanges the agent's Salesforce OAuth token for one that can be used to call the
+       * Dialogflow API.
+       **/
+      async function registerAuthToken(twilioAuthToken) {
+        const response = await fetch(proxyServerEndpoint + '/register', {
+          method: 'POST',
+          headers: [['Authorization', twilioAuthToken]],
+        })
+        const responseBody = await response.json();
+        const token = responseBody.token;
+        return token;
+      }
+
+      /**
+       * Refreshes the agent's Salesforce auth token, and exchanges it for a new Dialogflow-specific
+       * auth token.
+       **/
+      async function refreshAuthToken() {
+        chatToken = await fetchTwilioChatToken();
+        client = client.updateToken(chatToken);
+        registerAuthToken(chatToken)
+          .then(function (dialogflowToken) {
+            authToken = dialogflowToken;
+
+            var uiModulesEl = document.querySelector(
+              UI_MODULES_EL_SELECTOR
+            );
+            if (uiModulesEl) {
+              uiModulesEl.setAttribute('auth-token', authToken);
+            }
+          })
+          .catch(function (err) {
+            console.error('Could not register OAuth token.', err);
+          });
+      }
+
+      /***********************
+       * UI moudle functions *
+       ***********************/
+
+      /**
+       * Initializes the core UI modules that surface suggestions to the agent.
+       */
+      async function initializeSuggestionModules() {
+        var uiModulesEl = document.createElement(UI_MODULES_EL_SELECTOR);
+
+        var chatAttributes = [
+          ['custom-api-endpoint', proxyServerEndpoint],
+          ['channel', 'chat'],
+          ['agent-desktop', 'Custom'],
+          ['features', features],
+          ['conversation-profile', conversationProfile],
+          ['auth-token', authToken],
+          ['dark-mode-background', '#334762'],
+        ];
+
+        for (var attribute of chatAttributes) {
+          uiModulesEl.setAttribute(attribute[0], attribute[1]);
+        }
+
+        document
+          .querySelector('.ui-modules-container')
+          .appendChild(uiModulesEl);
+        
+        await waitForElm(UI_MODULES_EL_SELECTOR);
+      }
+
+      /*********************
+       * Utility Functions *
+       ********************/
+
+      function logMessage(msg, obj=undefined) {
+        if(debug){
+          console.log(msg);
+          if(obj){
+            console.log(obj);
+          }
+        }
+      }
+
+      function logTwilioEvent(eventName, event){
+        if(debug){
+          const eventDetails = {
+            api: 'Conversation API',
+            eventName
+          }
+          console.table(eventDetails);
+        }
+      }
+
+      function waitForElm(selector) {
+        return new Promise(resolve => {
+          if (document.querySelector(selector)) {
+            return resolve(document.querySelector(selector));
+          }
+          const observer = new MutationObserver(mutations => {
+            if (document.querySelector(selector)) {
+              observer.disconnect();
+              resolve(document.querySelector(selector));
+            }
+          });
+          // If you get "parameter 1 is not of type 'Node'" error, see https://stackoverflow.com/a/77855838/492336
+          observer.observe(document.body, {
+            childList: true,
+            subtree: true
+          });
+        });
+      }
+
+      async function fetchTwilioChatToken() {
+        await fetch(`${applicationServer}/chat-token-service?agentIdentity=${agentIdentity}`);
+      }
+
+      /********************************************
+       * Twilio Conversation SDK Helper functions *
+       ********************************************/
+
+       async function sendMessage(message) {
+          try {
+            currentConversation.sendMessage(message);
+          }
+          catch (error) {
+            console.error(error);
+          }
+        }
+
+        async function getParticipants() {
+          try{
+            currentConversation = await client.getConversationBySid(conversationSid);
+            console.log(currentConversation)
+            const participants = await currentConversation.getParticipants();
+            return participants;
+          }
+          catch (error) {
+            console.error(error);
+          }
+        }
+
+        async function fetchMessages(skip = undefined) {
+          const result = await currentConversation.getMessages(30, skip);
+          messages = [...result.items, ...messages];
+          if (!skip) {
+            let resetTo = messages.length >= 1 ? messages[messages.length - 1].index : 0;
+            await currentConversation.updateLastReadMessageIndex(resetTo);
+          }
+          const agentAssistMessageRequest = messages.map(msg => ({
+            parent: conversationName,
+            message: {
+                content: msg.body,
+                participant: participantMap.get(msg.author).name,
+                participantRole: participantMap.get(msg.author).role,
+                sendTime: msg.dateCreated.toISOString()
+            }
+          }))
+          if (agentAssistMessageRequest.length > 0) {
+            logMessage("Message to be created", agentAssistMessageRequest)
+            dispatchAgentAssistEvent("batch-create-messages-requested", {
+              detail: {
+                conversationName,
+                request: {
+                    requests: agentAssistMessageRequest
+                }
+              }
+            });
+          };
+        }
+
+      /*******************************
+       * Dialogflow Helper functions *
+       *******************************/
+      function analyzeContent(participantRole, text, messageSendTime){
+        dispatchAgentAssistEvent("analyze-content-requested", {
+          detail: {
+            conversationId: conversationSid,
+            participantRole, 
+            request: {
+              textInput: {
+                  text,
+                  messageSendTime
+              }
+            }
+          }
+        });
+      }
+
+      /********************************
+       * Twilio event to Agent Assist *
+       ********************************/
+      function twilioListenToEvents(){
+        client.on('messageAdded', (msg) => {
+          logTwilioEvent('messageAdded', msg);
+          analyzeContent(participantMap.get(msg.author).role, msg.body, msg.dateCreated.toString())
+        });
+
+        client.on('tokenAboutToExpire', () => {
+          console.log('About to expire');
+          refreshAuthToken();
+        });
+      }
+
+      /********************************
+       * Agent Assist event to Twilio *
+       ********************************/
+      function agentAssistListenToEvents(){
+        addAgentAssistEventListener('conversation-initialized', async function (event) {
+          logMessage('conversation-initialized', event)
+          const participants = await getParticipants();
+          const agent = [participants[0].identity, {...event.detail.participants.HUMAN_AGENT}];
+          const user = [participants[1].identity, {...event.detail.participants.END_USER}];
+          participantMap = new Map([agent,user]);
+          await fetchMessages();
+        });
+
+        addAgentAssistEventListener('smart-reply-selected', function (event) {
+          sendMessage(event.detail.answer.reply);
+        });
+
+        addAgentAssistEventListener('agent-coaching-response-selected', function (event) {
+          navigator.clipboard.writeText(event.detail.selectedResponse);
+        });
+
+        addAgentAssistEventListener('api-connector-initialized', function () {
+          dispatchAgentAssistEvent('active-conversation-selected', {
+            detail: { conversationName },
+          });
+        });
+      }
+    </script>
+  </body>
+</html>

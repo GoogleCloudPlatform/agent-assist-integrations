@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <base href="/" />
+  <title>Agent Assist UI Modules</title>
+  <link href="https://fonts.googleapis.com/css?family=Roboto" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css?family=Roboto:medium" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans:medium" rel="stylesheet" />
+  <style>
+    .authenticate-message {
+      font-family: 'Roboto', sans-serif;
+      font-size: 12px;
+      color: #333;
+    }
+  </style>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background-color: #fff;
+        font-family: 'Open Sans', sans-serif;
+      }
+
+      .header-bar > h2 {
+        color: #5f6368;
+        display: flex;
+        align-items: center;
+        font-family: 'Product Sans', Arial, sans-serif;
+        font-size: 22px;
+        font-weight: 300;
+        line-height: 24px;
+        margin-top: 16px;
+        padding-left: 8px;
+        position: relative;
+        top: -1.5px;
+        vertical-align: middle;
+      }
+
+      .header-bar > h2 > img {
+        margin-top: 2px;
+        margin-right: 8px;
+      }
+
+      .app-container {
+        display: flex;
+        gap: 60px;
+        justify-content: space-between;
+      }
+      .ui-modules-container {
+        flex: 1;
+        height: 80vh;
+      }
+
+      .proxy-number {
+        color: #222;
+      }
+
+      .header-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+    </style>
+  <!-- WebComponents polyfill. Needed for rendering web components in older browsers. -->
+  <script src="https://www.gstatic.com/external_hosted/document_register_element/document-register-element.js"></script>
+  <!-- Core UI module container. Loads all UI module-specific scripts. -->
+  <script src="https://www.gstatic.com/agent-assist-ui-modules/v1.7/container.js"></script>
+</head>
+
+<body>
+  <div class="header-bar">
+    <h2>
+      <img
+        src="https://www.gstatic.com/images/branding/googlelogo/svg/googlelogo_clr_74x24px.svg"
+      />
+      Contact Center AI
+    </h2>
+    <div class="status-container"></div>
+  </div>
+  <script>
+    window.addEventListener('load', function () {
+
+      var UI_MODULES_EL_SELECTOR = 'agent-assist-ui-modules';
+      var proxyServerEndPoint = '<%= proxyServer %>';
+      var conversationProfile = '<%= conversationProfile %>';
+      var features = '<%= features %>';
+      var genesysCloudRegion = '<%= genesysCloudRegion %>';
+      var clientId = '<%= clientID %>'
+      var applicationServer = '<%= applicationServer %>'
+      var accessToken = '';
+      var urlParams = new URLSearchParams(window.location.search);
+      var currentConversationId = urlParams.get('conversationid');
+      var gcHostOrigin = urlParams.get('gcHostOrigin');
+      var gcTargetEnv = urlParams.get('gcTargetEnv');
+      var firstTimeLoad = false;
+
+      applicationServer = applicationServer.replace(/\/$/, "");
+
+      var redirectUri = `${applicationServer}?conversationProfile=${conversationProfile}&features=${features}`;
+      var existingUiModulesEl = document.querySelector(UI_MODULES_EL_SELECTOR);
+
+      function createUIElement(accessToken) {
+        if(existingUiModulesEl){
+          existingUiModulesEl.setAttribute('auth-token', accessToken);
+        }else{
+          var uiModulesEl = document.createElement(UI_MODULES_EL_SELECTOR);
+          var attributes = [
+            ['agent-desktop', 'GenesysCloud'],
+            ['features', urlParams.get('features')],
+            ['conversation-profile', urlParams.get('conversationProfile')],
+            ['auth-token', accessToken],
+            ['use-custom-conversation-id', 'true'],
+            ['oauth-client-id', clientId],
+            ['redirect-uri', redirectUri],
+            ['custom-api-endpoint', proxyServerEndPoint],
+          ];
+          for (var [attribute, value] of attributes) {
+            uiModulesEl.setAttribute(attribute, value);
+          }
+
+          uiModulesEl.config = {
+            knowledgeAssistConfig: {
+              articleLinkConfig: {
+                target: 'popup',
+                popupWindowOptions: 'height=800,width=600,left=600,top=100',
+              }
+            }
+          };
+          document.body.appendChild(uiModulesEl);
+        }
+      }
+
+      /** When the first time UI module load, parse an empty token */
+      if (!existingUiModulesEl && !accessToken) {
+          createUIElement(accessToken);
+      }
+
+      /** After the genesys OAuth, get the access token */
+      addAgentAssistEventListener(
+          'genesys-cloud-connector-access-token-received', function(event) {
+            var genesysCloudAccessToken = event.detail.accessToken;
+            authenticateGenesysCloud(genesysCloudAccessToken).then(function(res) {
+              if (res.status !== 200) {
+                document.body.removeChild(existingUiModulesEl);
+              }
+              return res.json();
+            }).then(function(body){
+              firstTimeLoad = existingUiModulesEl && !accessToken;
+              if(firstTimeLoad){
+                accessToken = body.token;
+                createUIElement(accessToken);
+              }
+
+            });
+          });
+
+
+      /**
+       * Authenticate the Genesys Cloud access token
+       * @param {string} accessToken
+       * @return {!Promise<number>}
+       */
+      function authenticateGenesysCloud(accessToken) {
+        return fetch(proxyServerEndPoint + '/register', {
+                method: 'POST',
+                headers: [['Authorization', accessToken]],
+              })
+      }
+    });
+  </script>
+</body>
+
+</html>
