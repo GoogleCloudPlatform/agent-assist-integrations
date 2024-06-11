@@ -124,6 +124,25 @@
                 $('#gcp_project_id').text(project_id);
                 return false;
             });
+            $('form#get_conversation_profile').submit(function (event) {
+                fetch(serviceUrl + versionUrl + conversation_profile_name, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': JWT,
+                    },
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        $('#log').prepend(
+                            $('<div/>').text('Received <conversation_profile> ' + JSON.stringify(data)).html() + '<br><br>'
+                        );
+                    })
+                    .catch((error) => {
+                        console.error('Error:', error);
+                    });
+                return false;
+            });
             $('form#create').submit(function (event) {
                 fetch(serviceUrl + versionUrl + 'projects/' + project_id + '/locations/global/conversations', {
                     method: 'POST',
@@ -144,6 +163,14 @@
                     .catch((error) => {
                         console.error('Error:', error);
                     });
+                return false;
+            });
+            $('form#set_conversation').submit(function (event) {
+                conversation_name = $('#input_conversation_name').val();
+                $('#conversation_name').text(conversation_name);
+
+                project_id = conversation_name.split('/')[1]
+                $('#gcp_project_id').text(project_id);
                 return false;
             });
             $('form#join').submit(function (event) {
@@ -332,8 +359,15 @@
             placeholder="projects/your-project-id/conversationProfiles/your-conversation-profile-id">
         <input type="submit" value="Set Conversation Profile">
     </form>
+    <form id="get_conversation_profile" method="GET" action="#">
+        <input type="submit" value="Get Conversation Profile">
+    </form>
     <form id="create" method="POST" action="#">
         <input type="submit" value="Create Conversation">
+    </form>
+    <form id="set_conversation" method="POST" action='#'>
+        <input type="text" name="input_conversation_name" id="input_conversation_name">
+        <input type="submit" value="Set as Current Conversation">
     </form>
     <form id="join" method="POST" action="#">
         <input type="submit" value="Join Current Conversation">

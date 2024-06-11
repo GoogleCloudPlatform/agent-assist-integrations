@@ -31,6 +31,10 @@ def load_jwt_secret_key():
 def check_auth(token):
     if (config.AUTH_OPTION == 'Salesforce'):
         return auth_options.check_salesforce_token(token)
+    elif (config.AUTH_OPTION == 'GenesysCloud'):
+        return auth_options.check_genesyscloud_token(token)
+    elif (config.AUTH_OPTION == 'Twilio'):
+        return auth_options.check_twilio_token(token)
     elif (config.AUTH_OPTION == 'Skip'):
         return True
     # Customize your authentication method here.

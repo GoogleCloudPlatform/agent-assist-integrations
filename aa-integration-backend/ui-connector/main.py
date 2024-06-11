@@ -121,6 +121,10 @@ def register_token():
 @app.route('/<version>/projects/<project>/locations/<location>/conversationModels/<path:path>', methods=['GET'])
 # projects.locations.suggestions.searchKnowledge
 @app.route('/<version>/projects/<project>/locations/<location>/suggestions:searchKnowledge', defaults={'path': None}, methods=['POST'])
+# projects.locations.conversations.generateStatelessSuggestion
+@app.route('/<version>/projects/<project>/locations/<location>/statelessSuggestion:generate', defaults={'path': None}, methods=['POST'])
+# projects.locations.generators.get
+@app.route('/<version>/projects/<project>/locations/<location>/generators/<path:path>', methods=['GET'])
 @token_required
 def call_dialogflow(version, project, location, path):
     """Forwards valid request to dialogflow and return its responese."""
