@@ -22,6 +22,10 @@
 #     2. Create your conversation profile and configure it with desired Cloud Pub/Sub notifications.
 #       - How to create a conversation profile: https://cloud.google.com/agent-assist/docs/conversation-profile
 #       - How to enable Cloud Pub/Sub notifications: https://cloud.google.com/agent-assist/docs/pub-sub
+#       - How to create the Pub/Sub topics: https://cloud.google.com/pubsub/docs/create-topic#pubsub_create_topic-gcloud
+#           1).`projects/${GCP_PROJECT_ID}/topics/${CONVERSATION_LIFECYCLE_NOTIFICATIONS_TOPIC_ID}`
+#           2).`projects/${GCP_PROJECT_ID}/topics/${NEW_MESSAGE_NOTIFICATIONS_TOPIC_ID}`
+#           3).`projects/${GCP_PROJECT_ID}/topics/${AGENT_ASSIST_NOTIFICATIONS_TOPIC_ID}`
 #     3. Make sure your account has Owner permissions in your GCP project or been granted the following IAM roles.
 #       - Project IAM Admin (roles/resourcemanager.projectIamAdmin)
 #       - Service Usage Admin (roles/serviceusage.serviceUsageAdmin)
@@ -48,11 +52,19 @@ export AGENT_ASSIST_NOTIFICATIONS_TOPIC_ID='aa-new-suggestion-topic'
 export NEW_MESSAGE_NOTIFICATIONS_TOPIC_ID='aa-new-message-topic'
 export CONVERSATION_LIFECYCLE_NOTIFICATIONS_TOPIC_ID='aa-conversation-event-topic'
 
+# The IP Range must not overlap with existing IP address reservations
+# in our VPC Network. The default IP range below will work in most new project
+# To confirm, follow the documentation below to check the IP Range
+# https://cloud.google.com/vpc/docs/configure-serverless-vpc-access#create-connector
+export REDIS_IP_RANGE='10.8.0.0/28'
+
 # The option of authenticating users when registering JWT. By default it's empty and
 # no users are allowed to register JWT via UI Connector service.
 # Supported values:
 #   1. 'Salesforce': verify the auth token using Salesforce OpenID Connect.
-#   2. 'Skip': skip auth token verification, should not be used in production.
+#   2. 'GenesysCloud': verify the auth token using Genesys SDK UsersAPI.
+#   3. 'Twilio': verify the auth token for Twilio.
+#   4. 'Skip': skip auth token verification, should not be used in production.
 export AUTH_OPTION=''
 
 # TODO: Check the secret key you plan to use.
@@ -68,7 +80,6 @@ export JWT_SECRET_NAME='aa-integration-jwt-secret'
 # Configurations for Memorystore for Redis.
 export VPC_CONNECTOR_NAME='aa-integration-vpc'
 export VPC_NETWORK='default'
-export REDIS_IP_RANGE='10.8.0.0/28'
 export REDIS_INSTANCE_ID='aa-integration-redis'
 
 # Configurations for Cloud Run services.
@@ -178,8 +189,8 @@ if [[ $JWT_SECRET_NAME = `gcloud secrets list --filter=$JWT_SECRET_NAME --format
 else
   printf $JWT_SECRET_KEY | \
   gcloud secrets create $JWT_SECRET_NAME \
-    --data-file=-
-    --replication-policy=user-managed
+    --data-file=- \
+    --replication-policy=user-managed \
     --locations=$SERVICE_REGION
 fi
 

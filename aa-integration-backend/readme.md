@@ -1,20 +1,56 @@
 # Agent Assist Integration Services
 A backend infrastructure for Agent Assist integration, including Cloud Pub/Sub Interceptor service and UI Connector service. The Interceptor processes feature-related event notifications from Dialogflow via [Cloud Pub/Sub](https://cloud.google.com/pubsub/docs/publisher) topics and then UI Connector pushes them to Agent Desktop UI. UI Connector also supports feedback signals from Agent Desktop and sends them to Dialogflow.
 
+**Content**
+1. [Directory](#directory)
+2. [Structure](#structure)
+    - [Cloud Pub/Sub](#cloud-pubsub)
+    - [Cloud Pub/Sub Interceptor (deployed on Cloud Run)](#cloud-pubsub-interceptor-deployed-on-cloud-run)
+    - [Redis (using Memorystore for Redis)](#redis-using-memorystore-for-redis)
+    - [UI Connector (deployed on Cloud Run)](#ui-connector-deployed-on-cloud-run)
+    - [Secret Manager](#secret-manager)
+3. [Workflows](#workflows)
+    - [Workflow 0: JWT registration (UI Connector)](#workflow-0-jwt-registration-ui-connector)
+    - [Workflow 1: AA event handling](#workflow-1-aa-event-handling)
+    - [Workflow 2: Dialogflow request processing](#workflow-2-dialogflow-request-processing)
+4. [APIs](#apis)
+    - [Cloud Pub/Sub Interceptor](#cloud-pubsub-interceptor)
+    - [UI Connector](#ui-connector)
+      - [JWT Registration API](#jwt-registration-api)
+      - [Dialogflow Proxy APIs](#dialogflow-proxy-apis)
+6. [Automated Deployment](#automated-deployment)
+7. [Connection Test](#connection-test)
+8. [How to Deploy and Run Manually](#how-to-deploy-and-run-manually)
+    - [Prerequisite](#prerequisite)
+    - [Set up Environment Variables](#set-up-environment-variables)
+    - [Authorize GCP Processes](#authorize-gcp-processes)
+    - [Customize User Authentication Method](#customize-user-authentication-method)
+    - [Customize Allowed Origins (Recommended)](#customize-allowed-origins-recommended)
+    - [Generate and Store JWT Secret Key](#generate-and-store-jwt-secret-key)
+    - [Memorystore for Redis Setup](#memorystore-for-redis-setup)
+    - [Deploy UI Connector Service](#deploy-ui-connector-service)
+    - [Deploy Cloud Pub/Sub Interceptor Service](#deploy-cloud-pubsub-interceptor-service)
+    - [Configure Cloud Pub/Sub Subscriptions](#configure-cloud-pubsub-subscriptions)
+
+
 # Directory
 ```
 .
+├── LICENSE
 ├── cloud-pubsub-interceptor
 │   ├── Dockerfile - Builds Docker image for Cloud Pub/Sub Interceptor deployment on Cloud Run
 │   ├── main.py - A starter for flask app
 │   ├── requirements.txt
 │   └── unit_test.py - Unit test code for Cloud Pub/Sub Interceptor
+├── deploy.sh - An automated deployment script.
+├── images
+├── readme.md
 └── ui-connector
-    ├── auth.py - Handles JWT validation and registration
-    ├── config.py - Configures variables about authentication, logging and CORS origins
-    ├── deploy.sh - An automated deployment script.
-    ├── dialogflow.py - Includes dialogflow utilities for handling conversations at runtime
     ├── Dockerfile - Builds Docker image for UI Connector deployment on Cloud Run
+    ├── auth.py - Handles JWT validation and registration
+    ├── auth_options.py - Supports authentication via different identity providers
+    ├── config.py - Configures variables about authentication, logging and CORS origins
+    ├── dialogflow.py - Includes dialogflow utilities for handling conversations at runtime
     ├── main.py - A starter for flask app
     ├── requirements.txt
     ├── templates
@@ -42,8 +78,11 @@ As WebSockets connections are stateful, the agent desktop will stay connected to
 4. Subscribes event messages to Redis Pub/Sub channels for conversations it handles. 
 5. Pushes Agent Assist events to the desktop UI as they are received.
 
+## [Secret Manager](https://cloud.google.com/secret-manager)
+UI Connector needs a JWT secret key for generating temporary JWTs for authenticated agent desktops. This secret key will be stored in the Secret Manager.
+
 # Workflows
-With the four components above, the backend infrastructure works for two typical workflows: AA event handling and Dialogflow request processing. Both of them should be protected by a valid JWT, which can be registered via a HTTP request with a customized token.
+With the five components above, the backend infrastructure works for two typical workflows: AA event handling and Dialogflow request processing. Both of them should be protected by a valid JWT, which can be registered via a HTTP request with a customized token.
 ## Workflow 0: JWT registration (UI Connector)
 Before any workflow, agent desktop should send a HTTP request to UI Connector for JWT registration. The customers should customize the authorization requirement before it accepts any Authorization header of the registration request. For example, if a business customer wants to use Salesforce Bearer tokens to authenticate an agent desktop, they can enforce UI Connector to call the Salesforce backend to check Authorization header passed by the agent desktop.
 ### Steps
@@ -76,7 +115,7 @@ After getting valid JWT, the steps for sending Dialogflow calls are listed below
 2. UI Connector validates the JWT and checks whether the request path could be converted to available Dialogflow HTTP request. If yes, it sends DialogflowRequest and forwards original DialogflowResponse to Agent UI.
 ![](images/workflow2_proxy.png)
 
-# Public APIs
+# APIs
 ## Cloud Pub/Sub Interceptor
 The interceptor is dedicated to receiving messages posted by Cloud Pub/Sub topics. It expects suggestions for human agents, new messages and conversation lifecycle events posted to three separate request URLs. 
 
@@ -233,7 +272,7 @@ Please prepare the following environment variables as you deploy the infrastruct
 10. `VPC_CONNECTOR_NAME`: the name of your [Serverless VPC Access connector](https://cloud.google.com/run/docs/configuring/connecting-vpc#create-connector) for connecting Cloud Run services to [Memorystore for Redis](https://cloud.google.com/memorystore/docs/redis/redis-overview). 
 11. `VPC_NETWORK`: the VPC network to attach your Serverless VPC Access connector to. The value should be 'default' if you do not set up VPC for your GCP project.
 12. `REDIS_IP_RANGE`: an unreserved internal IP network for your Serverless VPC Access connector. A '/28' of unallocated space is required, for example, 10.8.0.0/28 works in most new projects.
-13. `AUTH_OPTION`: The option of authenticating users when registering JWT. By default it's empty and no users are allowed to register JWT via UI Connector service. Supported values: 'Salesforce' - verify the auth token using Salesforce OpenID Connect, 'Skip' - skip auth token verification, should not be used in production.
+13. `AUTH_OPTION`: The option of authenticating users when registering JWT. By default it's empty and no users are allowed to register JWT via UI Connector service. Supported values: 'Salesforce', 'GenesysCloud', 'Twilio', 'Skip' (skip auth token verification, should not be used in production).
 
 ## Authorize GCP Processes
 Using separate GCP accounts for service administration and runtime identity in your GCP project is recommended, as service administration is mainly performed by humans with [Google accounts](https://cloud.google.com/iam/docs/overview#google_account) and the latter one is to grant Cloud Run services permissions via [service accounts](https://cloud.google.com/iam/docs/overview#service_account) to enable their access to necessary resources.
@@ -271,12 +310,14 @@ Required IAM roles for UI Connector service account:
 4. [Dialogflow Agent Assist Client(roles/dialogflow.agentAssistClient)](https://cloud.google.com/iam/docs/understanding-roles#dialogflow-roles): access Dialogflow APIs for agents to handle live conversations using Agent Assist features.
 
 ## Customize User Authentication Method
-Implement your authentication method `auth.check_auth` or specify supported methods via setting the environment variable `AUTH_OPTION`. If without any changes, it returns false for any token attached to JWT generation requests.
+Implement your authentication method `auth.check_auth` or specify supported identity provider via setting the environment variable `AUTH_OPTION` at `ui-connector/config.py`. If without any changes, it returns false for any token attached to JWT generation requests.
 ```bash
 # By default it's empty and no users are allowed to register JWT via UI Connector service.
 # Supported values:
-#   1. 'Salesforce': verify the auth token using Salesforce OpenID Connect.
-#   2. 'Skip': skip auth token verification, should not be used in production.
+#   1. 'Salesforce': verify the auth token using Salesforce OpenID Connect. Required environment variable: SALESFORCE_ORGANIZATION_ID. 
+#   2. 'GenesysCloud': verify the auth token using Genesys SDK UsersAPI.
+#   3. 'Twilio': verify the auth token for Twilio. Required environment variable: TWILIO_FLEX_ENVIRONMENT.
+#   4. 'Skip': skip auth token verification, should not be used in production.
 $ export AUTH_OPTION='Salesforce'
 ```
 
