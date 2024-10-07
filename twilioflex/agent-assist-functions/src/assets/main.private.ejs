@@ -16,10 +16,10 @@
         window._uiModuleFlags = { debug: true };
       </script>
     <% } %>
-    
+
     <!-- WebComponents polyfill. Needed for rendering web components in older browsers. -->
     <script src="https://www.gstatic.com/external_hosted/document_register_element/document-register-element.js"></script>
-    <script src="https://www.gstatic.com/agent-assist-ui-modules/v1.6/container.js"></script>
+    <script src="https://www.gstatic.com/agent-assist-ui-modules/v1.9/container.js"></script>
     <script src="https://www.gstatic.com/agent-assist-ui-modules/transcript.js"></script>
     <script src="https://sdk.twilio.com/js/conversations/v2.5/twilio-conversations.min.js"></script>
     <style>
@@ -172,24 +172,14 @@
       async function initializeSuggestionModules() {
         var uiModulesEl = document.createElement(UI_MODULES_EL_SELECTOR);
 
-        var chatAttributes = [
-          ['custom-api-endpoint', proxyServerEndpoint],
-          ['channel', 'chat'],
-          ['agent-desktop', 'Custom'],
-          ['features', features],
-          ['conversation-profile', conversationProfile],
-          ['auth-token', authToken],
-          ['dark-mode-background', '#334762'],
-        ];
-
-        for (var attribute of chatAttributes) {
+        for (var attribute of conversationAttributes(channelType)) {
           uiModulesEl.setAttribute(attribute[0], attribute[1]);
         }
 
         document
           .querySelector('.ui-modules-container')
           .appendChild(uiModulesEl);
-        
+
         await waitForElm(UI_MODULES_EL_SELECTOR);
       }
 
@@ -255,7 +245,6 @@
         async function getParticipants() {
           try{
             currentConversation = await client.getConversationBySid(conversationSid);
-            console.log(currentConversation)
             const participants = await currentConversation.getParticipants();
             return participants;
           }
@@ -311,6 +300,33 @@
         });
       }
 
+      function conversationAttributes(channelType){
+        const commonVals = [
+          [
+            ['custom-api-endpoint', proxyServerEndpoint],
+            ['agent-desktop', 'Custom'],
+            ['features', features],
+            ['conversation-profile', conversationProfile],
+            ['auth-token', authToken],
+          ]
+        ]
+        switch(channelType){
+          case 'voice':
+            return [
+              ...commonVals,
+              ['notifier-server-endpoint', proxyServerEndpoint],
+              ['event-based-library', 'SocketIo'],
+              ['channel', 'voice'],
+              ['use-custom-conversation-id', 'true'],
+            ]
+          case 'web':
+            return [
+              ...commonVals,
+              ['channel', 'chat'],
+            ]
+        }
+      }
+
       /********************************
        * Twilio event to Agent Assist *
        ********************************/
@@ -336,6 +352,7 @@
           const agent = [participants[0].identity, {...event.detail.participants.HUMAN_AGENT}];
           const user = [participants[1].identity, {...event.detail.participants.END_USER}];
           participantMap = new Map([agent,user]);
+
           await fetchMessages();
         });
 
@@ -351,6 +368,10 @@
           dispatchAgentAssistEvent('active-conversation-selected', {
             detail: { conversationName },
           });
+        });
+
+        addAgentAssistEventListener('new-message-received', function (event) {
+          parent.postMessage({type: 'new-message-received', detail: event.detail}, "*")
         });
       }
     </script>

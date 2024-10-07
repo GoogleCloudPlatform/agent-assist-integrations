@@ -36,7 +36,7 @@ type AgentAssistContext = {
 
 interface RequestParameters {
   conversationProfile?: string;
-  conversationSid?: string;
+  conversationId?: string;
   features?: string;
   agentIdentity?: string;
   channelType?: string;
@@ -89,10 +89,17 @@ export const handler: ServerlessFunctionSignature = TokenValidator(
       channelType,
       features,
       debug,
-      conversationSid,
+      conversationId,
       agentIdentity,
       Token,
     } = event;
+    // Create a custom Twilio Response
+    // Set the CORS headers to allow Flex to make an HTTP request to the Twilio Function
+    const response = new Twilio.Response();
+    response.appendHeader('Access-Control-Allow-Origin', '*');
+    response.appendHeader('Access-Control-Allow-Methods', 'OPTIONS POST GET');
+    response.appendHeader('Access-Control-Allow-Headers', '*');
+    response.appendHeader('Content-Type', 'text/html');
 
     const [, projectLocation] =
       // @ts-ignore
@@ -101,7 +108,7 @@ export const handler: ServerlessFunctionSignature = TokenValidator(
       ) || [];
 
     const chatToken = generateChatToken(context, `${agentIdentity}`);
-    const conversationName = `${projectLocation}/conversations/${conversationSid}`;
+    const conversationName = `${projectLocation}/conversations/${conversationId}`;
 
     const openFile = Runtime.getAssets()['/main.ejs'].open;
     const htmlTemplate = openFile();
@@ -110,7 +117,7 @@ export const handler: ServerlessFunctionSignature = TokenValidator(
       applicationServer: context.APPLICATION_SERVER_URL,
       conversationProfile,
       conversationName,
-      conversationSid,
+      conversationSid: conversationId,
       agentToken: Token,
       chatToken,
       channelType,
@@ -119,13 +126,7 @@ export const handler: ServerlessFunctionSignature = TokenValidator(
       debug,
     });
 
-    // Create a custom Twilio Response
-    // Set the CORS headers to allow Flex to make an HTTP request to the Twilio Function
-    const response = new Twilio.Response();
-    response.appendHeader('Access-Control-Allow-Origin', '*');
-    response.appendHeader('Access-Control-Allow-Methods', 'OPTIONS POST GET');
-    response.appendHeader('Access-Control-Allow-Headers', 'Content-Type');
-    response.appendHeader('Content-Type', 'text/html');
+
     response.setStatusCode(200);
     response.setBody(html);
 

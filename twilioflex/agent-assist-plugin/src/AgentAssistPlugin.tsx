@@ -18,6 +18,15 @@ import React from 'react';
 import * as Flex from '@twilio/flex-ui';
 import {FlexPlugin} from '@twilio/flex-plugin';
 import AgentAssistContainer from './components/AgentAssistContainer';
+import { TaskContext } from "@twilio/flex-ui";
+import { v4 as uuid } from 'uuid'
+import { Transcript } from './components/Transcript/Transcript';
+import { CustomizationProvider } from '@twilio-paste/core/customization';
+
+Flex.setProviders({
+  PasteThemeProvider: CustomizationProvider,
+});
+
 
 const PLUGIN_NAME = 'AgentAssistPlugin';
 const config = {
@@ -42,7 +51,37 @@ export default class AgentAssistPlugin extends FlexPlugin {
    * @param flex { typeof Flex }
    */
   async init(flex: typeof Flex, manager: Flex.Manager): Promise<void> {
-    console.log(config)
-    flex.CRMContainer.Content.replace(<AgentAssistContainer key='agent-assist'/>)
+    flex.CRMContainer.Content.replace(
+      <TaskContext.Consumer key='agent-assist'>
+        {
+          (context) => {
+            const channelType = context.task?.channelType
+            let conversationId
+            switch (channelType){
+              case 'voice':
+                conversationId = context.task?.attributes.call_sid;
+                break;
+              case 'web':
+                conversationId = context.task?.attributes.conversationSid;
+                break;
+              default:
+                conversationId = undefined
+            }
+
+            return <AgentAssistContainer channelType={channelType} conversationId={conversationId}/>
+          }
+        }
+      </TaskContext.Consumer>
+
+    )
+    Flex.TaskCanvasTabs.Content.add(
+      <Flex.Tab
+        label="Transcript"
+        key="agent-assist-transcript"
+        uniqueName="agent-assist-transcript"
+      >
+        <Transcript key="agent-assist-transcript" />
+      </Flex.Tab>
+    );
   }
 }
