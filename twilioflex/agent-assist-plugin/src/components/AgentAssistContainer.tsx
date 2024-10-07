@@ -13,9 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+//@ts-nocheck
 import React, {useEffect} from 'react';
 import * as Flex from '@twilio/flex-ui'; // eslint-disable-line node/no-unpublished-import
+
 const config = {
   CONVERSATION_PROFILE: `${process.env.TWILIO_CONVERSATION_PROFILE}`,
   FEATURES: `${process.env.TWILIO_FEATURES}`,
@@ -23,12 +24,14 @@ const config = {
   FUNCTIONS_URL: `${process.env.TWILIO_FUNCTIONS_URL}`,
 };
 
-const AgentAssistContainer = (): JSX.Element | null => {
+interface AgentAssistContainerProps {
+  channelType?: string;
+  conversationId?: string;
+}
+
+const AgentAssistContainer = ({ channelType, conversationId }: AgentAssistContainerProps): JSX.Element | null => {
   const identity =
     Flex.Manager.getInstance().store.getState().flex.session.identity;
-  const conversationSid =
-    Flex.Manager.getInstance().store.getState().flex.chat.messageList
-      .activeConversation;
   const userToken =
     Flex.Manager.getInstance().store.getState().flex.session.ssoTokenPayload
       .token;
@@ -43,11 +46,21 @@ const AgentAssistContainer = (): JSX.Element | null => {
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.onreadystatechange = handler;
     xhr.responseType = 'blob';
-    headers.forEach((header: string[]) => {
-      xhr.setRequestHeader(header[0], header[1]);
-    });
-    const body = JSON.stringify({Token: userToken});
+
+    const body = JSON.stringify(
+      {
+        Token: userToken,
+        conversationProfile: config.CONVERSATION_PROFILE,
+        conversationId: conversationId,
+        features: config.FEATURES,
+        agentIdentity: identity,
+        channelType,
+
+      }
+    );
+
     xhr.send(body);
+
 
     function handler() {
       if (xhr.readyState === XMLHttpRequest.DONE) {
@@ -64,16 +77,16 @@ const AgentAssistContainer = (): JSX.Element | null => {
     const myIframe = document.querySelector(
       '#agentAssist'
     ) as HTMLIFrameElement | null;
-    if (conversationSid !== '' && myIframe) {
+    if (conversationId !== '' && myIframe) {
       populateIframe(
         myIframe,
-        `${config.FUNCTIONS_URL}/agent-assist?conversationProfile=${config.CONVERSATION_PROFILE}&conversationSid=${conversationSid}&features=${config.FEATURES}&agentIdentity=${identity}&channelType=chat&debug=${config.DEBUG}`,
+        `${config.FUNCTIONS_URL}/agent-assist`,
         [['x-api-version', 'v1.2']]
       );
     }
-  }, [conversationSid]);
+  }, [conversationId]);
 
-  if (!conversationSid) {
+  if (!conversationId) {
     return <></>;
   }
 
