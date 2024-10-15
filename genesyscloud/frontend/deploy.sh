@@ -25,16 +25,20 @@ export APPLICATION_SERVER_URL="your-aa-application-url"
 export PROXY_SERVER="your-proxy-server-url"
 gcloud config set project $GCP_PROJECT_ID
 
-# Create a service account for the web application.
 ui_module_service_account="$UI_MODULE_SERVICE_ACCOUNT@$GCP_PROJECT_ID.iam.gserviceaccount.com"
+if [[ "$ui_module_service_account" = \
+  `gcloud iam service-accounts list --filter=$ui_module_service_account --format='value(EMAIL)'` ]]; then
+  echo "Skip creating service account $ui_module_service_account as it exists."
+else
+  gcloud iam service-accounts create $UI_MODULE_SERVICE_ACCOUNT \
+    --display-name "UI Module Web Application Service Account"
+fi
 
-# Submit build to the gcloud.
-gcloud builds submit --tag gcr.io/$GCP_PROJECT_ID/$AA_MODULE_APPLICATION_SERVER
 
 # Deploy the gcloud run region.
 # PROXY_SERVER should be the service that runs ui-connector
 gcloud run deploy $AA_MODULE_APPLICATION_SERVER \
---image gcr.io/$GCP_PROJECT_ID/$AA_MODULE_APPLICATION_SERVER \
+--source . \
 --service-account=$ui_module_service_account \
 --memory 1Gi --platform managed \
 --region us-central1 \
@@ -45,7 +49,7 @@ export APPLICATION_SERVER_URL=$(gcloud run services describe $AA_MODULE_APPLICAT
 
 # Update the application sverver url for cloud run service
 gcloud run deploy $AA_MODULE_APPLICATION_SERVER \
---image gcr.io/$GCP_PROJECT_ID/$AA_MODULE_APPLICATION_SERVER \
+--source . \
 --service-account=$ui_module_service_account \
 --memory 1Gi --platform managed \
 --region us-central1 \
