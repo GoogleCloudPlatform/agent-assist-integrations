@@ -69,7 +69,7 @@
   <!-- WebComponents polyfill. Needed for rendering web components in older browsers. -->
   <script src="https://www.gstatic.com/external_hosted/document_register_element/document-register-element.js"></script>
   <!-- Core UI module container. Loads all UI module-specific scripts. -->
-  <script src="https://www.gstatic.com/agent-assist-ui-modules/v1.7/container.js"></script>
+  <script src="https://www.gstatic.com/agent-assist-ui-modules/v1.8/container.js"></script>
 </head>
 
 <body>
@@ -85,18 +85,18 @@
   <script>
     window.addEventListener('load', function () {
 
-      var UI_MODULES_EL_SELECTOR = 'agent-assist-ui-modules';
-      var proxyServerEndPoint = '<%= proxyServer %>';
-      var conversationProfile = '<%= conversationProfile %>';
-      var features = '<%= features %>';
-      var genesysCloudRegion = '<%= genesysCloudRegion %>';
-      var clientId = '<%= clientID %>'
+      const UI_MODULES_EL_SELECTOR = 'agent-assist-ui-modules';
+      const proxyServerEndPoint = '<%= proxyServer %>';
+      const conversationProfile = '<%= conversationProfile %>';
+      const features = '<%= features %>';
+      const genesysCloudRegion = '<%= genesysCloudRegion %>';
+      const clientId = '<%= clientID %>'
       var applicationServer = '<%= applicationServer %>'
       var accessToken = '';
-      var urlParams = new URLSearchParams(window.location.search);
-      var currentConversationId = urlParams.get('conversationid');
-      var gcHostOrigin = urlParams.get('gcHostOrigin');
-      var gcTargetEnv = urlParams.get('gcTargetEnv');
+      const urlParams = new URLSearchParams(window.location.search);
+      const currentConversationId = urlParams.get('conversationid');
+      const gcHostOrigin = urlParams.get('gcHostOrigin');
+      const gcTargetEnv = urlParams.get('gcTargetEnv');
       var firstTimeLoad = false;
 
       applicationServer = applicationServer.replace(/\/$/, "");
@@ -118,6 +118,7 @@
             ['oauth-client-id', clientId],
             ['redirect-uri', redirectUri],
             ['custom-api-endpoint', proxyServerEndPoint],
+            ['genesys-cloud-region', genesysCloudRegion],
           ];
           for (var [attribute, value] of attributes) {
             uiModulesEl.setAttribute(attribute, value);
@@ -137,7 +138,7 @@
 
       /** When the first time UI module load, parse an empty token */
       if (!existingUiModulesEl && !accessToken) {
-          createUIElement(accessToken);
+        createUIElement(accessToken);
       }
 
       /** After the genesys OAuth, get the access token */
@@ -150,6 +151,7 @@
               }
               return res.json();
             }).then(function(body){
+              existingUiModulesEl = document.querySelector(UI_MODULES_EL_SELECTOR);
               firstTimeLoad = existingUiModulesEl && !accessToken;
               if(firstTimeLoad){
                 accessToken = body.token;
