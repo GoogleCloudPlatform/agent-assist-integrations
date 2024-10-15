@@ -67,11 +67,6 @@ function haltOnTimedout(req, res, next) {
  * Try directly render the view
  */
 
-// Routing
-app.get('/ping', (req, res) => {
-  res.status(200).send('Pong\n');
-});
-
 // error handler
 app.use((err, req, res, next) => {
   res.locals.message = err.message;
