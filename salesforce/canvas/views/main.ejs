@@ -10,16 +10,16 @@
       href="https://fonts.googleapis.com/css?family=Product+Sans"
       rel="stylesheet"
     />
-    <% if (debug === 'true') { %>
     <script>
       window._uiModuleFlags = { debug: true };
     </script>
-    <% } %>
 
     <script src="javascripts/canvas-all.js"></script>
+    <script src="javascripts/core.js"></script>
     <!-- WebComponents polyfill. Needed for rendering web components in older browsers. -->
     <script src="https://www.gstatic.com/external_hosted/document_register_element/document-register-element.js"></script>
     <script src="https://www.gstatic.com/agent-assist-ui-modules/container.js"></script>
+    <!-- <script src="https://b2607f8b048001000002472f4c0a830e51538000000c1b800903000.proxy.googlers.com/container.js"></script> -->
     <script src="https://www.gstatic.com/agent-assist-ui-modules/transcript.js"></script>
     <style>
       html,
@@ -74,6 +74,10 @@
         align-items: center;
         justify-content: space-between;
       }
+
+      .empty-transcript {
+        color: #666;
+      }
     </style>
   </head>
 
@@ -107,10 +111,13 @@
       // Dialogflow-specific authentication token.
       var authToken;
 
+      var eventBasedConnectionEstablished = false;
+      var conversationInitialized = false;
+
       window.addEventListener('load', function () {
         // Exchanges the agent's Salesforce OAuth token for one that can be used to call the
         // Dialogflow API.
-        registerAuthToken('<%= salesforceToken %>').then(function (
+        registerAuthToken(proxyServerEndpoint, '<%= salesforceToken %>').then(function (
           dialogflowToken
         ) {
           authToken = dialogflowToken;
@@ -122,22 +129,42 @@
             });
           });
 
-          // Logs the customer and agent participant details to the console for testing purposes.
           addAgentAssistEventListener(
             'conversation-initialized',
             function (event) {
-              if (event.detail.participants) {
-                console.log(
-                  'Customer participant: ',
-                  event.detail.participants.END_USER
-                );
-                console.log(
-                  'Agent participant: ',
-                  event.detail.participants.HUMAN_AGENT
-                );
-              }
+              conversationInitialized = true;
+
+              addConversationPhoneNumber(
+                authToken,
+                eventBasedConnectionEstablished,
+                conversationInitialized,
+                proxyServerEndpoint,
+                conversationName
+              );
             }
           );
+
+          addAgentAssistEventListener(
+            'event-based-connection-established',
+            function () {
+              eventBasedConnectionEstablished = true;
+
+              addConversationPhoneNumber(
+                authToken,
+                eventBasedConnectionEstablished,
+                conversationInitialized,
+                proxyServerEndpoint,
+                conversationName
+              );
+            }
+          );
+
+          addAgentAssistEventListener('new-message-received', function () {
+            var emptyTranscriptEl = document.querySelector('.empty-transcript');
+            if (emptyTranscriptEl) {
+              emptyTranscriptEl.remove();
+            }
+          });
 
           // Initializes the core UI modules.
           initializeSuggestionModules();
@@ -148,23 +175,6 @@
           setTimeout(refreshAuthToken, 3600 * 1000);
         });
       });
-
-      /**
-       * Exchanges the agent's Salesforce OAuth token for one that can be used to call the
-       * Dialogflow API.
-       **/
-      function registerAuthToken(salesforceToken) {
-        return fetch(proxyServerEndpoint + '/register', {
-          method: 'POST',
-          headers: [['Authorization', salesforceToken]],
-        })
-          .then(function (res) {
-            return res.json();
-          })
-          .then(function (body) {
-            return body.token;
-          });
-      }
 
       /**
        * Refreshes the agent's Salesforce auth token, and exchanges it for a new Dialogflow-specific
@@ -183,7 +193,7 @@
               return;
             }
 
-            registerAuthToken(salesforceToken)
+            registerAuthToken(proxyServerEndpoint, salesforceToken)
               .then(function (dialogflowToken) {
                 authToken = dialogflowToken;
 
