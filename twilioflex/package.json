@@ -29,5 +29,5 @@
     "deploy:functions": "cd agent-assist-functions && npm run deploy"
   },
   "author": "Matthew DeGraffenreid",
-  "license": "ISC"
+  "license": "Apache-2.0"
 }

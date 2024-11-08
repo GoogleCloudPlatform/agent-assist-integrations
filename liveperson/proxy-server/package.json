@@ -10,7 +10,7 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Gabor Szekely",
-  "license": "ISC",
+  "license": "Apache-2.0",
   "dependencies": {
     "client-oauth2": "^4.3.3",
     "connect-timeout": "^1.9.0",
