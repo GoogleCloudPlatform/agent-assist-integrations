@@ -32,7 +32,7 @@ class AudiohookConfig:
     ui_connector_endpoint: str
     redis_host: str
     redis_port: int
-    log_level: str = field(default='DEBUG')
+    log_level: str = field(default='INFO')
     timeout: int = field(default=2)
     rate: int = field(default=8000)
     chunk_size: int = field(default=1600)
