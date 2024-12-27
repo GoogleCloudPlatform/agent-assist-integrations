@@ -32,7 +32,7 @@
 
             // Information about current conversation
             var versionUrl = '/v2beta1/';
-            var project_id, conversation_profile_name, conversation_name, end_user_name, human_agent_name;
+            var project_id, location_id, conversation_profile_name, conversation_name, end_user_name, human_agent_name;
             var JWT = '';
 
             // An array of joined conversation names
@@ -136,8 +136,10 @@
                 conversation_profile_name = $('#conversation_profile_test_name').val();
                 $('#conversation_profile_name').text(conversation_profile_name);
 
-                project_id = conversation_profile_name.split('/')[1]
+                project_id = conversation_profile_name.split('/')[1];
+                location_id = conversation_profile_name.split('/')[3];
                 $('#gcp_project_id').text(project_id);
+                $('#gcp_location_id').text(location_id);
                 return false;
             });
             $('form#get_conversation_profile').submit(function (event) {
@@ -185,8 +187,10 @@
                 conversation_name = $('#input_conversation_name').val();
                 $('#conversation_name').text(conversation_name);
 
-                project_id = conversation_name.split('/')[1]
+                project_id = conversation_name.split('/')[1];
+                location_id = conversation_name.split('/')[3];
                 $('#gcp_project_id').text(project_id);
+                $('#gcp_location_id').text(location_id);
                 return false;
             });
             $('form#join').submit(function (event) {
@@ -306,6 +310,52 @@
                     });
                 return false;
             });
+            $('form#search_knowledge').submit(function (event) {
+                fetch(serviceUrl + versionUrl + conversation_name + '/suggestions:searchKnowledge', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': JWT,
+                    },
+                    body: JSON.stringify(
+                        {
+                            parent: 'projects/' + project_id + '/locations/' + location_id,
+                            query: { languageCode: 'en-US', text: $('#search_knowledge_query').val() },
+                            conversation_profile: conversation_profile_name,
+                            session_id: conversation_name.split('/')[5],
+                        }),
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        $('#log').prepend(
+                            $('<div/>').text('Received <searchKnowledge response> ' + JSON.stringify(data)).html() + '<br><br>'
+                        );
+                    })
+                    .catch((error) => {
+                        console.error('Error:', error);
+                    });
+                return false;
+            });
+            $('form#suggest_summary').submit(function (event) {
+                fetch(serviceUrl + versionUrl + conversation_name + '/suggestions:suggestConversationSummary', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': JWT,
+                    },
+                    body: JSON.stringify({ context_size: 1000 }),
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        $('#log').prepend(
+                            $('<div/>').text('Received <suggestConversationSummary response> ' + JSON.stringify(data)).html() + '<br><br>'
+                        );
+                    })
+                    .catch((error) => {
+                        console.error('Error:', error);
+                    });
+                return false;
+            });
             $('form#complete').submit(function (event) {
                 fetch(serviceUrl + versionUrl + conversation_name + ':complete', {
                     method: 'POST',
@@ -402,6 +452,13 @@
         <input type="text" name="agent_send_message" id="agent_send_message" placeholder="Message">
         <input type="submit" value="Send Message as Human Agent">
     </form>
+    <form id="search_knowledge" method="POST" action='#'>
+        <input type="text" name="search_knowledge_query" id="search_knowledge_query" placeholder="Query">
+        <input type="submit" value="Search Knowledge">
+    </form>
+    <form id="suggest_summary" method="POST" action="#">
+        <input type="submit" value="Suggest Conversation Summary">
+    </form>
     <form id="complete" method="POST" action="#">
         <input type="submit" value="Complete Conversation">
     </form>
@@ -420,6 +477,7 @@
     <p>
         Current transport is: <b><span id="transport"></span></b><br>
         GCP Project Id: <b><span id="gcp_project_id"></span></b><br>
+        GCP Location Id: <b><span id="gcp_location_id"></span></b><br>
         Conversation Profile Name: <b><span id="conversation_profile_name"></span></b><br>
         Conversation Name: <b><span id="conversation_name"></span></b><br>
         End User Name: <b><span id="end_user_name"></span></b><br>
