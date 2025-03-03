@@ -6,33 +6,34 @@ A backend infrastructure for Agent Assist integration, including Cloud Pub/Sub I
 
 1. [Directory](#directory)
 2. [Structure](#structure)
-   - [Cloud Pub/Sub](#cloud-pubsub)
-   - [Cloud Pub/Sub Interceptor (deployed on Cloud Run)](#cloud-pubsub-interceptor-deployed-on-cloud-run)
-   - [Redis (using Memorystore for Redis)](#redis-using-memorystore-for-redis)
-   - [UI Connector (deployed on Cloud Run)](#ui-connector-deployed-on-cloud-run)
-   - [Secret Manager](#secret-manager)
+    - [Cloud Pub/Sub](#cloud-pubsub)
+    - [Cloud Pub/Sub Interceptor (deployed on Cloud Run)](#cloud-pubsub-interceptor-deployed-on-cloud-run)
+    - [Redis (using Memorystore for Redis)](#redis-using-memorystore-for-redis)
+    - [UI Connector (deployed on Cloud Run)](#ui-connector-deployed-on-cloud-run)
+    - [Secret Manager](#secret-manager)
 3. [Workflows](#workflows)
-   - [Workflow 0: JWT registration (UI Connector)](#workflow-0-jwt-registration-ui-connector)
-   - [Workflow 1: AA event handling](#workflow-1-aa-event-handling)
-   - [Workflow 2: Dialogflow request processing](#workflow-2-dialogflow-request-processing)
+    - [Workflow 0: JWT registration (UI Connector)](#workflow-0-jwt-registration-ui-connector)
+    - [Workflow 1: AA event handling](#workflow-1-aa-event-handling)
+    - [Workflow 2: Dialogflow request processing](#workflow-2-dialogflow-request-processing)
 4. [APIs](#apis)
-   - [Cloud Pub/Sub Interceptor](#cloud-pubsub-interceptor)
-   - [UI Connector](#ui-connector)
-     - [JWT Registration API](#jwt-registration-api)
-     - [Dialogflow Proxy APIs](#dialogflow-proxy-apis)
+    - [Cloud Pub/Sub Interceptor](#cloud-pubsub-interceptor)
+    - [UI Connector](#ui-connector)
+      - [JWT Registration API](#jwt-registration-api)
+      - [Dialogflow Proxy APIs](#dialogflow-proxy-apis)
 5. [Automated Deployment](#automated-deployment)
 6. [Connection Test](#connection-test)
 7. [How to Deploy and Run Manually](#how-to-deploy-and-run-manually)
-   - [Prerequisite](#prerequisite)
-   - [Set up Environment Variables](#set-up-environment-variables)
-   - [Authorize GCP Processes](#authorize-gcp-processes)
-   - [Customize User Authentication Method](#customize-user-authentication-method)
-   - [Customize Allowed Origins (Recommended)](#customize-allowed-origins-recommended)
-   - [Generate and Store JWT Secret Key](#generate-and-store-jwt-secret-key)
-   - [Memorystore for Redis Setup](#memorystore-for-redis-setup)
-   - [Deploy UI Connector Service](#deploy-ui-connector-service)
-   - [Deploy Cloud Pub/Sub Interceptor Service](#deploy-cloud-pubsub-interceptor-service)
-   - [Configure Cloud Pub/Sub Subscriptions](#configure-cloud-pubsub-subscriptions)
+    - [Prerequisite](#prerequisite)
+    - [Set up Environment Variables](#set-up-environment-variables)
+    - [Authorize GCP Processes](#authorize-gcp-processes)
+    - [Customize User Authentication Method](#customize-user-authentication-method)
+    - [Customize Allowed Origins (Recommended)](#customize-allowed-origins-recommended)
+    - [Generate and Store JWT Secret Key](#generate-and-store-jwt-secret-key)
+    - [Memorystore for Redis Setup](#memorystore-for-redis-setup)
+    - [Deploy UI Connector Service](#deploy-ui-connector-service)
+    - [Deploy Cloud Pub/Sub Interceptor Service](#deploy-cloud-pubsub-interceptor-service)
+    - [Configure Cloud Pub/Sub Subscriptions](#configure-cloud-pubsub-subscriptions)
+8. [(Optional) Integration with Cloud Build](#optional-integration-with-cloud-build)
 
 # Directory
 
@@ -44,7 +45,8 @@ A backend infrastructure for Agent Assist integration, including Cloud Pub/Sub I
 │   ├── main.py - A starter for flask app
 │   ├── requirements.txt
 │   └── unit_test.py - Unit test code for Cloud Pub/Sub Interceptor
-├── deploy.sh - An automated deployment script.
+├── cloudbuild.yaml - An example configuration file for Cloud Build
+├── deploy.sh - An automated deployment script
 ├── images
 ├── readme.md
 └── ui-connector
@@ -267,16 +269,16 @@ new-recognition-result-notification-event({
 
 These APIs handle client requests about sending feedback signals to Dialogflow.
 
-| Dialogflow Proxy API                                                                 | Dialogflow API                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PATCH /<version>/projects/<project>/locations/<location>/answerRecords/<path>`      | [projects.locations.answerRecords.patch](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.answerRecords/patch)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `GET /<version>/projects/<project>/locations/<location>/conversations/<path>`        | [projects.locations.conversations.get](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.conversations/get), [projects.locations.conversations.messages.list](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.conversations.messages/list), [projects.locations.conversations.participants.get](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations.participants/get), [projects.locations.conversations.participants.list](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations.participants/list)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `POST /<version>/projects/<project>/locations/<location>/conversations/<path>`       | [projects.locations.conversations.complete](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations/complete), [projects.locations.conversations.create](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations/create), [projects.locations.conversations.messages.batchCreate](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations.messages/batchCreate), [projects.locations.conversations.participants.analyzeContent](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations.participants/analyzeContent), [projects.locations.conversations.participants.create](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations.participants/create), [projects.locations.conversations.participants.suggestions.suggestArticles](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations.participants.suggestions/suggestArticles), [projects.locations.conversations.participants.suggestions.suggestFaqAnswers](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations.participants.suggestions/suggestFaqAnswers), [projects.locations.conversations.participants.suggestions.suggestSmartReplies](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations.participants.suggestions/suggestSmartReplies) |
-| `PATCH /<version>/projects/<project>/locations/<location>/conversations/<path>`      | [projects.locations.conversations.participants.patch](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations.participants/patch)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `POST /<version>/projects/<project>/locations/<location>/conversations`              | [projects.locations.conversations.create](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations/create)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `GET /<version>/projects/<project>/locations/<location>/conversationProfiles/<path>` | [projects.locations.conversationProfiles.get](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversationProfiles/get)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `GET /<version>/projects/<project>/locations/<location>/conversationModels/<path>`   | [projects.locations.conversationModels.get](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2/projects.locations.conversationModels/get)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-|                                                                                      |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Dialogflow Proxy API      | Dialogflow API |
+| -------------- | -------------- |
+| `PATCH /<version>/projects/<project>/locations/<location>/answerRecords/<path>`| [projects.locations.answerRecords.patch](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.answerRecords/patch)|
+| `GET /<version>/projects/<project>/locations/<location>/conversations/<path>`| [projects.locations.conversations.get](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.conversations/get), [projects.locations.conversations.messages.list](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.conversations.messages/list), [projects.locations.conversations.participants.get](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations.participants/get), [projects.locations.conversations.participants.list](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations.participants/list) |
+| `POST /<version>/projects/<project>/locations/<location>/conversations/<path>`| [projects.locations.conversations.complete](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations/complete), [projects.locations.conversations.create](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations/create), [projects.locations.conversations.messages.batchCreate](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations.messages/batchCreate), [projects.locations.conversations.participants.analyzeContent](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations.participants/analyzeContent), [projects.locations.conversations.participants.create](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations.participants/create), [projects.locations.conversations.participants.suggestions.suggestArticles](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations.participants.suggestions/suggestArticles), [projects.locations.conversations.participants.suggestions.suggestFaqAnswers](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations.participants.suggestions/suggestFaqAnswers), [projects.locations.conversations.participants.suggestions.suggestSmartReplies](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations.participants.suggestions/suggestSmartReplies)|
+| `PATCH /<version>/projects/<project>/locations/<location>/conversations/<path>`| [projects.locations.conversations.participants.patch](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations.participants/patch)|
+| `POST /<version>/projects/<project>/locations/<location>/conversations`| [projects.locations.conversations.create](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversations/create)|
+| `GET /<version>/projects/<project>/locations/<location>/conversationProfiles/<path>`| [projects.locations.conversationProfiles.get](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2beta1/projects.locations.conversationProfiles/get)|
+| `GET /<version>/projects/<project>/locations/<location>/conversationModels/<path>`| [projects.locations.conversationModels.get](https://cloud.google.com/dialogflow/es/docs/reference/rest/v2/projects.locations.conversationModels/get)|
+|  |  |
 
 `PATCH /<version>/projects/<project>/locations/<location>/answerRecords/<path>`
 
@@ -332,13 +334,13 @@ Please prepare the following environment variables as you deploy the infrastruct
 7. `CONNECTOR_SERVICE_ACCOUNT_NAME`: the service account for UI Connector runtime.
 8. `JWT_SECRET_NAME`: the name of your JWT secret key stored in [Secret Manager](https://cloud.google.com/secret-manager/docs).
 9. `SERVICE_REGION`: the location or region of your services and related GCP resources.
-10. `VPC_CONNECTOR_NAME`: the name of your [Serverless VPC Access connector](https://cloud.google.com/run/docs/configuring/connecting-vpc#create-connector) for connecting Cloud Run services to [Memorystore for Redis](https://cloud.google.com/memorystore/docs/redis/redis-overview).
-11. `VPC_NETWORK`: the VPC network to attach your Serverless VPC Access connector to. The value should be 'default' if you do not set up VPC for your GCP project.
-12. `REDIS_IP_RANGE`: an unreserved internal IP network for your Serverless VPC Access connector. A '/28' of unallocated space is required, for example, 10.8.0.0/28 works in most new projects.
-13. `AUTH_OPTION`: The option of authenticating users when registering JWT. By default it's empty and no users are allowed to register JWT via UI Connector service. Supported values: 'SalesforceLWC', 'Salesforce', 'GenesysCloud', 'Twilio', 'Skip' (skip auth token verification, should not be used in production).
+10. `VPC_CONNECTOR_NAME`: (optional) the name of your [Serverless VPC Access connector](https://cloud.google.com/run/docs/configuring/connecting-vpc#create-connector) for connecting Cloud Run services to [Memorystore for Redis](https://cloud.google.com/memorystore/docs/redis/redis-overview).
+11. `VPC_NETWORK`: the name of the authorized VPC network that your Redis instance is attached to. The value should be 'default' if you do not set up VPC for your GCP project.
+12. `VPC_SUBNET`: the name of the authorized VPC network that your Redis instance is attached to. The value should be 'default' if you haven't customized VPC network settings.
+13. `REDIS_IP_RANGE`: (optional) an unreserved internal IP network for your Serverless VPC Access connector. A '/28' of unallocated space is required, for example, 10.8.0.0/28 works in most new projects.
+14. `AUTH_OPTION`: The option of authenticating users when registering JWT. By default it's empty and no users are allowed to register JWT via UI Connector service. Supported values: 'SalesforceLWC', 'Salesforce', 'GenesysCloud', 'Twilio', 'Skip' (skip auth token verification, should not be used in production).
 
 ## Authorize GCP Processes
-
 Using separate GCP accounts for service administration and runtime identity in your GCP project is recommended, as service administration is mainly performed by humans with [Google accounts](https://cloud.google.com/iam/docs/overview#google_account) and the latter one is to grant Cloud Run services permissions via [service accounts](https://cloud.google.com/iam/docs/overview#service_account) to enable their access to necessary resources.
 
 The roles granted to your administrator's Google account and the service accounts created for Cloud Run services apply to at most the whole GCP project.
@@ -424,7 +426,7 @@ $ python generate_secret_key.py | gcloud secrets create $JWT_SECRET_NAME --data-
 $ gcloud redis instances create $REDIS_INSTANCE_ID --size=5 --region=$SERVICE_REGION
 ```
 
-2. Create a Serverless VPC Access connector. See this [guide](https://cloud.google.com/run/docs/configuring/connecting-vpc#create-connector) if more instructions are needed.
+2. (Optional) You can connect to a Redis instance from Cloud Run by using [Direct Egress or Serverless VPC Access](https://cloud.google.com/memorystore/docs/redis/connect-redis-instance-cloud-run). If you choose Serverless VPC Access, you'll need to create a Serverless VPC Access connector. See this [guide](https://cloud.google.com/run/docs/configuring/connecting-vpc#create-connector) if more instructions are needed.
 
 ```bash
 # Ensure the Serverless VPC Access API is enabled for your project.
@@ -451,6 +453,21 @@ $ gcloud builds submit --tag gcr.io/$GCP_PROJECT_ID/$CONNECTOR_IMAGE_NAME
 2. Deploy to Cloud Run with Memorystore for Redis instance.
 
 ```bash
+# Option 1: Use Direct Egress to connect for Redis connection.
+$ gcloud run deploy $CONNECTOR_IMAGE_NAME \
+--image gcr.io/$GCP_PROJECT_ID/$CONNECTOR_IMAGE_NAME \
+--platform managed \
+--service-account=$CONNECTOR_SERVICE_ACCOUNT_NAME \
+--allow-unauthenticated \
+--timeout 3600 \
+--region $SERVICE_REGION \
+--network $VPC_NETWORK \
+--subnet $VPC_SUBNET \
+--clear-vpc-connector \
+--min-instances=1 \
+--set-env-vars REDISHOST=$REDIS_HOST,REDISPORT=$REDIS_PORT,GCP_PROJECT_ID=$GCP_PROJECT_ID,AUTH_OPTION=$AUTH_OPTION \
+--update-secrets=/secret/jwt_secret_key=${JWT_SECRET_NAME}:latest
+# Option 2: Use a created Serverless VPC Access connector for Redis connection.
 $ gcloud run deploy $CONNECTOR_IMAGE_NAME \
 --image gcr.io/$GCP_PROJECT_ID/$CONNECTOR_IMAGE_NAME \
 --platform managed \
@@ -459,6 +476,8 @@ $ gcloud run deploy $CONNECTOR_IMAGE_NAME \
 --timeout 3600 \
 --region $SERVICE_REGION \
 --vpc-connector $VPC_CONNECTOR_NAME \
+--clear-network \
+--min-instances=1 \
 --set-env-vars REDISHOST=$REDIS_HOST,REDISPORT=$REDIS_PORT,GCP_PROJECT_ID=$GCP_PROJECT_ID,AUTH_OPTION=$AUTH_OPTION \
 --update-secrets=/secret/jwt_secret_key=${JWT_SECRET_NAME}:latest
 ```
@@ -478,13 +497,29 @@ $ gcloud builds submit --tag gcr.io/$GCP_PROJECT_ID/$INTERCEPTOR_IMAGE_NAME
 2. Deploy to Cloud Run with Redis
 
 ```bash
+# Option 1: Use Direct Egress to connect for Redis connection.
+$ gcloud run deploy $INTERCEPTOR_SERVICE_NAME \
+--image gcr.io/$GCP_PROJECT_ID/$INTERCEPTOR_IMAGE_NAME \
+--platform managed \
+--service-account=$INTERCEPTOR_SERVICE_ACCOUNT_NAME \
+--region $SERVICE_REGION \
+--network $VPC_NETWORK \
+--subnet $VPC_SUBNET \
+--clear-vpc-connector \
+--ingress=internal \
+--min-instances=1 \
+# You can also add LOGGING_FILE here to specify the logging file path on Cloud Run.
+--set-env-vars REDISHOST=$REDIS_HOST,REDISPORT=$REDIS_PORT
+# Option 2: Use a created Serverless VPC Access connector for Redis connection.
 $ gcloud run deploy $INTERCEPTOR_SERVICE_NAME \
 --image gcr.io/$GCP_PROJECT_ID/$INTERCEPTOR_IMAGE_NAME \
 --platform managed \
 --service-account=$INTERCEPTOR_SERVICE_ACCOUNT_NAME \
 --region $SERVICE_REGION \
 --vpc-connector $VPC_CONNECTOR_NAME \
+--clear-network \
 --ingress=internal \
+--min-instances=1 \
 # You can also add LOGGING_FILE here to specify the logging file path on Cloud Run.
 --set-env-vars REDISHOST=$REDIS_HOST,REDISPORT=$REDIS_PORT
 ```
@@ -590,3 +625,10 @@ $SUBSCRIPTION_NAME --topic $TOPIC_ID \
    --push-endpoint=$INTERCEPTOR_SERVICE_URL/new-recognition-result-notification-event \
    --push-auth-service-account=cloud-run-pubsub-invoker@$GCP_PROJECT_ID.iam.gserviceaccount.com
 ```
+
+# (Optional) Integration with Cloud Build
+If you plan to build a continous deployment pipeline for the services, you can integrate Cloud Build triggers for your own repository.
+
+Check an example Cloud Build configuration file at `./cloudbuild.yaml` and related resources:
+- [How to create and manage build triggers](https://cloud.google.com/build/docs/automating-builds/create-manage-triggers)
+- [Cloud Run - Continuous deployment from Git using Cloud Build](https://cloud.google.com/run/docs/continuous-deployment-with-cloud-build)

@@ -168,8 +168,8 @@ def connect(auth):
 
 
 @socketio.on('disconnect')
-def disconnect():
-    logging.info('Client disconnected, request.sid: {}'.format(request.sid))
+def disconnect(reason):
+    logging.info('Client disconnected, reason: {}, request.sid: {}'.format(reason, request.sid))
     room_list = rooms()
     # Delete mapping for conversation_name and SERVER_ID.
     if len(room_list) > 1:

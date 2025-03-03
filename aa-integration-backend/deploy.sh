@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -47,18 +47,12 @@
 
 
 # TODO: Please update the following fields according to your existing resources.
-export GCP_PROJECT_ID='your-project-id'
-export ADMIN_ACCOUNT='your-admin-account'
+export GCP_PROJECT_ID=${GCP_PROJECT_ID:='your-project-id'}
+export ADMIN_ACCOUNT=${ADMIN_ACCOUNT:='your-admin-account'}
 export AGENT_ASSIST_NOTIFICATIONS_TOPIC_ID='aa-new-suggestion-topic'
 export NEW_MESSAGE_NOTIFICATIONS_TOPIC_ID='aa-new-message-topic'
 export CONVERSATION_LIFECYCLE_NOTIFICATIONS_TOPIC_ID='aa-conversation-event-topic'
 export NEW_RECOGNITION_RESULT_NOTIFICATION_TOPIC_ID='aa-intermediate-transcript-topic'
-
-# The IP Range must not overlap with existing IP address reservations
-# in our VPC Network. The default IP range below will work in most new project
-# To confirm, follow the documentation below to check the IP Range
-# https://cloud.google.com/vpc/docs/configure-serverless-vpc-access#create-connector
-export REDIS_IP_RANGE='10.8.0.0/28'
 
 # The option of authenticating users when registering JWT. By default it's empty and
 # no users are allowed to register JWT via UI Connector service.
@@ -68,7 +62,7 @@ export REDIS_IP_RANGE='10.8.0.0/28'
 #   3. 'GenesysCloud': verify the auth token using Genesys SDK UsersAPI.
 #   4. 'Twilio': verify the auth token for Twilio.
 #   5. 'Skip': skip auth token verification, should not be used in production.
-export AUTH_OPTION=''
+export AUTH_OPTION=${AUTH_OPTION:=''}
 # export SALESFORCE_DOMAIN='' # For "SalesforceLWC" auth option. Should not include "https://".
 # export SALESFORCE_ORGANIZATION_ID='' # For "SalesforceLWC" auth option
 
@@ -82,16 +76,28 @@ export SERVICE_REGION='us-central1'
 # The name of your JWT secret.
 export JWT_SECRET_NAME='aa-integration-jwt-secret'
 
-# Configurations for Memorystore for Redis.
-export VPC_CONNECTOR_NAME='aa-integration-vpc'
+# Configurations for Memorystore for Redis (using Direct Egress).
 export VPC_NETWORK='default'
+export VPC_SUBNET='default'
 export REDIS_INSTANCE_ID='aa-integration-redis'
+
+# Additional configurations for using a Serverless VPC Access connector to connect to Redis.
+# Please uncomment both variable settings if it's the preferred option.
+# References:
+#   https://cloud.google.com/memorystore/docs/redis/connect-redis-instance-cloud-run
+#   https://cloud.google.com/run/docs/configuring/vpc-direct-vpc#limitations
+# export VPC_CONNECTOR_NAME='aa-integration-vpc'
+# The IP Range must not overlap with existing IP address reservations
+# in our VPC Network. The default IP range below will work in most new project
+# To confirm, follow the documentation below to check the IP Range
+# https://cloud.google.com/vpc/docs/configure-serverless-vpc-access#create-connector
+# export REDIS_IP_RANGE='10.8.0.0/28'
 
 # Configurations for Cloud Run services.
 export CONNECTOR_SERVICE_ACCOUNT_NAME='ui-connector'
 export INTERCEPTOR_SERVICE_ACCOUNT_NAME='cloud-pubsub-interceptor'
-export CONNECTOR_SERVICE_NAME='ui-connector'
-export INTERCEPTOR_SERVICE_NAME='cloud-pubsub-interceptor'
+export CONNECTOR_SERVICE_NAME=${CONNECTOR_SERVICE_NAME:='ui-connector'}
+export INTERCEPTOR_SERVICE_NAME=${INTERCEPTOR_SERVICE_NAME:='cloud-pubsub-interceptor'}
 
 # Configurations for Cloud Pub/Sub topics and subscriptions.
 export CLOUD_RUN_PUBSUB_INVOKER_NAME='cloud-run-pubsub-invoker'
@@ -99,6 +105,10 @@ export AGENT_ASSIST_NOTIFICATIONS_SUBSCRIPTION_ID='aa-new-suggestion-sub'
 export NEW_MESSAGE_NOTIFICATIONS_SUBSCRIPTION_ID='aa-new-message-sub'
 export CONVERSATION_LIFECYCLE_NOTIFICATIONS_SUBSCRIPTION_ID='aa-conversation-event-sub'
 export NEW_RECOGNITION_RESULT_NOTIFICATION_SUBSCRIPTION_ID='aa-intermediate-transcript-event-sub'
+
+# Optionally configure the root directory of service source code.
+# For example, you can specify '/aa-integration-backend' if you're building a continuous deployment pipeline at the parent directory.
+export BACKEND_DIR=${BACKEND_DIR:=''}
 
 # Optionally load environment variables from a .env file if one exists
 if [ ! -f ./.env ]; then
@@ -227,8 +237,10 @@ else
   gcloud redis instances create $REDIS_INSTANCE_ID --size=5 --region=$SERVICE_REGION --format=json
 fi
 
-# Create a Serverless VPC Access connector with a custom IP range.
-if [[ $VPC_CONNECTOR_NAME = \
+# (Optional) Create a Serverless VPC Access connector with a custom IP range.
+if [[ -z $VPC_CONNECTOR_NAME ]]; then
+  echo "Skip creating Serverless VPC Access connector as Direct Egress is configured to connect to Redis."
+elif [[ $VPC_CONNECTOR_NAME = \
   `gcloud compute networks vpc-access connectors list --region=$SERVICE_REGION \
     --filter=$VPC_CONNECTOR_NAME --format='value(CONNECTOR_ID)'` ]]; then
   echo "Skip creating Serverless VPC Access connector $VPC_CONNECTOR_NAME as it exists."
@@ -238,6 +250,7 @@ else
     --region $SERVICE_REGION \
     --range $REDIS_IP_RANGE \
     --format=json
+  echo "Created a Serverless VPC Access connector $VPC_CONNECTOR_NAME."
 fi
 
 # Record redis instance information for later service deployment.
@@ -248,14 +261,18 @@ export REDIS_PORT=`gcloud redis instances describe $REDIS_INSTANCE_ID --region $
 echo -e '\n\n ========================= Deploy UI Connector Service ========================= \n\n'
 
 # Deploy UI Connector Cloud Run service.
-gcloud run deploy $CONNECTOR_SERVICE_NAME \
-  --source ./ui-connector \
+if [[ -z $VPC_CONNECTOR_NAME ]]; then
+  echo "Deploying with Direct Egress when a Serverless VPC Access connector is not configured. "
+  gcloud run deploy $CONNECTOR_SERVICE_NAME \
+  --source .${BACKEND_DIR}/ui-connector \
   --platform managed \
   --service-account=$CONNECTOR_SERVICE_ACCOUNT_NAME@$GCP_PROJECT_ID.iam.gserviceaccount.com \
   --allow-unauthenticated \
   --timeout 3600 \
   --region $SERVICE_REGION \
-  --vpc-connector $VPC_CONNECTOR_NAME \
+  --network $VPC_NETWORK \
+  --subnet $VPC_SUBNET \
+  --clear-vpc-connector \
   --min-instances=1 \
   --update-secrets=/secret/jwt_secret_key=${JWT_SECRET_NAME}:latest \
   --set-env-vars REDISHOST=$REDIS_HOST \
@@ -265,22 +282,62 @@ gcloud run deploy $CONNECTOR_SERVICE_NAME \
   --set-env-vars SALESFORCE_DOMAIN=$SALESFORCE_DOMAIN \
   --set-env-vars SALESFORCE_ORGANIZATION_ID=$SALESFORCE_ORGANIZATION_ID \
   --set-env-vars GENESYS_CLOUD_ENVIRONMENT=$GENESYS_CLOUD_ENVIRONMENT
+else
+  echo "Deploying with a Serverless VPC Access connector."
+  gcloud run deploy $CONNECTOR_SERVICE_NAME \
+    --source .${BACKEND_DIR}/ui-connector \
+    --platform managed \
+    --service-account=$CONNECTOR_SERVICE_ACCOUNT_NAME@$GCP_PROJECT_ID.iam.gserviceaccount.com \
+    --allow-unauthenticated \
+    --timeout 3600 \
+    --region $SERVICE_REGION \
+    --vpc-connector $VPC_CONNECTOR_NAME \
+    --clear-network \
+    --min-instances=1 \
+    --update-secrets=/secret/jwt_secret_key=${JWT_SECRET_NAME}:latest \
+    --set-env-vars REDISHOST=$REDIS_HOST \
+    --set-env-vars REDISPORT=$REDIS_PORT \
+    --set-env-vars GCP_PROJECT_ID=$GCP_PROJECT_ID \
+    --set-env-vars AUTH_OPTION=$AUTH_OPTION \
+    --set-env-vars SALESFORCE_DOMAIN=$SALESFORCE_DOMAIN \
+    --set-env-vars SALESFORCE_ORGANIZATION_ID=$SALESFORCE_ORGANIZATION_ID \
+    --set-env-vars GENESYS_CLOUD_ENVIRONMENT=$GENESYS_CLOUD_ENVIRONMENT
+fi
 
 
 echo -e '\n\n =================== Deploy Cloud PubSub Interceptor Service =================== \n\n'
 
 # Deploy Cloud PubSub Interceptor Cloud Run service.
-gcloud run deploy $INTERCEPTOR_SERVICE_NAME \
-  --source ./cloud-pubsub-interceptor \
-  --platform managed \
-  --service-account=$INTERCEPTOR_SERVICE_ACCOUNT_NAME@$GCP_PROJECT_ID.iam.gserviceaccount.com \
-  --no-allow-unauthenticated \
-  --region $SERVICE_REGION \
-  --vpc-connector $VPC_CONNECTOR_NAME \
-  --ingress=internal \
-  --min-instances=1 \
-  --set-env-vars REDISHOST=$REDIS_HOST \
-  --set-env-vars REDISPORT=$REDIS_PORT
+if [[ -z $VPC_CONNECTOR_NAME ]]; then
+  echo "Deploying with Direct Egress when a Serverless VPC Access connector is not configured."
+  gcloud run deploy $INTERCEPTOR_SERVICE_NAME \
+    --source .${BACKEND_DIR}/cloud-pubsub-interceptor \
+    --platform managed \
+    --service-account=$INTERCEPTOR_SERVICE_ACCOUNT_NAME@$GCP_PROJECT_ID.iam.gserviceaccount.com \
+    --no-allow-unauthenticated \
+    --region $SERVICE_REGION \
+    --network $VPC_NETWORK \
+    --subnet $VPC_SUBNET \
+    --clear-vpc-connector \
+    --ingress=internal \
+    --min-instances=1 \
+    --set-env-vars REDISHOST=$REDIS_HOST \
+    --set-env-vars REDISPORT=$REDIS_PORT
+else
+  echo "Deploying with a Serverless VPC Access connector."
+  gcloud run deploy $INTERCEPTOR_SERVICE_NAME \
+    --source .${BACKEND_DIR}/cloud-pubsub-interceptor \
+    --platform managed \
+    --service-account=$INTERCEPTOR_SERVICE_ACCOUNT_NAME@$GCP_PROJECT_ID.iam.gserviceaccount.com \
+    --no-allow-unauthenticated \
+    --region $SERVICE_REGION \
+    --vpc-connector $VPC_CONNECTOR_NAME \
+    --clear-network \
+    --ingress=internal \
+    --min-instances=1 \
+    --set-env-vars REDISHOST=$REDIS_HOST \
+    --set-env-vars REDISPORT=$REDIS_PORT
+fi
 
 echo -e '\n\n ================= Create Cloud PubSub Topic ================== \n\n'
 
@@ -414,4 +471,3 @@ ui_connector_service_info=`gcloud run services describe $CONNECTOR_SERVICE_NAME 
 echo $ui_connector_service_info | head -4 | cut -d' ' -f 8
 
 echo -e '\n\n =============================================================================== \n\n'
- 
