@@ -305,6 +305,48 @@ For the `GET` method, the request body can be empty. For `POST` and `PATCH` meth
 **Response**
 If a valid JWT is attached in the request, the original response from Dialogflow will be processed and returned, including raw content, status code and headers, or status code `401` and error message ‘Token is missing.’ or ‘Token is invalid’ are returned.
 
+# Automated Deployment
+The deployment can be automated by a gcloud automation script or terraform.
+
+## Automation Script
+Check `./deploy.sh` for more details.
+
+## Terraform
+All terraform files are included under folder `/terraform`. Before applying terraform changes, please clone this repository and complete the following steps.
+1. Make sure your account has Owner permissions in your GCP project or been granted the following IAM roles.
+    - Project IAM Admin (roles/resourcemanager.projectIamAdmin)
+    - Service Usage Admin (roles/serviceusage.serviceUsageAdmin)
+    - Service Account Admin (roles/iam.serviceAccountAdmin)
+    - Service Account User (roles/iam.serviceAccountUser)
+    - Pub/Sub Admin (roles/pubsub.admin)
+    - Secret Manager Admin (roles/secretmanager.admin)
+    - Cloud Build Editor (roles/cloudbuild.builds.editor)
+    - Artifact Registry Administrator (roles/artifactregistry.admin)
+    - Storage Admin (roles/storage.admin)
+    - Cloud Run Admin (roles/run.admin)
+    - Cloud Memorystore Redis Admin (roles/redis.admin)
+    - Serverless VPC Access Admin (roles/vpcaccess.admin)
+2. Build images for UI Connector and Cloud Pub/Sub Interceptor and note the image names.
+```bash
+# Example
+# Under './ui-connector' folder.
+$ gcloud builds submit --tag gcr.io/$GCP_PROJECT_ID/aa-integration-backend/ui-connector
+# Under './cloud-pubsub-interceptor' folder.
+$ gcloud builds submit --tag gcr.io/$GCP_PROJECT_ID/aa-integration-backend/cloud-pubsub-interceptor
+```
+3. Create a GCS bucket to store terraform state and update the backend bucket value at `/terraform/backend.tf`.
+```bash
+GCP_PROJECT_ID=$(gcloud config get-value project)
+# Create the Cloud Storage bucket.
+gsutil mb gs://${GCP_PROJECT_ID}-tfstate
+# Enable Object Versioning to keep the history of your deployments.
+gsutil versioning set on gs://${GCP_PROJECT_ID}-tfstate
+```
+4. Export the value of required terraform variables `gcp_project_id`, `ui_connector_docker_image` and `cloud_pubsub_interceptor_docker_image`. Example: `export TF_VAR_gcp_project_id='you-gcp-project-id'`. (Alternatively, you can fill their values at `/terraform/variables.tf` directly.)
+5. Customize authentication method by modifying `auth.check_auth()` method at `/ui-connector/auth.py`.
+
+If you want to automate these steps by using Cloud Build, follow this [instruction](https://cloud.google.com/build/docs/automate-builds) and use the build configuration file `./terraform_cloudbuild.yaml`. To allow Cloud Build to deploy the services, you need to grant Cloud Build Service Account the IAM roles listed at Step 1.
+
 # How to Deploy and Run
 
 An automation script has been provided at `./deploy.sh`. If you want to deploy it step by step, please check the following process.
