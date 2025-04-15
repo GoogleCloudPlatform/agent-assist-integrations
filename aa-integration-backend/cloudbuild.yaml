@@ -22,9 +22,9 @@ steps:
   - '-c'
   - |
       echo "***********************"
-      echo "BRANCH_NAME=${BRANCH_NAME}"
-      echo "PROJECT_ID=${PROJECT_ID}"
-      echo "SERVICE_ACCOUNT_EMAIL=${SERVICE_ACCOUNT_EMAIL}"
+      echo "$BRANCH_NAME"
+      echo "$PROJECT_ID"
+      echo "$SERVICE_ACCOUNT_EMAIL"
       echo "***********************"
 
 - name: 'gcr.io/cloud-builders/gcloud'

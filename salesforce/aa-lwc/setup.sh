@@ -25,9 +25,7 @@ if [[ $1 == 'generate-static-resources' ]]; then
     mkdir -p ${dir_path}
     rm -f ${file_path} # delete file if exists
     rm -f ${file_path}.resource-meta.xml # delete file if exists
-    # TODO: When container.js is updated to v1.12 in mid-April 2025, use commented curl line instead of this.
-    curl --silent https://www.gstatic.com/agent-assist-ui-modules/latest/${file}.js | sed -e 's/(c=b==null\?.*)};/c=""};/g' > $file_path
-    # curl --silent https://www.gstatic.com/agent-assist-ui-modules/latest/${file}.js > $file_path
+    curl --silent https://www.gstatic.com/agent-assist-ui-modules/latest/${file}.js > $file_path
     echo downloaded js and wrote ${file_path}
   done
   sf static-resource generate \
