@@ -115,41 +115,7 @@ def register_app_token():
     return jsonify({'token': token})
 
 
-# Note: Dialogflow methods projects.locations.conversations.list and projects.locations.answerRecords.list are not supported.
-
-# projects.locations.answerRecords.patch
-@app.route('/<version>/projects/<project>/locations/<location>/answerRecords/<path:path>', methods=['PATCH'])
-# projects.locations.conversations.participants.patch
-@app.route('/<version>/projects/<project>/locations/<location>/conversations/<path:path>', methods=['PATCH'])
-# projects.locations.conversations.create
-@app.route('/<version>/projects/<project>/locations/<location>/conversations', defaults={'path': ''}, methods=['POST'])
-# GET:
-#   projects.locations.conversations.get
-#   projects.locations.conversations.messages.list
-#   projects.locations.conversations.participants.get
-#   projects.locations.conversations.participants.list
-# POST:
-#   projects.locations.conversations.complete
-#   projects.locations.conversations.create
-#   projects.locations.conversations.messages.batchCreate
-#   projects.locations.conversations.participants.analyzeContent
-#   projects.locations.conversations.participants.create
-#   projects.locations.conversations.participants.suggestions.suggestArticles
-#   projects.locations.conversations.participants.suggestions.suggestFaqAnswers
-#   projects.locations.conversations.participants.suggestions.suggestSmartReplies
-@app.route('/<version>/projects/<project>/locations/<location>/conversations/<path:path>', methods=['GET', 'POST'])
-# projects.locations.conversationProfiles.get
-@app.route('/<version>/projects/<project>/locations/<location>/conversationProfiles/<path:path>', methods=['GET'])
-# projects.locations.conversationModels.get
-@app.route('/<version>/projects/<project>/locations/<location>/conversationModels/<path:path>', methods=['GET'])
-# projects.locations.suggestions.searchKnowledge
-@app.route('/<version>/projects/<project>/locations/<location>/suggestions:searchKnowledge', defaults={'path': None}, methods=['POST'])
-# projects.locations.conversations.generateStatelessSuggestion
-@app.route('/<version>/projects/<project>/locations/<location>/statelessSuggestion:generate', defaults={'path': None}, methods=['POST'])
-# projects.locations.generators.get
-@app.route('/<version>/projects/<project>/locations/<location>/generators/<path:path>', methods=['GET'])
-@token_required
-def call_dialogflow(version, project, location, path):
+def call_dialogflow(version, project, location, tail):
     """Forwards valid request to dialogflow and return its responese."""
     logging.info(
         'Called Dialogflow for request path: {}'.format(request.full_path))
@@ -175,6 +141,47 @@ def call_dialogflow(version, project, location, path):
         logging.info('patch_dialogflow response: {0}, {1}, {2}'.format(
             response.raw.data, response.status_code, response.headers))
         return response.raw.data, response.status_code, response.headers.items()
+
+# projects.locations.conversations.create
+@app.route('/<version>/projects/<project>/locations/<location>/conversations', methods=['POST'])
+# projects.locations.suggestions.searchKnowledge
+@app.route('/<version>/projects/<project>/locations/<location>/suggestions:searchKnowledge', methods=['POST'])
+# projects.locations.conversations.generateStatelessSuggestion
+@app.route('/<version>/projects/<project>/locations/<location>/statelessSuggestion:generate', methods=['POST'])
+@token_required
+def call_dialogflow_without_tail(version, project, location):
+    return call_dialogflow(version, project, location, '')
+
+# Note: Dialogflow methods projects.locations.conversations.list and projects.locations.answerRecords.list are not supported.
+
+# projects.locations.answerRecords.patch
+@app.route('/<version>/projects/<project>/locations/<location>/answerRecords/<path:tail>', methods=['PATCH'])
+# projects.locations.conversations.participants.patch
+@app.route('/<version>/projects/<project>/locations/<location>/conversations/<path:tail>', methods=['PATCH'])
+# GET:
+#   projects.locations.conversations.get
+#   projects.locations.conversations.messages.list
+#   projects.locations.conversations.participants.get
+#   projects.locations.conversations.participants.list
+# POST:
+#   projects.locations.conversations.complete
+#   projects.locations.conversations.create
+#   projects.locations.conversations.messages.batchCreate
+#   projects.locations.conversations.participants.analyzeContent
+#   projects.locations.conversations.participants.create
+#   projects.locations.conversations.participants.suggestions.suggestArticles
+#   projects.locations.conversations.participants.suggestions.suggestFaqAnswers
+#   projects.locations.conversations.participants.suggestions.suggestSmartReplies
+@app.route('/<version>/projects/<project>/locations/<location>/conversations/<path:tail>', methods=['GET', 'POST'])
+# projects.locations.conversationProfiles.get
+@app.route('/<version>/projects/<project>/locations/<location>/conversationProfiles/<path:tail>', methods=['GET'])
+# projects.locations.conversationModels.get
+@app.route('/<version>/projects/<project>/locations/<location>/conversationModels/<path:tail>', methods=['GET'])
+# projects.locations.generators.get
+@app.route('/<version>/projects/<project>/locations/<location>/generators/<path:tail>', methods=['GET'])
+@token_required
+def call_dialogflow_with_tail(version, project, location, tail):
+    return call_dialogflow(version, project, location, tail)
 
 
 @app.route('/conversation-name', methods=['POST'])
