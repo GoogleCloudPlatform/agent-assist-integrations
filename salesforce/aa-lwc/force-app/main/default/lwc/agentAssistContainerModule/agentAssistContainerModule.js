@@ -242,11 +242,6 @@ export default class AgentAssistContainerModule extends LightningElement {
 
     if (this.conversationName) {
       initializeUIM();
-
-      // Ingest hardcoded context references for demo purposes only
-      // ingestContextReferences.ingestDemoContextReferences(
-      //   this.endpoint, this.token, this.conversationName);
-
     } else {
       if (this.debugMode) {
         console.log(
