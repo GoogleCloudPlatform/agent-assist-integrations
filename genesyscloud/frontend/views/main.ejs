@@ -11,20 +11,12 @@
   <!-- WebComponents polyfill. Needed for rendering web components in older browsers. -->
   <script src="https://www.gstatic.com/external_hosted/document_register_element/document-register-element.js"></script>
   <!-- Core UI module container. Loads all UI module-specific scripts. -->
-  <script src="https://www.gstatic.com/agent-assist-ui-modules/transcript.js"></script>
-  <script src="https://www.gstatic.com/agent-assist-ui-modules/v1.11/container.js"></script>
+  <script src="https://www.gstatic.com/agent-assist-ui-modules/v1.8/common.js"></script>
+  <script src="https://www.gstatic.com/agent-assist-ui-modules/v1.3/transcript.js"></script>
+  <script src="https://www.gstatic.com/agent-assist-ui-modules/v2.0/container.js"></script>
 
 </head>
 <body>
-  <div class="header-bar">
-    <h2>
-      <img
-        src="https://www.gstatic.com/images/branding/googlelogo/svg/googlelogo_clr_74x24px.svg"
-      />
-      Contact Center AI
-    </h2>
-    <div class="status-container"></div>
-  </div>
   <div class="app-container">
     <div class="transcript-container"></div>
     <div class="ui-modules-wrapper">
@@ -32,17 +24,19 @@
     </div>
   </div>
   <script>
+
+    // window._uiModuleFlags = { debug: true }
     window.addEventListener('load', function () {
 
-      const UI_MODULES_EL_SELECTOR = 'agent-assist-ui-modules';
+      const UI_MODULES_EL_SELECTOR = 'agent-assist-ui-modules-v2';
       const TRANSCRIPT_SELECTOR = 'agent-assist-transcript';
-      const proxyServerEndPoint = '<%= proxyServer %>';
+      const proxyServer = '<%= proxyServer %>';
       const conversationProfile = '<%= conversationProfile %>';
       const features = '<%= features %>';
       const genesysCloudRegion = '<%= genesysCloudRegion %>';
-      const clientId = '<%= clientID %>'
-      const channel = '<%= channel %>'
-      var applicationServer = '<%= applicationServer %>'
+      const clientId = '<%= clientID %>';
+      const channel = '<%= channel %>';
+      var applicationServer = '<%= applicationServer %>';
       var accessToken = '';
       const urlParams = new URLSearchParams(window.location.search);
       const currentConversationId = urlParams.get('conversationid');
@@ -55,6 +49,7 @@
       const appContainer = document.querySelector('.app-container');
       const uiModulesContainer = document.querySelector('.ui-modules-container');
       const transcriptContainer = document.querySelector('.transcript-container');
+      var connector;
 
       function createTranscriptUIElement() {
         const uiModulesTranscriptEl = document.createElement(TRANSCRIPT_SELECTOR);
@@ -64,16 +59,45 @@
 
       function createUIElement(accessToken) {
         if (existingUiModulesEl) {
-          existingUiModulesEl.setAttribute('auth-token', accessToken);
+          connector.setAuthToken(accessToken);
+          connector.initGenesysCloudConnectorSubscription();
         } else {
           var uiModulesEl = document.createElement(UI_MODULES_EL_SELECTOR);
-          var attributes = getAttributes(channel)
-          for (var [attribute, value] of attributes) {
-            uiModulesEl.setAttribute(attribute, value);
-          }
+          uiModulesEl.setAttribute('features', features);
           uiModulesEl.config = getKnowledgeAssistConfig();
           uiModulesContainer.appendChild(uiModulesEl);
+
+          initConnect();
         }
+      }
+
+      /* Make a V2 Connection */
+      function initConnect() {
+        connector = new UiModulesConnector();
+
+        const config = {
+          channel: channel,
+          agentDesktop: 'GenesysCloud',
+          conversationProfileName: conversationProfile,
+          apiConfig: {
+            authToken: accessToken,
+            customApiEndpoint: proxyServer,
+          },
+          useCustomConversationId: true,
+          oauthClientId: clientId,
+          redirectUri: redirectUri,
+          genesysCloudRegion: genesysCloudRegion,
+          eventBasedConfig: {
+            notifierServerEndpoint: proxyServer,
+            library: 'SocketIo'
+          }
+        }
+
+        if (channel !== 'voice') {
+          transcriptContainer.style.display = 'none';
+        }
+
+        connector.init(config);
       }
 
       function getKnowledgeAssistConfig() {
@@ -87,77 +111,56 @@
         };
       }
 
-      function getAttributes(channel) {
-        var attributes = [
-          ['agent-desktop', 'GenesysCloud'],
-          ['features', features],
-          ['conversation-profile', conversationProfile],
-          ['auth-token', accessToken],
-          ['use-custom-conversation-id', 'true'],
-          ['oauth-client-id', clientId],
-          ['redirect-uri', redirectUri],
-          ['custom-api-endpoint', proxyServerEndPoint],
-          ['genesys-cloud-region', genesysCloudRegion],
-          ['show-header', false]
-        ];
-        if (channel === "voice") {
-            attributes = [
-            ...attributes,
-            ['channel','voice'],
-            ['notifier-server-endpoint', proxyServerEndPoint],
-            ['event-based-library','SocketIo'],
-          ];
-        }
-        return attributes;
-      }
-
-      if (channel !== "voice") {
-        transcriptContainer.style.display = "none";
-      }
-
       /** When the first time UI module load, parse an empty token */
       if (!existingUiModulesEl && !accessToken) {
         createUIElement(accessToken);
-        if (channel === "voice") {
+        if (channel === 'voice') {
           createTranscriptUIElement();
         }
       }
 
       /** After the genesys OAuth, get the access token */
       addAgentAssistEventListener(
-          'genesys-cloud-connector-access-token-received', function(event) {
-            const genesysCloudAccessToken = event.detail.accessToken;
-            authenticateGenesysCloud(genesysCloudAccessToken).then(function(res) {
-              if (res.status !== 200) {
-                document.body.removeChild(existingUiModulesEl);
-              }
-              return res.json();
-            }).then(function(body) {
-              existingUiModulesEl = document.querySelector(UI_MODULES_EL_SELECTOR);
-                 // If there is unauthenticated existingUIModule,
-                 // the accessToken will be undefined
-                 // Set the accessToken to the existingUIModule
-                firstTimeLoad = existingUiModulesEl && !accessToken;
-                if (firstTimeLoad) {
-                  accessToken = body.token;
-                  createUIElement(accessToken);
-                }
-            });
+        'genesys-cloud-connector-access-token-received', function (event) {
+          const genesysCloudAccessToken = event.detail.accessToken;
+          authenticateGenesysCloud(genesysCloudAccessToken).then(function (res) {
+            if (res.status !== 200) {
+              document.body.removeChild(existingUiModulesEl);
+            }
+            return res.json();
+          }).then(function (body) {
+            existingUiModulesEl = document.querySelector(UI_MODULES_EL_SELECTOR);
+            // If there is unauthenticated existingUIModule,
+            // the accessToken will be undefined
+            // Set the accessToken to the existingUIModule
+            firstTimeLoad = existingUiModulesEl && !accessToken;
+            if (firstTimeLoad) {
+              accessToken = body.token;
+              createUIElement(accessToken);
+            }
           });
+        });
 
+      addAgentAssistEventListener('smart-reply-selected', function (event) {
+        navigator.clipboard.writeText(event.detail.answer.reply);
+      });
 
-    /**
-    * Authenticate the Genesys Cloud access token
-    * @param {string} accessToken
-    * @return {!Promise<number>}
-    */
-    function authenticateGenesysCloud(accessToken) {
-      return fetch(proxyServerEndPoint + '/register', {
-              method: 'POST',
-              headers: [['Authorization', accessToken]],
-            });
-      }
-    });
+      addAgentAssistEventListener('agent-coaching-response-selected', function (event) {
+        navigator.clipboard.writeText(event.detail.selectedResponse);
+      });
+
+      /**
+      * Authenticate the Genesys Cloud access token
+      * @param {string} accessToken
+      * @return {!Promise<number>}
+      */
+      function authenticateGenesysCloud(accessToken) {
+        return fetch(proxyServer + '/register', {
+                method: 'POST',
+                headers: [['Authorization', accessToken]],
+              });
+        }
+      });
   </script>
 </body>
 
