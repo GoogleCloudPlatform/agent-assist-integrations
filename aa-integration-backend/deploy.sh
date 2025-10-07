@@ -284,6 +284,7 @@ if [[ -z $VPC_CONNECTOR_NAME ]]; then
   --subnet $VPC_SUBNET \
   --clear-vpc-connector \
   --min-instances=1 \
+  --max-instance-request-concurrency=80 \
   --no-cpu-throttling \
   --update-secrets=/secret/jwt_secret_key=${JWT_SECRET_NAME}:latest \
   --set-env-vars REDISHOST=$REDIS_HOST \
@@ -337,6 +338,7 @@ if [[ -z $VPC_CONNECTOR_NAME ]]; then
     --subnet $VPC_SUBNET \
     --clear-vpc-connector \
     --ingress=internal \
+    --max-instance-request-concurrency=80 \
     --min-instances=1 \
     --no-cpu-throttling \
     --set-env-vars REDISHOST=$REDIS_HOST \

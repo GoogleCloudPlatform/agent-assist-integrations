@@ -25,7 +25,7 @@ COPY . ./
 RUN pip install -r requirements.txt
 
 # Run the web service on container startup. Here we use the gunicorn
-# webserver, with one worker process and 8 threads.
+# webserver, with one worker process and 80 threads.
 # For environments with multiple CPU cores, increase the number of workers
 # to be equal to the cores available.
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 main:app
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 80 --timeout 0 main:app
