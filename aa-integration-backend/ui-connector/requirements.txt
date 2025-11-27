@@ -1,4 +1,4 @@
-aiohttp==3.11.11
+aiohttp==3.12.14
 async-timeout==5.0.1
 attrs==24.3.0
 bidict==0.23.1
