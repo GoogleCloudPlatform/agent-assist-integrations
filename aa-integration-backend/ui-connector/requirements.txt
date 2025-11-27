@@ -17,7 +17,7 @@ google-cloud-secret-manager==2.22.1
 googleapis-common-protos==1.66.0
 grpcio==1.69.0
 gunicorn==23.0.0
-h11==0.14.0
+h11==0.16.0
 idna==3.10
 itsdangerous==2.2.0
 Jinja2==3.1.5
