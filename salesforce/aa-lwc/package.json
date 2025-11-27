@@ -16,7 +16,6 @@
   "author": "Jordan",
   "license": "Apache-2.0",
   "devDependencies": {
-    "@salesforce/lwc-dev-server": "^2.11.0",
     "@salesforce/sfdx-lwc-jest": "^5.1.0",
     "cross-fetch": "^4.0.0",
     "jest-environment-jsdom": "^29.7.0",
