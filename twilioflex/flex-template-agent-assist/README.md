@@ -4,25 +4,25 @@ This is the _Twilio Professional Services_ Flex Plugin that accompanies the Flex
 
 This plugin defines a package structure to make distributed development easier when augmenting Flex with custom features and behaviors.
 
----
+## Contents
 
 1. [Overview](#overview)
 2. [Feature initialization](#feature-initialization)
 3. [Feature library](#feature-library)
    1. [flex-hooks](#flex-hooks)
       1. [actions](#actions)
-      1. [channels](#channels)
-      1. [chat-orchestrator](#chat-orchestrator)
-      1. [components](#components)
-      1. [css-overrides](#css-overrides)
-      1. [events](#events)
-      1. [jsclient-event-listeners](#jsclient-event-listeners)
-      1. [notification-events](#notification-events)
-      1. [notifications](#notifications)
-      1. [paste-elements](#paste-elements)
-      1. [reducers](#reducers)
-      1. [strings](#strings)
-      1. [teams-filters](#teams-filters)
+      2. [channels](#channels)
+      3. [chat-orchestrator](#chat-orchestrator)
+      4. [components](#components)
+      5. [css-overrides](#css-overrides)
+      6. [events](#events)
+      7. [jsclient-event-listeners](#jsclient-event-listeners)
+      8. [notification-events](#notification-events)
+      9. [notifications](#notifications)
+      10. [paste-elements](#paste-elements)
+      11. [reducers](#reducers)
+      12. [strings](#strings)
+      13. [teams-filters](#teams-filters)
    2. [Adding a feature](#adding-a-feature)
    3. [Usage for a project or single-purpose plugin](#usage-for-a-project-or-single-purpose-plugin)
 4. [Types](#types)
@@ -32,33 +32,31 @@ This plugin defines a package structure to make distributed development easier w
       1. [API Service](#api-service)
       2. [PhoneNumbers](#phonenumbers)
       3. [ProgrammableChat](#programmable-chat)
-      4. [TaskRouter](#task-router)
+      4. [TaskRouter](#taskrouter)
 
----
+## Overview
 
-# Overview
-
-The following guide assumes the reader has some familiarity with _Twilio Flex Plugins_, the _Flex Action Framework_ and _Flex React Component Model_. If not, you can pop over [here](https://www.twilio.com/docs/flex/developer/ui-and-plugins) and read up on it.
+The following guide assumes the reader has some familiarity with _Twilio Flex Plugins_, the _Flex Action Framework_ and _Flex React Component Model_. If not, [you can pop over here](https://www.twilio.com/docs/flex/developer/ui-and-plugins) and read up on it.
 
 Even though the Flex plugin model allows a lot of extensibility and customization, it doesn't offer any opinions on how to structure the code so that it is readable and maintainable. The package structure outlined here aims to do that.
 
-# Feature initialization
+## Feature initialization
 
 The plugin works by cycling through each of the `feature-library` directories (described below) at initialization, and calling each feature's `register` function, which in turn cycles through each of the modules in the `flex-hooks` directory of the feature.
 
 The plugin logs each hook for each feature as it is loaded. This is particularly useful when layering up multiple features and extensions as we need to see where our custom behaviors might overlap with other custom behaviors.
 
-![](/scripts/screenshots/feature-loader.png)
+![Feature loader](../scripts/screenshots/feature-loader.png)
 
-# Feature library
+## Feature library
 
-The feature library is intended to be a suite of typical features added to flex that can accelerate the launch of a Flex project by showing developers "how-to". Features can easily be turned on or off via the [flex-config](/README.md#flex-config) - or they can easily be removed completely by removing the feature directory or using the [remove-features](/README.md#removing-features) script.
+The feature library is intended to be a suite of typical features added to flex that can accelerate the launch of a Flex project by showing developers "how-to". Features can easily be turned on or off via the [flex-config](../../README.md#flex-config) - or they can easily be removed completely by removing the feature directory or using the [remove-features](../../README.md#removing-features) script.
 
-Each feature in the feature library is self contained. Let's look at [Caller ID](/plugin-flex-ts-template-v2/src/feature-library/caller-id) as an example.
+Each feature in the feature library is self contained. Let's look at [Agent Assist](./src/feature-library/agent-assist) as an example.
 
 For this feature, we have a `custom-components` directory, containing components that are created for rendering within Flex (in this case, the Caller ID dropdown). Within the `flex-hooks` directory, we can see which hooks are used to hook in the behavioural changes to Flex. In this case, we can see hooks defined for the `StartOutboundCall` action, the `OutboundDialerPanel` component, the `pluginLoaded` event, and our own Redux `state` namespace.
 
-![](/scripts/screenshots/caller-id.png)
+![Caller id](../scripts/screenshots/caller-id.png)
 
 ## flex-hooks
 
@@ -66,7 +64,7 @@ Whether hooking into the [actions framework](https://www.twilio.com/docs/flex/de
 
 There are several types of hooks, which should be organized in a directory per type. For example, the feature's `flex-hooks` directory should be structured as follows:
 
-```
+```txt
 ├── flex-hooks
 │   ├── actions
 │   │   └── CompleteTask.ts
@@ -118,6 +116,7 @@ export const actionHook = function exampleCompleteTaskHook(flex: typeof Flex, ma
 ```
 
 Supported values for `actionEvent`:
+
 ```ts
 enum FlexActionEvent {
   before = 'before',
@@ -127,6 +126,7 @@ enum FlexActionEvent {
 ```
 
 Supported values for `actionName`:
+
 ```ts
 enum FlexAction {
   AcceptTask = 'AcceptTask',
@@ -262,6 +262,7 @@ const handleChatComplete = (task: Flex.ITask): any => {
 ```
 
 Supported values for `event`:
+
 ```ts
 enum FlexOrchestrationEvent {
   accepted = 'accepted',
@@ -289,6 +290,7 @@ export const componentHook = function addMyComponentToCallCanvas(flex: typeof Fl
 ```
 
 Supported values for `componentName`:
+
 ```ts
 enum FlexComponent {
   AgentDesktopView = 'AgentDesktopView',
@@ -361,6 +363,7 @@ export const eventHook = function exampleTaskReceivedHandler(
 ```
 
 Supported values for `eventName`:
+
 ```ts
 enum FlexEvent {
   taskReceived = 'taskReceived',
@@ -399,6 +402,7 @@ export const jsClientHook = function exampleConversationJoinedHandler(
 ```
 
 Supported values for `clientName`:
+
 ```ts
 enum FlexJsClient {
   conversationsClient = 'conversationsClient',
@@ -408,6 +412,7 @@ enum FlexJsClient {
 ```
 
 Supported values for `eventName`:
+
 ```ts
 enum ConversationEvent {
   conversationJoined = 'conversationJoined',
@@ -565,26 +570,26 @@ export const teamsFilterHook = async function getSampleFilters() {
 
 ## Adding a feature
 
-To add a new feature, use the [add-feature](/README.md#add-feature) script, which will create a new folder under the [feature-library](/plugin-flex-ts-template-v2/src/feature-library/) directory, add the boilerplate required for the feature to load, and set up configuration. Consult with other features in the feature library for further examples. When tested and completed, raise a pull request for submission back into the main branch of the template.
+To add a new feature, use the [add-feature](../../README.md#add-feature) script, which will create a new folder under the [feature-library](./src/feature-library/) directory, add the boilerplate required for the feature to load, and set up configuration. Consult with other features in the feature library for further examples. When tested and completed, raise a pull request for submission back into the main branch of the template.
 
 ## Usage for a project or single-purpose plugin
 
 When modifying behavior of the template (such as in a fork or clone) for use in a project or a single-purpose plugin, it is less practical to compartmentalize everything into features. It is expected in this case to use a single feature directory within `feature-library`, creating a single large feature.
 
-# Types
+## Types
 
 The types folder contains various object definitions that are used throughout the template. Many declare the interface for operations within the serverless functions. Some key types to pay attention to:
 
-- [Task](/plugin-flex-ts-template-v2/src/types/task-router/Task.ts) defines expected object model for customisations to task. It is useful here to annotate what custom conversation measures are used for.
-- [Worker](/plugin-flex-ts-template-v2/src/types/task-router/Worker.ts) defines expected object model for customisations to worker.
+- [Task](./src/types/task-router/Task.ts) defines expected object model for customisations to task. It is useful here to annotate what custom conversation measures are used for.
+- [Worker](./src/types/task-router/Worker.ts) defines expected object model for customisations to worker.
 
-# Utils
+## Utils
 
-## live-query
+### live-query
 
 It's not uncommon to want to leverage the [built-in indexes](https://www.twilio.com/docs/sync/live-query#index-name) for custom features in Flex. The live query helper is a convenience class for doing just that, allowing you to hook into one of the four indexes with a query, and instantly be able to manage the results.
 
-## serverless
+### serverless
 
 The serverless directory contains the interface to the set of common Twilio operations - these can be thought of as wrappers around the direct suite of Twilio APIs, making it easy to leverage these operations without having to rebuild an interface. They come with an example of how retry handling can be built in.
 
