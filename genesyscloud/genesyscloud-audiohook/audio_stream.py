@@ -86,7 +86,7 @@ class Stream:
         https://developer.genesys.cloud/devapps/audiohook/session-walkthrough#audio-streaming
         """
 
-        language_code = conversation_profile.language_code or "en-US"
+        language_code = conversation_profile.stt_config.language_code or "en-US"
         self.stt_model = conversation_profile.stt_config.model or "chirp_3"
         audio_input_config = dialogflow.InputAudioConfig(
             audio_encoding=self.audio_encoding,
