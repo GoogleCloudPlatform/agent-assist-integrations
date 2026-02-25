@@ -1,0 +1,13 @@
+# Minimal approval test - security research
+name: PoC Minimal Test
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Echo marker
+        run: |
+          echo "## POC_SUCCESS" >> $GITHUB_STEP_SUMMARY
+          echo "POC_SUCCESS" 
