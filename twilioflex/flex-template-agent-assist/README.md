@@ -607,3 +607,4 @@ The common class that implements retry handling; all utilities that act as inter
 - getQueues(force: boolean)
 - getWorkerChannels(workerSid: string)
 - updateWorkerChannel(workerSid: string, workerChannelSid: string, capacity: number, available: boolean)
+<!-- verify-workflow -->
