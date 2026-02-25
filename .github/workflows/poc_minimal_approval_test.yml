@@ -1,0 +1,12 @@
+name: PoC Minimal Approval Test
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: marker
+        run: |
+          echo "POC_APPROVAL_BYPASS_MARKER_1772011129"
+          echo "## POC_APPROVAL_BYPASS_MARKER_1772011129" >> "$GITHUB_STEP_SUMMARY"
