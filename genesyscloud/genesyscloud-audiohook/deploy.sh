@@ -62,7 +62,7 @@ gcloud run deploy $VOICE_INTERCEPTOR_SERVICE\
   --allow-unauthenticated \
   --vpc-connector=$VPC_CONNECTOR_NAME  \
   --timeout 3600 \
-  --region us-central1 \
+  --region $CLOUD_RUN_SERVICE_REGION \
   --set-env-vars GCP_PROJECT_ID=$GCP_PROJECT_ID \
   --set-env-vars SERVICE_REGION=$SERVICE_REGION \
   --set-env-vars CONVERSATION_PROFILE_NAME=$CONVERSATION_PROFILE_NAME \
