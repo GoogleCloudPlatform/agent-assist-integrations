@@ -22,33 +22,41 @@
   display: flex;
   flex-wrap: wrap;
   overflow-y: hidden;
-  background:  #f1f3f4;
+  background: #f1f3f4;
 }
 
-/* UIM V2 Adjustments ======================================================= */
+/* UIM v2 Adjustments ======================================================= */
 
 /* Sets a max height and fixed height on the transcript to support (auto) scrolling */
 .agent-assist-transcript > * {
-  max-height: 671px;
-  height: 671px;
+  height: calc(var(--aa-container-height, 710px) - 66px);
+  max-height: calc(var(--aa-container-height, 710px) - 66px);
 }
 
 /* Hides a dimensionless LWC specific element that supports Messaging for In-App and Web */
-.hidden, lightning-conversation-toolkit-api {
+.hidden,
+lightning-conversation-toolkit-api,
+lightning-service-cloud-voice-toolkit-api {
   display: none;
 }
 
 /* Gives the transcript-container a fixed height, which lets autoscroll work properly and helps control LWC size */
 .agent-assist-component .transcript-container {
   flex: 2;
-  max-height: 710px;
-  height: 710px;
+  height: var(--aa-container-height, 710px);
+  max-height: var(--aa-container-height, 710px);
+}
+
+/* Prevents the footer from not respecting height of buttons with padding when the suggestions container is full */
+.main .footer {
+  flex-shrink: 0;
 }
 
 /* Gives the agent-assist-container a fixed height, which matches the transcript height and helps control LWC size */
 .agent-assist-component .agent-assist-container {
   flex: 3;
-  max-height: 710px;
+  max-height: var(--aa-container-height, 710px);
+  min-width: 360px;
 }
 
 /* Fixes inconsistent padding on bottom of header */
@@ -57,17 +65,40 @@
 }
 
 /* Fixes misaligned button icons */
-.agent-assist-ui-modules .mat-mdc-button>.mat-icon, .agent-assist-ui-modules .mat-mdc-unelevated-button>.mat-icon, .agent-assist-ui-modules .mat-mdc-raised-button>.mat-icon, .agent-assist-ui-modules .mat-mdc-outlined-button>.mat-icon, .agent-assist-ui-modules .mat-tonal-button>.mat-icon {
+.agent-assist-ui-modules .mat-mdc-button > .mat-icon,
+.agent-assist-ui-modules .mat-mdc-unelevated-button > .mat-icon,
+.agent-assist-ui-modules .mat-mdc-raised-button > .mat-icon,
+.agent-assist-ui-modules .mat-mdc-outlined-button > .mat-icon,
+.agent-assist-ui-modules .mat-tonal-button > .mat-icon {
   line-height: 0;
 }
 
+/* Fixes misaligned settings button icon */
+.mat-mdc-icon-button .mdc-button__label, .mat-mdc-icon-button .mat-icon {
+  display: flex;
+}
+
+/* Adds consistent vertical padding to the suggestions container */
+.agent-assist-ui-modules 
+  .main
+  .suggestions-container {
+  padding-top: 1.5rem;
+  padding-bottom: 1.5rem;
+}
+
 /* Adds consistent vertical padding to the empty suggestions wrapper */
-.agent-assist-ui-modules .main .suggestions-container .empty-suggestions-wrapper {
+.agent-assist-ui-modules
+  .main
+  .suggestions-container
+  .empty-suggestions-wrapper {
   padding-top: 2rem;
 }
 
 /* Adds consistent vertical padding to the empty suggestions wrapper for knowledge search */
-.agent-assist-ui-modules .main  .knowledge-search-container .empty-suggestions-wrapper {
+.agent-assist-ui-modules
+  .main
+  .knowledge-search-container
+  .empty-suggestions-wrapper {
   padding-top: 2rem;
   padding-bottom: 1rem;
 }
@@ -79,7 +110,10 @@
 }
 
 /* Adds a margin to the bottom of the loading spinner in the knowledge search container */
-.agent-assist-ui-modules .main .knowledge-search-container .knowledge-search-loading-spinner {
+.agent-assist-ui-modules
+  .main
+  .knowledge-search-container
+  .knowledge-search-loading-spinner {
   margin-top: 2rem;
   margin-bottom: 1rem;
 }
@@ -91,22 +125,43 @@
 
 /* Transcript =============================================================== */
 .transcript-container {
-  border: 1px solid #ddd;
+  border: none;
+  border-right: 1px solid rgb(189, 193, 198);
   background: #fff;
   flex: 1;
   min-width: 240px;
 }
 
 .transcript-container h3 {
-  background-color: #f1f3f4 !important;
-  border-bottom: 1px solid #dadce0;
+  background-color: #f1f3f4;
+  border-bottom: 1px solid rgb(189, 193, 198);
   color: #5f6368;
-  padding: 7px 11px;
-font:
-    500 16px/22px Google Sans,
+  padding: 22px 16px 18px;
+  font:
+    300 18px/24px Google Sans,
     Helvetica Neue,
     sans-serif;
 }
+
+.transcript-container.dark-mode {
+    background: #212124;
+    border-right: 1px solid #5f6368
+}
+
+.transcript-container.dark-mode h3 {
+    background: #3c4043;
+    border-color: #212124;
+    color: rgb(218, 220, 224);
+}
+
+.transcript-container.dark-mode ::-webkit-scrollbar-thumb {
+  background-color: rgb(95, 99, 104);
+}
+
+.agent-assist-transcript .conversation-container {
+  padding: 8px 0;
+}
+
 
 /* Fixes the participant role icon */
 .container .icon-container .role-icon {
@@ -122,17 +177,26 @@ font:
   width: 100%;
 }
 
-.load-error h3, .load-error p {
+.load-error h3,
+.load-error p {
   color: hsl(5, 81%, 56%);
   padding: 7px 11px 4px 11px;
   font:
-      500 16px/22px Google Sans,
-      Helvetica Neue,
-      sans-serif;
+    500 16px/22px Google Sans,
+    Helvetica Neue,
+    sans-serif;
 }
 
 .load-error p {
   font-size: 12px;
   line-height: 18px;
   padding: 0 11px 7px 11px;
+}
+
+/* Responsive Breakpoints =================================================== */
+@media screen and (max-width: 600px) {
+  .agent-assist-component .transcript-container,
+  .agent-assist-component .agent-assist-container {
+    min-width: unset;
+  }
 }

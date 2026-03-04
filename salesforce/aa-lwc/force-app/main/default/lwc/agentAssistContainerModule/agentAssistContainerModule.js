@@ -14,359 +14,271 @@
  * limitations under the License.
  */
 
-import google_logo from "@salesforce/resourceUrl/google_logo";
-import global_styles from "@salesforce/resourceUrl/global_styles";
-import ui_modules from "@salesforce/resourceUrl/ui_modules";
-import { MessageContext } from "lightning/messageService";
+import { api, wire } from "lwc";
 import { loadScript, loadStyle } from "lightning/platformResourceLoader";
-import { getRecord, getFieldValue } from "lightning/uiRecordApi";
-import { api, LightningElement, wire } from "lwc";
+import { getRecord, getFieldValue } from 'lightning/uiRecordApi';
+import { MessageContext } from 'lightning/messageService';
 
-import conversationName from "./helpers/conversationName";
-import integration from "./helpers/integration";
-import messageChannels from "./helpers/messageChannels";
-// import ingestContextReferences from "./helpers/ingestContextReferences";
+// static resources
+import ui_modules from "@salesforce/resourceUrl/ui_modules";
+import global_styles from "@salesforce/resourceUrl/global_styles";
+import google_logo from "@salesforce/resourceUrl/google_logo";
 
-// Generally useful flags for UIM debugging and environment configuration.
-// window._uiModuleFlags = { debug: false };
+import { LightningElement } from 'lwc';
+import agentAssistEventNames from './data/agentAssistEventNames';
+import sampleContext from './data/sampleContext';
 
-// This ZoneJS patch must be disabled for UI modules to work with Lightning Web Security.
+// Platform Services
+import MessagingPlatformService from './platformServices/MessagingPlatformService';
+import TwilioFlexPlatformService from './platformServices/TwilioFlexPlatformService';
+import ServiceCloudVoicePlatformService from './platformServices/ServiceCloudVoicePlatformService';
+
+// This Zone.js flag must be set to prevent monkey-patching of DOM APIs,
+// some of which are forbidden by Lightning Web Security (LWS).
+// For more details see https://developer.salesforce.com/docs/component-library/tools/lws-distortion-viewer.
 window.__Zone_disable_on_property = true;
+// Generally useful flags for UIM debugging and environment configuration.
+// window._uiModuleFlags = { debug: true };
 
 export default class AgentAssistContainerModule extends LightningElement {
-  @api recordId;
-  @wire(MessageContext) messageContext;
-  @wire(getRecord, { recordId: "$recordId", fields: ["Contact.Phone"] }) contact;
-  get contactPhone() {
-    return getFieldValue(this.contact.data, "Contact.Phone");
-  }
-
-  // Configure these values in Lightning App Builder:
-  // Drag and drop agentAssistContainerModule onto the page, select, fill inputs
+  // LWC Static Config - set these in Lightning App Builder:
+  // Drag and drop agentAssistContainerModule onto page, select, and fill inputs
+  @api debugMode; // e.g. false
   @api endpoint; // e.g. https://your-ui-connector-endpoint.a.run.app
   @api features; // e.g. CONVERSATION_SUMMARIZATION,KNOWLEDGE_ASSIST_V2,SMART_REPLY,AGENT_COACHING (https://cloud.google.com/agent-assist/docs/ui-modules-container-documentation)
   @api conversationProfile; // e.g. projects/your-gcp-project-id/locations/your-location/conversationProfiles/your-conversation-profile-id
   @api channel; // Either 'chat' or 'voice'
+  @api platform; // One of 'messaging', 'twilioflex', 'servicecloudvoice-nice'
   @api consumerKey; // SF Connected App Consumer Key
   @api consumerSecret; // SF Connected App Consumer Secret
+  @api containerHeight;
 
-  debugMode = true;
-  googleLogoUrl = google_logo;
-  token = null;
-  conversationId = null;
-  conversationName = null;
-  participants = null;
-  loadError = null;
+  // LWC Public Properties - set at runtime by platform services
+  // @api decorator allows external read and write
+  @api loadError = null;
+  @api conversationId = null;
+  @api conversationName = null;
+  @api cancelSummarizationTimeout = null;
+  @api token = null;
+  @api showTranscript = false;
 
-  connectedCallback() {
-    integration.checkConfiguration(
-      this.endpoint,
-      this.features,
-      this.conversationProfile,
-      this.consumerKey,
-      this.consumerSecret,
-      this.debugMode
-    );
+  // LWC Private Properties
+  _heightApplied = false;
 
-    this.showTranscript = this.debugMode || this.channel === "voice";
+  // LWC Wired Properties
+  // https://developer.salesforce.com/docs/platform/lwc/guide/data-wire-service-about.html
+  @api recordId;
+  @wire(MessageContext) messageContext;
+  @wire(getRecord, { recordId: "$recordId", fields: ["Contact.Phone"] })
+  contact;
+  @wire(getRecord, {
+    recordId: "$recordId",
+    fields: ["VoiceCall.VendorCallKey"]
+  })
+  voiceCall;
+
+  // LWC Getters - deconstruct values from @wire objects on demand
+  @api get contactPhone() {
+    return getFieldValue(this.contact.data, "Contact.Phone");
   }
-  disconnectedCallback() {
-    if (this.channel === "chat") {
-      messageChannels.unsubscribeToMessageChannels();
-    }
-    window._uiModuleEventTarget = window._uiModuleEventTarget.cloneNode(true);
+  @api get vendorCallKey() {
+    return getFieldValue(this.voiceCall.data, "VoiceCall.VendorCallKey");
+  }
+  @api get projectLocationName() {
+    return this.conversationProfile.split("/conversationProfiles")[0];
+  }
+
+  googleLogoUrl = google_logo;
+  @api platformService = null;
+  pollingInterval = null;
+
+  @api
+  connectedCallback() {
+    this.debugLog("connectedCallback called");
+    this.showTranscript = this.channel === "voice" || this.debugMode;
+    this.inspectConfig();
+    // Defer height application to renderedCallback so the template is available
   }
 
   async renderedCallback() {
-    if (this.loadError) return;
+    this.debugLog("renderedCallback called");
 
-    // load external dependencies as static resources
-    await Promise.all([
-      loadScript(this, ui_modules + "/container.js"),
-      loadScript(this, ui_modules + "/transcript.js"),
-      loadScript(this, ui_modules + "/common.js"),
-      loadStyle(this, global_styles)
-    ]);
+    // Apply height override once the template has rendered
+    if (this.containerHeight && !this._heightApplied) {
+      this.applyHeightOverride();
+      this._heightApplied = true;
+    }
 
-    try {
-      // get an auth token from the UI Connector endpoint - this uses the connected app you created
-      this.token = await integration.registerAuthToken(
-        this.consumerKey,
-        this.consumerSecret,
-        this.endpoint
-      );
-      // create a synthetic conversationId using the recordId of the current messaging session
-      this.conversationId = `SF-${this.recordId}`;
-      // subscribe to MIAW channels
-      messageChannels.unsubscribeToMessageChannels();
-      messageChannels.subscribeToMessageChannels(
-        this.recordId,
-        this.debugMode,
-        this.conversationName,
-        this.features,
-        this.conversationId,
-        this.messageContext,
-        this.template
-      );
-    } catch (error) {
-      this.loadError = new Error(
-        `Got error: "${error.message}". Unable to authorize, please check your SF Trusted URLs, console, and configuration.`
-      );
-    }
-    // parse the conversation profile to get project and location
-    try {
-      this.project = this.conversationProfile.match(
-        /projects\/(?<p>[\w-_]+)/
-      ).groups.p;
-      this.location = this.conversationProfile.match(
-        /locations\/(?<l>[\w-_]+)/
-      ).groups.l;
-    } catch (error) {
-      this.loadError =
-        new Error(`"${this.conversationProfile}" is not a valid conversation profile.
-        Expected format: projects/<projectId>/locations/<location>/conversationProfiles/<conversationProfileId>`);
-    }
-    // for voice integrations, retrieve the conversation name from redis
-    if (this.channel === "voice") {
-      if (!this.contactPhone) {
-        this.loadError = new Error("No phone number found for this contact record.")
+    if (!this.platformService) {
+      // Pass necessary refs to the service in an LWS-compliant way.
+      // This must be done at instantiation time before init() is called.
+      const refs = {
+        conversationToolkitApi: this.refs.conversationToolkitApi,
+        serviceCloudVoiceToolkitApi: this.refs.serviceCloudVoiceToolkitApi
+      };
+
+      // Instantiate the correct platform service
+      if (this.platform === "messaging") {
+        this.platformService = new MessagingPlatformService(this, refs);
+      } else if (this.platform === "twilioflex") {
+        this.platformService = new TwilioFlexPlatformService(this, refs);
+      } else if (this.platform.includes("servicecloudvoice")) {
+        this.platformService = new ServiceCloudVoicePlatformService(this, refs);
+      } else {
+        this.loadError = new Error(`Unsupported platform: ${this.platform}`);
+        this.debugLog(this.loadError.message);
       }
-      this.conversationName = await conversationName.getConversationName(
-        this.token,
-        this.endpoint,
-        this.contactPhone,
-        this.debugMode
-      );
-    } else if (this.channel === "chat") {
-      // get the conversation name for the channel
-      this.conversationName = `projects/${this.project}/locations/${this.location}/conversations/${this.conversationId}`;
-    }
-    this.initAgentAssistEvents();
-
-    // optionally enable helpful console logs
-    if (this.debugMode) {
-      console.log("this:", JSON.stringify(this));
-      console.log(`this.recordId: ${this.recordId}`);
-      console.log("this.channel", this.channel);
-      if (this.channel === "voice") {
-        console.log("this.contactPhone:", this.contactPhone);
-      } else if (this.channel === "chat") {
-        console.log("this.messageContext", this.messageContext);
-      }
-      console.log(`this.conversationName: ${this.conversationName}`);
-      console.log(`this.token: ${this.token}`);
-      console.log("this.showTranscript:", this.showTranscript);
-
-      // Log all Agent Assist events.
-      integration.initEventDragnet(this.recordId);
     }
 
-    // Create the LWC if this.conversationName is set, else show the empty state
+    if (this.platformService && !this.platformService.initialized) {
+      this.platformService.initialized = true; // Prevent re-initialization
 
-    // Create a transcript of the Agent Assist conversation.
-    if (this.showTranscript) {
-      const transcriptContainerEl = this.template.querySelector(
-        ".agent-assist-transcript"
-      );
-      const transcriptEl = document.createElement("agent-assist-transcript");
-      transcriptEl.setAttribute("namespace", this.recordId);
-      transcriptContainerEl.appendChild(transcriptEl);
+      // Get a UI Connector auth token
+      this.token = await this.platformService.registerAuthToken();
+
+      // Load static resources. Order matters, due to LWS & Lightning Locker.
+      this.debugLog("UI Modules javascript and css loading...");
+      await loadScript(this, ui_modules + "/transcript.js");
+      await loadScript(this, ui_modules + "/container.js");
+      await loadScript(this, ui_modules + "/common.js");
+      await loadStyle(this, global_styles);
+      this.debugLog("UI Modules javascript and css loaded.");
+
+      // Optionally, Log Agent Assist events
+      if (this.debugMode) this.platformService.initEventDragnet();
+
+      // Initialize Agent Assist UI Modules
+      this.platformService.initAgentAssistEvents();
+
+      // Initialize platform-specific logic
+      await this.platformService.init();
+
+      // Wait for a conversationName before initializing UI Modules
+      if (!this.conversationName) {
+        await this.waitForConversationName();
+      } else {
+        this.platformService.initUIModules();
+      }
+
+      // For demo and testing purposes - read more:
+      // https://cloud.google.com/dialogflow/es/docs/reference/rest/v2/projects.locations.conversations/ingestContextReferences
+      // this.ingestDemoContextReferences();
+    }
+  }
+
+  disconnectedCallback() {
+    this.debugLog("disconnectedCallback called");
+
+    if (this.platformService) {
+      this.platformService.teardown();
+    }
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval);
     }
 
-    // Create container element
-    const containerEl = document.createElement("agent-assist-ui-modules-v2");
-    // Lightning Web Security blocks access to document.fullscreenElement,
-    // which is needed for default UI Module copy to clipboard functionality.
-    // Setting this causes copy-to-clipboard events to be emitted, which the
-    // LWC then handles in integration.handleCopyToClipboard.
-    containerEl.generalConfig = { clipboardMode: "EVENT_ONLY" };
-    containerEl.classList.add("agent-assist-ui-modules");
-    const containerContainerEl = this.template.querySelector(
-      ".agent-assist-container"
-    );
-    let attributes = [
-      ["namespace", this.recordId],
-      ["custom-api-endpoint", this.endpoint],
-      ["channel", this.channel],
-      ["agent-desktop", "Custom"],
-      ["features", this.features],
-      ["conversation-profile", this.conversationProfile],
-      ["auth-token", this.token],
-      ["omit-script-nonce", "true"]
-    ];
-    if (this.channel === "voice") {
-      attributes.push(["notifier-server-endpoint", this.endpoint]);
-      attributes.push(["event-based-library", "SocketIo"]);
+    // Clears all listeners (_uiModuleEventTarget is not attached to the DOM)
+    if (window._uiModuleEventTarget) {
+      window._uiModuleEventTarget = window._uiModuleEventTarget.cloneNode(true);
     }
-    attributes.forEach((attr) => containerEl.setAttribute(attr[0], attr[1]));
+  }
 
-    // Create the UiModulesConnector and initialize it with the config
-    const connector = new UiModulesConnector();
-    const config = {};
-    // Basic config
-    config.channel = this.channel;
-    config.features = this.features;
-    config.agentDesktop = "Custom";
-    config.conversationProfileName = this.conversationProfile;
-    // Connector options
-    config.apiConfig = {
-      authToken: this.token,
-      customApiEndpoint: this.endpoint,
-    };
-    config.eventBasedConfig = {
-      notifierServerEndpoint: this.endpoint,
-      library: "SocketIo"
-    };
-    // Salesforce specific config
-    config.uiModuleEventOptions = {
-      namespace: this.recordId,
-    };
-    config.omitScriptNonce = true;
-
-    const initializeUIM = () => {
-      containerContainerEl.appendChild(containerEl);
-      connector.init(config);
-      if (this.debugMode) {
-        console.log("UiModulesConnector initialized with config:", config);
-        console.log("connector:", connector);
-      }
-      // Make the UiM elements visible and hide the empty state
-      containerContainerEl.classList.remove("hidden");
-      if (this.showTranscript) {
-        const transcriptContainerEl = this.template.querySelector(
-          ".transcript-container"
-        );
-        transcriptContainerEl.classList.remove("hidden");
-      }
-    };
-
-    if (this.conversationName) {
-      initializeUIM();
-    } else {
-      if (this.debugMode) {
-        console.log(
-          "No conversationName, cannot init Agent Assist UI Modules."
-        );
-      }
-      if (this.channel === "voice") {
-        if (this.debugMode) {
-          // check if conversationName is set
-          console.debug("Polling for conversationName every 5 seconds...");
-        }
-        let interval = setInterval(async () => {
-          this.conversationName = await conversationName.getConversationName(
-            this.token,
-            this.endpoint,
-            this.contactPhone
-          );
-          if (this.conversationName) {
-            if (this.debugMode) {
-              console.debug(
-                "Polling found conversationName:",
-                this.conversationName
-              );
-            }
-            clearInterval(interval);
-            integration.handleApiConnectorInitialized(
-              null,
-              this.debugMode,
-              this.conversationName,
-              this.recordId
-            ),
-              initializeUIM();
+  async waitForConversationName() {
+    this.debugLog(`waiting for a conversationName to init UI Modules...`);
+    return new Promise((resolve) => {
+      this.pollingInterval = setInterval(() => {
+        if (this.conversationName) {
+          clearInterval(this.pollingInterval);
+          this.pollingInterval = null;
+          this.debugLog(`this.conversationId: ${this.conversationId}`);
+          this.debugLog(`this.conversationName: ${this.conversationName}`);
+          if (this.platformService) {
+            this.platformService.initUIModules();
           }
-        }, 5000);
+          resolve();
+        }
+      }, 500);
+    });
+  }
+
+  @api
+  triggerSummarization() {
+    // The UI modules container is a child component, so we must query for it first.
+    const uiModulesElement = this.template.querySelector(
+      "agent-assist-ui-modules-v2"
+    );
+    if (uiModulesElement) {
+      // Now query for the button within the UI modules container.
+      const summarizationButton = uiModulesElement.querySelector(
+        '[data-test-id="generate-summary-button"]'
+      );
+      if (summarizationButton) {
+        summarizationButton.dispatchEvent(new Event("click"));
+        this.debugLog(
+          "Summarization triggered by clicking the generate summary button."
+        );
       }
     }
   }
 
-  initAgentAssistEvents() {
-    addAgentAssistEventListener("api-connector-initialized", (event) => {
-      integration.handleApiConnectorInitialized(
-        event,
-        this.debugMode,
-        this.conversationName,
-        this.recordId
-      );
-    },
-    {
-      namespace: this.recordId
-    });
-    addAgentAssistEventListener(
-      "conversation-initialized",
-      (event) => {
-        this.participants = event.detail.participants;
-        if (this.channel === "chat") {
-          integration.reconcileConversationLogs(
-            this.unusedEvent,
-            this.refs.lwcToolKitApi,
-            this.recordId,
-            this.debugMode,
-            this.conversationId,
-            this.conversationName
-          );
-        }
-      },
-      {
-        namespace: this.recordId
-      }
-    );
-    addAgentAssistEventListener(
-      "smart-reply-selected",
-      (event) =>
-        integration.handleSmartReplySelected(
-          event,
-          this.refs.lwcToolKitApi,
-          this.recordId
-        ),
-      {
-        namespace: this.recordId
-      }
-    );
-    addAgentAssistEventListener(
-      "agent-coaching-response-selected",
-      (event) =>
-        integration.handleAgentCoachingResponseSelected(
-          event,
-          this.refs.lwcToolKitApi,
-          this.recordId
-        ),
-      {
-        namespace: this.recordId
-      }
-    );
-    addAgentAssistEventListener(
-      "copy-to-clipboard",
-      (event) => integration.handleCopyToClipboard(event, this.debugMode),
-      {
-        namespace: this.recordId
-      }
-    );
-    if (this.channel === "voice") {
-      addAgentAssistEventListener(
-        "conversation-completed",
-        async () => {
-          const summarizationButton = this.template.querySelector(
-            ".generate-summary-footer button"
-          );
-          summarizationButton.dispatch("click");
-          dispatchAgentAssistEvent(
-            "conversation-summarization-requested",
-            { detail: { conversationName: this.conversationName } },
-            {
-              namespace: this.recordId
-            }
-          );
-          await conversationName.delConversationName(
-            this.token,
-            this.endpoint,
-            this.contactPhone
-          );
-        },
-        {
-          namespace: this.recordId
-        }
-      );
+  applyHeightOverride() {
+    if (!this.containerHeight || isNaN(parseInt(this.containerHeight, 10))) {
+      this.debugLog(`Invalid containerHeight value: ${this.containerHeight}`);
+      return;
     }
+    this.template.host.style.setProperty(
+      "--aa-container-height",
+      this.containerHeight
+    );
+  }
+
+  @api
+  debugLog(message) {
+    // A debug utility to log messages only if debugMode is set to true.
+    if (this.debugMode) {
+      console.log(`%c[AgentAssist]: ${message}`, "background-color: #9ff");
+    }
+  }
+
+  @api
+  inspectConfig() {
+    // A debug utility to check the runtime config of the Agent Assist LWC.
+    this.debugLog(`this.endpoint - ${this.endpoint}`);
+    this.debugLog(`this.features - ${this.features}`);
+    this.debugLog(`this.showTranscript - ${this.showTranscript}`);
+    this.debugLog(`this.conversationProfile - ${this.conversationProfile}`);
+    this.debugLog(`this.channel - ${this.channel}`);
+    this.debugLog(`this.platform - ${this.platform}`);
+    this.debugLog(`this.consumerKey - ${this.consumerKey}`);
+    this.debugLog(`this.consumerSecret - ${this.consumerSecret}`);
+  }
+
+  @api
+  ingestDemoContextReferences() {
+    // Injects context into the Dialogflow conversation for demos and testing.
+    // https://cloud.google.com/dialogflow/es/docs/reference/rest/v2/projects.locations.conversations/ingestContextReferences
+    const injectContext = () => {
+      let url = `${this.endpoint}/v2/${this.conversationName}:ingestContextReferences`;
+      let body = JSON.stringify({
+        contextReferences: {
+          context: {
+            contextContents: [
+              { content: sampleContext, contentFormat: "JSON" }
+            ],
+            languageCode: "en-us",
+            updateMode: "OVERWRITE"
+          }
+        }
+      });
+      fetch(url, this.platformService.createRequestOptions("POST", body))
+        .then((res) => res.text())
+        .then((data) => {
+          this.debugLog("ingestDemoContextReferences ran successfully");
+          console.log(JSON.parse(data));
+        })
+        .catch((err) => {
+          this.debugLog(`ingestDemoContextReferences failed: ${err.message}`);
+        });
+    };
+    setTimeout(injectContext, 1000);
   }
 }

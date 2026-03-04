@@ -19,6 +19,14 @@ module.exports = {
   ...jestConfig,
   // add any custom configurations here
   testEnvironment: "jsdom",
+  collectCoverageFrom: [
+    // https://jestjs.io/docs/configuration#collectcoveragefrom-array
+    "force-app/main/default/lwc/**/*.js",
+    "!force-app/main/default/lwc/**/__tests__/**",
+    "!force-app/main/default/lwc/**/*.html",
+    "!force-app/main/default/lwc/**/jest.config.js",
+    ...jestConfig.collectCoverageFrom
+  ],
   moduleNameMapper: {
     "^lightning/logger$":
       "<rootDir>/force-app/test/jest-mocks/lightning/logger",
