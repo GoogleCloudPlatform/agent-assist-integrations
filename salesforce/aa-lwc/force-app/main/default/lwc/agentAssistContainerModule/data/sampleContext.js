@@ -1,13 +1,20 @@
-export function ingestDemoContextReferences(endpoint, token, conversationName) {
-  // This function is a demo to show how to ingest context references.
-  // It injects a hardcoded context into the agent assist container module.
-  // This is useful for testing purposes and should not be used in production.
+/**
+ * Copyright 2025 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
-    const injectContext = () => {
-
-      console.log('ingestDemoContextReferences: STARTED')
-
-      let context = `{
+const sampleContext = `{
           "accounts": {
           "5678": {
                 "accountOpenedDate": "2020-02-02",
@@ -57,42 +64,6 @@ export function ingestDemoContextReferences(endpoint, token, conversationName) {
                 "timeWithUs": "5 years"
               }
           }
-      },`
+      },`;
 
-      let url =
-        `${endpoint}/v2/${conversationName}:ingestContextReferences`;
-      let method = "POST";
-      let headers = {
-        Authorization: token,
-        "Content-Type": "application/json",
-      };
-      let body = JSON.stringify({
-        contextReferences: {
-          context: {
-            contextContents: [
-              {
-                content: context,
-                contentFormat: "JSON",
-              },
-            ],
-            languageCode: "en-us",
-            updateMode: "OVERWRITE",
-          },
-        },
-      });
-
-      fetch(url, { method, headers, body })
-        .then((res) => res.text())
-        .then((data) => console.log(data))
-        .catch((err) => console.error(err))
-
-      console.log('ingestDemoContextReferences: COMPLETED')
-    }
-
-    setTimeout(injectContext, 1000)
-
-}
-
-export default {
-  ingestDemoContextReferences,
-}
+export default sampleContext;

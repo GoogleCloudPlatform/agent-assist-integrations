@@ -1,22 +1,38 @@
+/**
+ * Copyright 2025 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 /* UIM v2 CSS Adjustments for LWC - These rules affect elements outside the component root that need to be unscoped */
 
 /* Fixes button icon misalignment */
 .mat-mdc-button>.mat-icon, .mat-mdc-unelevated-button>.mat-icon, .mat-mdc-raised-button>.mat-icon, .mat-mdc-outlined-button>.mat-icon, .mat-tonal-button>.mat-icon {
-  line-height: 0 !important;
+  line-height: var(--slds-spacing-none) !important;
 }
 
 /* Adds padding bottom to loading spinner in summary modal */
 .mat-mdc-dialog-container .summary__content .mat-mdc-progress-spinner.mdc-circular-progress.mat-primary {
-  margin-bottom: 32px;
+  margin-bottom: var(--slds-spacing-xx-large);
 }
 
 /* Adds a margin to the bottom of the loading spinner in the knowledge search container */
 .mat-mdc-progress-spinner.mdc-circular-progress.mat-primary.mdc-circular-progress--indeterminate.gmat-mdc-progress-spinner {
-  margin-top: 1rem;
-  margin-bottom: 1rem;
+  margin-top: var(--slds-spacing-medium);
+  margin-bottom: var(--slds-spacing-medium);
 }
 
-/* Fix modal scrolling */
+/* Fixes modal scrolling */
 .summary-dialog .summary__content-wrapper .summary__content {
   max-height: unset;
 }

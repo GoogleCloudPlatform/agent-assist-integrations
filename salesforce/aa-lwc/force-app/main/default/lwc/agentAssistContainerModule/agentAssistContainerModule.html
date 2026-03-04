@@ -16,16 +16,41 @@
 
 <template>
   <div class="agent-assist-component">
-    <div class="load-error" lwc:if={loadError} >
+    <!-- This shows any errors related to config or network in the UI -->
+    <div class="load-error" lwc:if={loadError} lwc:ref="loadError">
       <h3>Load Error</h3>
       <p>{loadError.message}</p>
     </div>
-    <lightning-conversation-toolkit-api lwc:ref="lwcToolKitApi">
-    </lightning-conversation-toolkit-api>
-    <div class="transcript-container hidden" lwc:if={showTranscript} >
+
+    <!-- Optionally, the Transcript UI Module will load in here -->
+    <div
+      class="transcript-container hidden"
+      lwc:if={showTranscript}
+      lwc:ref="transcriptContainer"
+    >
       <h3>Transcript</h3>
-      <div class="agent-assist-transcript" lwc:dom="manual"></div>
+      <div
+        class="agent-assist-transcript"
+        lwc:dom="manual"
+        lwc:ref="agentAssistTranscript"
+      ></div>
     </div>
-    <div class="agent-assist-container" lwc:dom="manual"></div>
+
+    <!-- The Container UI Module will load in here -->
+    <div
+      class="agent-assist-container"
+      lwc:dom="manual"
+      lwc:ref="agentAssistContainer"
+    ></div>
+
+    <!-- These components provide access to Salesforce APIs -->
+    <lightning-service-cloud-voice-toolkit-api
+      lwc:ref="serviceCloudVoiceToolkitApi"
+    >
+    </lightning-service-cloud-voice-toolkit-api>
+    <lightning-conversation-toolkit-api
+      lwc:ref="conversationToolkitApi"
+    >
+    </lightning-conversation-toolkit-api>
   </div>
 </template>
