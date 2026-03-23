@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -218,10 +218,30 @@ class DialogflowAPI:
             responses = self.participants_client.streaming_analyze_content(
                 requests=self.generator_streaming_analyze_content_request(
                     audio_config, participant, audio_stream))
+            for response in responses:
+                audio_stream.speech_end_offset = response.recognition_result.speech_end_offset.seconds * 1000
+                logging.debug(response)
+                if response.recognition_result.is_final:
+                    audio_stream.is_final = True
+                    logging.debug(
+                        "Final transcript for %s: %s, and is final offset",
+                        participant.role.name,
+                        response.recognition_result.transcript,
+                    )
+                    offset = response.recognition_result.speech_end_offset
+                    audio_stream.is_final_offset = int(
+                        offset.seconds * 1000 + offset.microseconds / 1000
+                    )
+                if response.recognition_result:
+                    logging.debug(
+                        "Role %s: Interim response recognition result transcript: %s, time %s",
+                        participant.role.name,
+                        response.recognition_result.transcript,
+                        response.recognition_result.speech_end_offset)
         except OutOfRange as e:
-            audio_stream.closed = True
             logging.warning(
-                "The single audio stream last more than 120 second %s ", e)
+                "The single audio stream exceeded maximum duration restrictions %s ", e)
+            # return to restart the stream.
             return
         except FailedPrecondition as e:
             audio_stream.closed = True
@@ -233,29 +253,6 @@ class DialogflowAPI:
             logging.warning(
                 "Exceed quota for calling streaming analyze content %s ", e)
             return
-
-        for response in responses:
-            audio_stream.speech_end_offset = response.recognition_result.speech_end_offset.seconds * 1000
-            logging.debug(response)
-            if response.recognition_result.is_final:
-                audio_stream.is_final = True
-                logging.debug(
-                    "Final transcript for %s: %s, and is final offset",
-                    participant.role.name,
-                    response.recognition_result.transcript,
-                )
-                offset = response.recognition_result.speech_end_offset
-                audio_stream.is_final_offset = int(
-                    offset.seconds * 1000 + offset.microseconds / 1000
-                )
-
-            if response.recognition_result:
-                logging.debug(
-                    "Role %s: Interim response recognition result transcript: %s, time %s",
-                    participant.role.name,
-                    response.recognition_result.transcript,
-                    response.recognition_result.speech_end_offset)
-
     def complete_conversation(self, conversation_name: str):
         """Send complete conversation request to Dialogflow
         """
@@ -291,6 +288,7 @@ class DialogflowAPI:
             participant=participant.name,
             audio_config=audio_config,
             enable_debugging_info=enable_debugging_info,
+            output_multiple_utterances=True,
         )
 
         for content in generator:
@@ -298,6 +296,7 @@ class DialogflowAPI:
             yield dialogflow.StreamingAnalyzeContentRequest(
                 input_audio=content,
                 enable_debugging_info=enable_debugging_info,
+                output_multiple_utterances=True,
             )
 
         logging.info(

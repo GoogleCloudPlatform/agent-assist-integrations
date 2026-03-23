@@ -3,7 +3,7 @@ flask_sock==0.7.0
 numpy==2.1.1
 protobuf==4.25.5
 simple_websocket==1.0.0
-google-cloud-dialogflow==2.27.0
+google-cloud-dialogflow==2.46.0
 gunicorn==20.1.0
 google-cloud-pubsub==2.23.1
 python-dotenv==1.0.0
