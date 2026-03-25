@@ -78,6 +78,20 @@ lightning-service-cloud-voice-toolkit-api {
   display: flex;
 }
 
+/* Ensures default list styling is present, which SLDS resets. Affects GKA and Agent Coaching suggestions */
+.agent-assist-ui-modules ol,
+.agent-assist-ui-modules ul {
+  padding-inline-start: 1rem;
+}
+
+.agent-assist-ui-modules ul {
+  list-style-type: disc;
+}
+
+.agent-assist-ui-modules ol {
+  list-style-type: decimal;
+}
+
 /* Adds consistent vertical padding to the suggestions container */
 .agent-assist-ui-modules 
   .main
