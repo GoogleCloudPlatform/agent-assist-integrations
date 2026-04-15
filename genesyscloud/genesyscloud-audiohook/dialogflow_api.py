@@ -35,8 +35,16 @@ AWAIT_REDIS_SECOND_PER_COUNTER = 0.5
 LOCATION_ID_REGEX = r"^projects\/[^/]+\/locations\/([^/]+)"
 
 credentials, project = google.auth.default()
+# Initialize redis client with retry strategy for connection resilience
 redis_client = redis.StrictRedis(
-    host=config.redis_host, port=config.redis_port)
+    host=config.redis_host, port=config.redis_port,
+    health_check_interval=10,
+    socket_connect_timeout=15,
+    retry_on_timeout=True,
+    socket_keepalive=True,
+    retry=redis.retry.Retry(redis.backoff.ExponentialBackoff(cap=5, base=1), 5),
+    retry_on_error=[redis.exceptions.ConnectionError, redis.exceptions.TimeoutError, redis.exceptions.ResponseError])
+
 
 
 try:
@@ -318,10 +326,17 @@ def await_redis(conversation_name: str) -> bool:
     # to create the redis memory store
     counter = AWAIT_REDIS_COUNTER
 
-    redis_exists = redis_client.exists(conversation_name) != 0
+    def _check_exists():
+        try:
+            return redis_client.exists(conversation_name) != 0
+        except redis.exceptions.ConnectionError as e:
+            logging.warning("Redis connection error in await_redis: %s", e)
+            return False
+
+    redis_exists = _check_exists()
     while not redis_exists and counter > 0:
         time.sleep(AWAIT_REDIS_SECOND_PER_COUNTER)
-        redis_exists = redis_client.exists(conversation_name) != 0
+        redis_exists = _check_exists()
         counter = counter - 1
     logging.debug("return to send resume message redis client exist %s and final counter %s ",
                   redis_exists, counter)
