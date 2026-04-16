@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,9 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-source .env
+set -e
+
+if [ -f .env ]; then
+  source .env
+else
+  echo "Error: .env file not found." >&2
+  exit 1
+fi
+
+if [ -z "$SERVICE_REGION" ]; then
+  echo "Error: SERVICE_REGION is not set. Check your .env file." >&2
+  exit 1
+fi
+
 
 echo $SERVICE_REGION
+echo $GCP_PROJECT_ID
+echo $VOICE_INTERCEPTOR_SERVICE
+gcloud config set project $GCP_PROJECT_ID
 # Find the redis port and redis IP address by instance id
 export REDISHOST=`gcloud redis instances describe $REDIS_INSTANCE_ID --region $SERVICE_REGION --format 'value(host)'`
 export REDISPORT=`gcloud redis instances describe $REDIS_INSTANCE_ID --region $SERVICE_REGION --format 'value(port)'`
