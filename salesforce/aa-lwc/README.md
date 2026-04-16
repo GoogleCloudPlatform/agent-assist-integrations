@@ -30,7 +30,7 @@ Because of Salesforce's tabbed conversation management, it is neccesary for Agen
     // https://cloud.google.com/agent-assist/docs/ui-modules-container-documentation
   ];
   attributes.forEach((attr) => containerEl.setAttribute(attr[0], attr[1]));
-  containerContainerEl.appendChild(containerEl);
+  uiModulesWrapperEl.appendChild(containerEl);
 
   dispatchAgentAssistEvent(
     eventName: String,

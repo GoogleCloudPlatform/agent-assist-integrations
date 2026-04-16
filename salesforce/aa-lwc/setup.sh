@@ -13,6 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+UIM_TRANSCRIPT_VERSION='v1.3'
+UIM_CONTAINER_VERSION='v2.3'
+UIM_COMMON_VERSION='v1.11'
+
 if [[ $1 == 'generate-static-resources' ]]; then
   # UI Modules Javascript
   # https://cloud.google.com/agent-assist/docs/ui-modules#agent-assist-features
@@ -26,7 +30,7 @@ if [[ $1 == 'generate-static-resources' ]]; then
   file_path=${dir_path}/${file}.js
   rm -f ${file_path} # delete file if exists
   rm -f ${file_path}.resource-meta.xml # delete file if exists
-  curl --silent https://www.gstatic.com/agent-assist-ui-modules/latest/${file}.js > $file_path
+  curl --silent https://www.gstatic.com/agent-assist-ui-modules/${UIM_TRANSCRIPT_VERSION}/${file}.js > $file_path
   echo downloaded js and wrote ${file_path}
 
   # download container.js
@@ -34,10 +38,12 @@ if [[ $1 == 'generate-static-resources' ]]; then
   file_path=${dir_path}/${file}.js
   rm -f ${file_path} # delete file if exists
   rm -f ${file_path}.resource-meta.xml # delete file if exists
-  # pin the UIM container version to a version e.g. v2.0
-  # curl --silent https://www.gstatic.com/agent-assist-ui-modules/v2.0/${file}.js > $file_path
+  # pin the UIM container version to a version
+  curl --silent https://www.gstatic.com/agent-assist-ui-modules/${UIM_CONTAINER_VERSION}/${file}.js > $file_path
+  # or, use a localized version of the UIM container, e.g. 'it' for Italian, 'de' for German:
+  # curl --silent https://www.gstatic.com/agent-assist-ui-modules/it/${UIM_CONTAINER_VERSION}/${file}.js
   # or, try the latest UIM v2 changes (auto updates)
-  curl --silent https://www.gstatic.com/agent-assist-ui-modules/v2/${file}.js > $file_path
+  # curl --silent https://www.gstatic.com/agent-assist-ui-modules/v2/${file}.js > $file_path
   echo downloaded js and wrote ${file_path}
 
   # download common.js
@@ -45,7 +51,7 @@ if [[ $1 == 'generate-static-resources' ]]; then
   file_path=${dir_path}/${file}.js
   rm -f ${file_path} # delete file if exists
   rm -f ${file_path}.resource-meta.xml # delete file if exists
-  curl --silent https://www.gstatic.com/agent-assist-ui-modules/latest/${file}.js > $file_path
+  curl --silent https://www.gstatic.com/agent-assist-ui-modules/${UIM_COMMON_VERSION}/${file}.js > $file_path
   echo downloaded js and wrote ${file_path}
 
   # create a zip of the ui_modules directory. This avoids Salesforce size limits.
@@ -64,6 +70,7 @@ if [[ $1 == 'generate-static-resources' ]]; then
         --type image/svg+xml
     rm force-app/main/default/staticresources/${file}.resource # don't need, file exists
   done
+
   # Add file types as needed (or dynamically assign MIME by extension), e.g.
   # file=large-css-file
   # file_path=force-app/main/default/staticresources/$file.css

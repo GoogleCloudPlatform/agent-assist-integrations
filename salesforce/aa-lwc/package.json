@@ -5,18 +5,16 @@
   "main": "index.js",
   "scripts": {
     "generate-static-resources": "./setup.sh generate-static-resources",
-    "login": "sf org login device --alias ProdOrg && sf config set target-org ProdOrg",
-    "deploy": "sf project deploy start --target-org ProdOrg",
-    "login-devhub": "./setup.sh login-devhub",
-    "setup-scratch": "./setup.sh setup-scratch",
-    "deploy-scratch": "./setup.sh deploy-scratch",
-    "teardown-scratch": "./setup.sh teardown-scratch",
-    "test": "sfdx-lwc-jest -- --forceExit --detectOpenHandles"
+    "login": "sf org login web --alias ProdOrg && sf config set target-org ProdOrg",
+    "deploy": "npm test && read -p 'Press any key to deploy...' && sf project deploy start --target-org ProdOrg --source-dir .",
+    "test": "sfdx-lwc-jest --",
+    "test:verbose": "sfdx-lwc-jest -- --verbose",
+    "test:coverage": "sfdx-lwc-jest -- --coverage --verbose",
+    "test:log": "SHOW_LOGS=true sfdx-lwc-jest -- --testNamePattern"
   },
   "author": "Jordan",
   "license": "Apache-2.0",
   "devDependencies": {
-    "@salesforce/lwc-dev-server": "^2.11.0",
     "@salesforce/sfdx-lwc-jest": "^5.1.0",
     "cross-fetch": "^4.0.0",
     "jest-environment-jsdom": "^29.7.0",
