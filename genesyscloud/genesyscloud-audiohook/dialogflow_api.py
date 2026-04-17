@@ -40,12 +40,17 @@ redis_client = redis.StrictRedis(
     host=config.redis_host, port=config.redis_port,
     health_check_interval=10,
     socket_connect_timeout=15,
-    retry_on_timeout=True,
     socket_keepalive=True,
-    retry=redis.retry.Retry(redis.backoff.ExponentialBackoff(cap=5, base=1), 5),
-    retry_on_error=[redis.exceptions.ConnectionError, redis.exceptions.TimeoutError, redis.exceptions.ResponseError])
-
-
+    retry=redis.retry.Retry(
+        redis.backoff.ExponentialBackoff(cap=5, base=1),
+        5,
+        supported_errors=(
+            redis.exceptions.ConnectionError,
+            redis.exceptions.TimeoutError,
+            redis.exceptions.ResponseError
+        )
+    )
+)
 
 try:
     location_id = re.match(
@@ -333,7 +338,7 @@ def await_redis(conversation_name: str) -> bool:
     def _check_exists():
         try:
             return redis_client.exists(conversation_name) != 0
-        except redis.exceptions.ConnectionError as e:
+        except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
             logging.warning("Redis connection error in await_redis: %s", e)
             return False
 
