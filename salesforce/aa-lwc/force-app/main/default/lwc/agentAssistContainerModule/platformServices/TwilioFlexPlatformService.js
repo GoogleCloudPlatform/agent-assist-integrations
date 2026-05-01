@@ -160,9 +160,7 @@ export default class TwilioFlexPlatformService extends BasePlatformService {
   handleConversationEndedForTwilioFlex() {
     // Generate a summary when a Twilio Flex conversation ends
     this.lwc.debugLog("handleConversationEndedForTwilioFlex called");
-    if (this.lwc.features.includes("CONVERSATION_SUMMARIZATION")) {
-      this.lwc.triggerSummarization();
-    }
+    this.lwc.triggerSummarization();
     this.pollForConversationNameByIntegrationKey(this.lwc.contactPhone);
   }
 }

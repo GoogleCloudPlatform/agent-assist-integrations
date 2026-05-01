@@ -45,13 +45,17 @@ export default class AgentAssistContainerModule extends LightningElement {
   // Drag and drop agentAssistContainerModule onto page, select, and fill inputs
   @api debugMode; // e.g. false
   @api endpoint; // e.g. https://your-ui-connector-endpoint.a.run.app
-  @api features; // e.g. CONVERSATION_SUMMARIZATION,KNOWLEDGE_ASSIST_V2,SMART_REPLY,AGENT_COACHING (https://cloud.google.com/agent-assist/docs/ui-modules-container-documentation)
   @api conversationProfile; // e.g. projects/your-gcp-project-id/locations/your-location/conversationProfiles/your-conversation-profile-id
   @api channel; // Either 'chat' or 'voice'
   @api platform; // One of 'messaging', 'twilioflex', 'servicecloudvoice-nice'
   @api consumerKey; // SF Connected App Consumer Key
   @api consumerSecret; // SF Connected App Consumer Secret
   @api containerHeight;
+  // UI Module optional attributes
+  @api showDarkModeToggle = false;
+  @api showHeader = false;
+  @api showCorrectnessFeedback = false;
+  @api disabledFeatures = "";
 
   // LWC Public Properties - set at runtime by platform services
   // @api decorator allows external read and write
@@ -90,7 +94,8 @@ export default class AgentAssistContainerModule extends LightningElement {
 
   googleLogoUrl = google_logo;
   @api platformService = null;
-  pollingInterval = null;
+  conversationNamePollingInterval = null;
+  tokenRefreshInterval = null;
 
   @api
   connectedCallback() {
@@ -136,6 +141,13 @@ export default class AgentAssistContainerModule extends LightningElement {
       // Get a UI Connector auth token
       this.token = await this.platformService.registerAuthToken();
 
+      // Automatically check and refresh the token dynamically every 60 seconds
+      this.tokenRefreshInterval = setInterval(async () => {
+        await this.platformService.checkAndRefreshToken();
+      }, 60000);
+      // Run an initial check immediately
+      await this.platformService.checkAndRefreshToken();
+
       // Load static resources. Order matters, due to LWS & Lightning Locker.
       this.debugLog("UI Modules javascript and css loading...");
       await loadScript(this, ui_modules + "/transcript.js");
@@ -172,8 +184,11 @@ export default class AgentAssistContainerModule extends LightningElement {
     if (this.platformService) {
       this.platformService.teardown();
     }
-    if (this.pollingInterval) {
-      clearInterval(this.pollingInterval);
+    if (this.conversationNamePollingInterval) {
+      clearInterval(this.conversationNamePollingInterval);
+    }
+    if (this.tokenRefreshInterval) {
+      clearInterval(this.tokenRefreshInterval);
     }
 
     // Clears all listeners (_uiModuleEventTarget is not attached to the DOM)
@@ -185,10 +200,10 @@ export default class AgentAssistContainerModule extends LightningElement {
   async waitForConversationName() {
     this.debugLog(`waiting for a conversationName to init UI Modules...`);
     return new Promise((resolve) => {
-      this.pollingInterval = setInterval(() => {
+      this.conversationNamePollingInterval = setInterval(() => {
         if (this.conversationName) {
-          clearInterval(this.pollingInterval);
-          this.pollingInterval = null;
+          clearInterval(this.conversationNamePollingInterval);
+          this.conversationNamePollingInterval = null;
           this.debugLog(`this.conversationId: ${this.conversationId}`);
           this.debugLog(`this.conversationName: ${this.conversationName}`);
           if (this.platformService) {
@@ -196,7 +211,7 @@ export default class AgentAssistContainerModule extends LightningElement {
           }
           resolve();
         }
-      }, 500);
+      }, 1000);
     });
   }
 
@@ -211,7 +226,11 @@ export default class AgentAssistContainerModule extends LightningElement {
       const summarizationButton = uiModulesElement.querySelector(
         '[data-test-id="generate-summary-button"]'
       );
-      if (summarizationButton) {
+      if (
+        summarizationButton &&
+        !summarizationButton.hasAttribute("disabled") &&
+        !summarizationButton.disabled
+      ) {
         summarizationButton.dispatchEvent(new Event("click"));
         this.debugLog(
           "Summarization triggered by clicking the generate summary button."
@@ -235,7 +254,7 @@ export default class AgentAssistContainerModule extends LightningElement {
   debugLog(message) {
     // A debug utility to log messages only if debugMode is set to true.
     if (this.debugMode) {
-      console.log(`%c[AgentAssist]: ${message}`, "background-color: #9ff");
+      console.log(`%c[AgentAssist]%c ${message}`, "background-color: #0070d2; color: #ffffff; padding: 2px 4px; border-radius: 3px; font-weight: bold;", "");
     }
   }
 
@@ -243,7 +262,6 @@ export default class AgentAssistContainerModule extends LightningElement {
   inspectConfig() {
     // A debug utility to check the runtime config of the Agent Assist LWC.
     this.debugLog(`this.endpoint - ${this.endpoint}`);
-    this.debugLog(`this.features - ${this.features}`);
     this.debugLog(`this.showTranscript - ${this.showTranscript}`);
     this.debugLog(`this.conversationProfile - ${this.conversationProfile}`);
     this.debugLog(`this.channel - ${this.channel}`);

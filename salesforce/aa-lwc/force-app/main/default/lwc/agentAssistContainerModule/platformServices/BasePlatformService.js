@@ -42,11 +42,11 @@ export default class BasePlatformService {
     // Get a UI Connector auth token using a SF External Client App id token.
     const access_token = await fetch(
       `/services/oauth2/token?` +
-        new URLSearchParams({
-          grant_type: "client_credentials",
-          client_id: this.lwc.consumerKey,
-          client_secret: this.lwc.consumerSecret
-        })
+      new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: this.lwc.consumerKey,
+        client_secret: this.lwc.consumerSecret
+      })
     )
       .then((res) => {
         if (!res.ok)
@@ -59,7 +59,7 @@ export default class BasePlatformService {
         this.lwc.loadError = err;
         return null;
       });
-    this.lwc.debugLog(`access_token: ${access_token}`);
+    this.lwc.debugLog(`Salesforce External Client App OAuth Token successfully retrieved.`);
 
     if (!access_token) {
       return null;
@@ -79,12 +79,57 @@ export default class BasePlatformService {
           );
         return res.json();
       })
-      .then((data) => data.token)
+      .then((data) => {
+        this.lwc.debugLog(`UI Modules JWT Token successfully retrieved.`);
+        return data.token;
+      })
       .catch((err) => {
         console.error("Failed to get UI Connector token:", err);
         this.lwc.loadError = err;
         return null;
       });
+  }
+
+  async checkAndRefreshToken() {
+    try {
+      if (!this.lwc.token) return;
+      const payloadBase64Url = this.lwc.token.split(".")[1];
+      const base64 = payloadBase64Url.replace(/-/g, "+").replace(/_/g, "/");
+      const binaryString = atob(base64);
+
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      const jsonPayload = new TextDecoder().decode(bytes);
+      const payload = JSON.parse(jsonPayload);
+
+      if (payload && payload.exp) {
+        const currentTimeSec = Math.floor(Date.now() / 1000);
+        const timeUntilExpSec = payload.exp - currentTimeSec;
+
+        // Refresh if token is within 1 minute (60s) of expiring
+        if (timeUntilExpSec < 60) {
+          this.lwc.debugLog(
+            `Token is expiring in ${timeUntilExpSec}s (threshold 60s). Refreshing...`
+          );
+          this.lwc.token = await this.registerAuthToken();
+          if (this.connector) {
+            this.connector.setAuthToken(this.lwc.token);
+            this.lwc.debugLog("Auth token successfully updated on UiModulesConnector instance.");
+          }
+        } else {
+          this.lwc.debugLog(
+            `Token is healthy. Expires in ${timeUntilExpSec}s.`
+          );
+        }
+      }
+    } catch (err) {
+      this.lwc.debugLog(
+        `Failed to dynamically verify token expiration: ${err.message}.`
+      );
+    }
   }
 
   initUIModules() {
@@ -103,15 +148,22 @@ export default class BasePlatformService {
     containerEl.generalConfig = { clipboardMode: "EVENT_ONLY" };
     containerEl.classList.add("agent-assist-ui-modules");
     const uiModulesWrapperEl = this.lwc.refs.agentAssistContainer;
-    containerEl.setAttribute("features", this.lwc.features);
+
+    // Required attributes for UI Modules
+    containerEl.setAttribute("use-configured-features", true);
     containerEl.setAttribute("namespace", this.lwc.recordId);
 
+    // Optional attributes for UI Modules
+    containerEl.setAttribute("show-dark-mode-toggle", this.lwc.showDarkModeToggle);
+    containerEl.setAttribute("show-header", this.lwc.showHeader);
+    containerEl.setAttribute("show-correctness-feedback", this.lwc.showCorrectnessFeedback);
+    containerEl.setAttribute("disabled-features", this.lwc.disabledFeatures);
+
     // Create the UI Modules Connector.
-    const connector = new UiModulesConnector();
+    this.connector = new UiModulesConnector();
     const config = {
       // Basic config
       channel: this.lwc.channel,
-      features: this.lwc.features,
       agentDesktop: "Custom",
       conversationProfileName: this.lwc.conversationProfile,
 
@@ -135,7 +187,7 @@ export default class BasePlatformService {
     // Initialize the UI Modules
     if (this.lwc.conversationName) {
       uiModulesWrapperEl.appendChild(containerEl);
-      connector.init(config);
+      this.connector.init(config);
       if (this.lwc.debugMode) {
         this.lwc.debugLog("UiModulesConnector initialized with config:");
         console.log(config);
@@ -263,8 +315,8 @@ export default class BasePlatformService {
     // Deletes conversationIntegrationKey:conversationName pair from Redis.
     return await fetch(
       this.lwc.endpoint +
-        "/conversation-name?conversationIntegrationKey=" +
-        conversationIntegrationKey,
+      "/conversation-name?conversationIntegrationKey=" +
+      conversationIntegrationKey,
       this.createRequestOptions("DELETE")
     )
       .then((res) => this.lwc.debugLog(`deleteConversationName: ${res.status}`))

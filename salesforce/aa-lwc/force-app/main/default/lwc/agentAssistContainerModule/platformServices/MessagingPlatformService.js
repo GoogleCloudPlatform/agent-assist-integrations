@@ -44,6 +44,9 @@ export default class MessagingPlatformService extends BasePlatformService {
 
   teardown() {
     super.teardown();
+    if (this.lwc.cancelSummarizationTimeout) {
+      clearTimeout(this.lwc.cancelSummarizationTimeout);
+    }
     // Clean up Agent Assist UIM Messaging for In-App and Web
     this.unsubscribeFromMessagingChannels();
   }
@@ -166,19 +169,21 @@ export default class MessagingPlatformService extends BasePlatformService {
     this.lwc.debugLog("handleConversationEnded called");
 
     if (this.lwc.recordId !== event.recordId) return;
-    if (this.lwc.features.includes("CONVERSATION_SUMMARIZATION")) {
-      dispatchAgentAssistEvent(
-        "conversation-completed",
-        { detail: { conversationName: this.lwc.conversationName } },
-        { namespace: this.lwc.recordId }
-      );
+    dispatchAgentAssistEvent(
+      "conversation-completed",
+      { detail: { conversationName: this.lwc.conversationName } },
+      { namespace: this.lwc.recordId }
+    );
 
-      // Give handleTabClosed opportunity to cancel summarization
-      this.lwc.cancelSummarizationTimeout = setTimeout(() => {
-        // Create a synthetic click event to trigger summarization modal
-        this.lwc.triggerSummarization();
-      }, 500);
+    if (this.lwc.cancelSummarizationTimeout) {
+      clearTimeout(this.lwc.cancelSummarizationTimeout);
     }
+
+    // Give handleTabClosed opportunity to cancel summarization
+    this.lwc.cancelSummarizationTimeout = setTimeout(() => {
+      // Create a synthetic click event to trigger summarization modal
+      this.lwc.triggerSummarization();
+    }, 500);
   }
 
   handleTabClosedForMessaging(event) {

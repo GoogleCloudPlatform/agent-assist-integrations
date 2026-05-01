@@ -53,7 +53,6 @@ const createTestElement = (overrides = {}) => {
     channel: "chat",
     debugMode: false,
     endpoint: "https://example.com",
-    features: "CONVERSATION_SUMMARIZATION",
     conversationProfile: "projects/p/locations/l/conversationProfiles/x",
     ...overrides
   });
@@ -70,7 +69,8 @@ const createTestElement = (overrides = {}) => {
 // Helper function to create a mock platform service
 const createMockPlatformService = () => ({
   teardown: jest.fn(),
-  createRequestOptions: jest.fn()
+  createRequestOptions: jest.fn(),
+  checkAndRefreshToken: jest.fn().mockResolvedValue(undefined)
 });
 
 // Helper function to run async operations
@@ -236,7 +236,6 @@ describe("c-agent-assist-container-module", () => {
       Object.assign(element, {
         debugMode: true,
         endpoint: "https://example.com",
-        features: "CONVERSATION_SUMMARIZATION",
         showTranscript: true,
         conversationProfile: "projects/p/locations/l/conversationProfiles/x",
         channel: "chat",
@@ -263,7 +262,9 @@ describe("c-agent-assist-container-module", () => {
     it("should find the generate summary button and dispatch a click event", () => {
       // 1. Create mock objects to simulate the DOM structure.
       const mockButton = {
-        dispatchEvent: jest.fn()
+        dispatchEvent: jest.fn(),
+        hasAttribute: jest.fn().mockReturnValue(false),
+        disabled: false
       };
       const mockUiModulesElement = {
         querySelector: jest.fn().mockReturnValue(mockButton)
