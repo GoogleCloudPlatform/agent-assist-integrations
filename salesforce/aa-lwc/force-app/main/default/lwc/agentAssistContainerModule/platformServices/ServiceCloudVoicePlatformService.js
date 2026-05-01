@@ -17,7 +17,6 @@
 import TwilioFlexPlatformService from './TwilioFlexPlatformService';
 
 import scvEventNames from "../data/scvEventNames";
-import BasePlatformService from "./BasePlatformService";
 const SCV_EVENTS_TO_SUBSCRIBE = [
   scvEventNames.callconnected,
   scvEventNames.callended
@@ -30,7 +29,7 @@ const CONFIG = {
   niceBusNo: 1234567 // TODO: make sure this matches your Nice CXone Business Unit Number.
 };
 
-export default class ServiceCloudVoicePlatformService extends BasePlatformService {
+export default class ServiceCloudVoicePlatformService extends TwilioFlexPlatformService {
   constructor(lwc, refs) {
     super(lwc, refs);
     this.telephonyEventListener = this.onTelephonyEvent.bind(this);
@@ -122,9 +121,7 @@ export default class ServiceCloudVoicePlatformService extends BasePlatformServic
 
   handleCallEnded(event) {
     this.lwc.debugLog("handleConversationEndedForServiceCloudVoice called");
-    if (this.lwc.features.includes("CONVERSATION_SUMMARIZATION")) {
-      this.lwc.triggerSummarization();
-    }
+    this.lwc.triggerSummarization();
   }
 
   _handleNiceCallConnected(event) {

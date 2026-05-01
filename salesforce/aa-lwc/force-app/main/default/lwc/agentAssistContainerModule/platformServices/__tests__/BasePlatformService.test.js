@@ -33,7 +33,6 @@ describe("BasePlatformService", () => {
       endpoint: "https://test-endpoint.com",
       recordId: "test-record-id",
       channel: "chat",
-      features: "CONVERSATION_SUMMARIZATION",
       conversationProfile:
         "projects/test/locations/test/conversationProfiles/test",
       debugMode: false,

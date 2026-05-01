@@ -37,7 +37,7 @@ describe("MessagingPlatformService", () => {
       endpoint: "https://test-endpoint.com",
       recordId: "test-record-id",
       channel: "chat",
-      features: "CONVERSATION_SUMMARIZATION",
+      disabledFeatures: "",
       conversationProfile:
         "projects/test/locations/test/conversationProfiles/test",
       debugMode: false,
@@ -232,7 +232,7 @@ describe("MessagingPlatformService", () => {
       jest.useRealTimers();
     });
 
-    it("dispatches conversation-completed event when features include CONVERSATION_SUMMARIZATION", () => {
+    it("dispatches conversation-completed event", () => {
       const event = {
         recordId: "test-record-id",
       };
@@ -244,17 +244,6 @@ describe("MessagingPlatformService", () => {
         { detail: { conversationName: "test-conversation-name" } },
         { namespace: "test-record-id" }
       );
-    });
-
-    it("does not dispatch conversation-completed event when features do not include CONVERSATION_SUMMARIZATION", () => {
-      mockLwc.features = "OTHER_FEATURE";
-      const event = {
-        recordId: "test-record-id",
-      };
-
-      messagingPlatformService.handleConversationEndedForMessaging(event);
-
-      expect(global.dispatchAgentAssistEvent).not.toHaveBeenCalled();
     });
 
     it("does not dispatch conversation-completed event when recordId does not match", () => {

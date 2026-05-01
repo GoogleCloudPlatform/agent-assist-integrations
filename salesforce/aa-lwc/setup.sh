@@ -13,9 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-UIM_TRANSCRIPT_VERSION='v1.3'
-UIM_CONTAINER_VERSION='v2.3'
-UIM_COMMON_VERSION='v1.11'
+UIM_TRANSCRIPT_VERSION='v1.5'
+UIM_CONTAINER_VERSION='v2.6'
+UIM_COMMON_VERSION='v1.14'
 
 if [[ $1 == 'generate-static-resources' ]]; then
   # UI Modules Javascript
