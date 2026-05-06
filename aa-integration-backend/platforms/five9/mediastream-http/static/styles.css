@@ -1,0 +1,240 @@
+/**
+ * Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: "Roboto", sans-serif;
+  overflow: hidden;
+  color: #202124;
+}
+
+/* Navbar */
+.navbar {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  background-color: #fff;
+  box-shadow:
+    0 1px 2px 0 rgba(60, 64, 67, 0.3),
+    0 1px 3px 1px rgba(60, 64, 67, 0.15);
+  z-index: 100;
+  position: relative;
+}
+
+.nav-link {
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+}
+
+.nav-left {
+  display: flex;
+  align-items: center;
+}
+
+.nav-logo {
+  height: 32px;
+  width: 32px;
+  margin-right: 12px;
+}
+
+.nav-title {
+  font-family: "Google Sans", sans-serif;
+  font-size: 22px;
+  color: #5f6368;
+}
+
+/* Main Layout */
+.main-container {
+  display: flex;
+  height: calc(100vh - 64px);
+}
+
+.left-pane {
+  width: 33.33%;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #e0e0e0;
+  background-color: #fff;
+}
+
+.right-pane {
+  flex: 1;
+  background-color: #f8f9fa;
+}
+
+/* Transcript */
+.transcript-header {
+  padding: 12px 24px;
+  border-bottom: 1px solid #e0e0e0;
+  background-color: #f8f9fa;
+  color: #5f6368;
+  font-size: 14px;
+}
+
+.transcript-container {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.transcript-container agent-assist-transcript {
+  height: 100%;
+  max-height: 100%;
+  min-height: 100%;
+  overflow-y: hidden;
+}
+
+/* UI Modules */
+.ui-modules-container {
+  height: 100%;
+  width: 100%;
+}
+
+/* Scrollbar */
+.transcript-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.transcript-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.transcript-container::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 4px;
+}
+
+/* Toast */
+#toast {
+  visibility: hidden;
+  min-width: 250px;
+  margin-left: -125px;
+  background-color: #333;
+  color: #fff;
+  text-align: center;
+  border-radius: 4px;
+  padding: 16px;
+  position: fixed;
+  z-index: 1000;
+  left: 50%;
+  bottom: 30px;
+  font-size: 14px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+#toast.show {
+  visibility: visible;
+  -webkit-animation:
+    fadein 0.5s,
+    fadeout 0.5s 2.5s;
+  animation:
+    fadein 0.5s,
+    fadeout 0.5s 2.5s;
+}
+
+@-webkit-keyframes fadein {
+  from {
+    bottom: 0;
+    opacity: 0;
+  }
+
+  to {
+    bottom: 30px;
+    opacity: 1;
+  }
+}
+
+@keyframes fadein {
+  from {
+    bottom: 0;
+    opacity: 0;
+  }
+
+  to {
+    bottom: 30px;
+    opacity: 1;
+  }
+}
+
+@-webkit-keyframes fadeout {
+  from {
+    bottom: 30px;
+    opacity: 1;
+  }
+
+  to {
+    bottom: 0;
+    opacity: 0;
+  }
+}
+
+@keyframes fadeout {
+  from {
+    bottom: 30px;
+    opacity: 1;
+  }
+
+  to {
+    bottom: 0;
+    opacity: 0;
+  }
+}
+
+/* Empty State */
+.empty-state {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  width: 100%;
+}
+
+.empty-state img {
+  max-width: 50%;
+  opacity: 0.8;
+}
+
+/* Dark Mode */
+.dark-mode .navbar,
+.dark-mode .left-pane {
+  background-color: rgb(32, 33, 36);
+  border-color: rgb(60, 64, 67);
+}
+
+.dark-mode .navbar {
+  box-shadow:
+    0 1px 2px 0 rgba(0, 0, 0, 0.3),
+    0 1px 3px 1px rgba(0, 0, 0, 0.15);
+}
+
+.dark-mode .navbar .nav-title {
+  color: #899;
+}
+
+.summary-dialog.dark-mode,
+.dark-mode .mdc-dialog--open .mat-mdc-dialog-surface,
+.dark-mode .mdc-dialog--closing .mat-mdc-dialog-surface {
+  background-color: rgb(32, 33, 36);
+}
+
+.summary-dialog.dark-mode .mdc-text-field--filled:not(.mdc-text-field--disabled) .mdc-text-field__input {
+  color: #e8eaed;
+}

@@ -38,6 +38,8 @@ def check_auth(token):
         return auth_options.check_genesyscloud_token(token)
     elif (config.AUTH_OPTION == 'Twilio'):
         return auth_options.check_twilio_token(token)
+    elif (config.AUTH_OPTION == 'Five9'):
+        return auth_options.check_five9_token(token)
     elif (config.AUTH_OPTION == 'Skip'):
         return True
     # Customize your authentication method here.
@@ -48,6 +50,8 @@ def check_auth(token):
 
 def check_jwt(token):
     try:
+        if token.startswith("Bearer "):
+            token = token.split(" ")[1]
         # Decode the payload to fetch the stored details.
         data = jwt.decode(token, jwt_secret_key, algorithms=['HS256'])
         if 'gcp_agent_assist_project' not in data:

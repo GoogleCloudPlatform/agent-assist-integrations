@@ -67,7 +67,10 @@ SALESFORCE_ORGANIZATION_ID = os.environ.get('SALESFORCE_ORGANIZATION_ID', 'YOUR_
 # Genesys Cloud configuration.
 GENESYS_CLOUD_ENVIRONMENT = os.environ.get('GENESYS_CLOUD_ENVIRONMENT', 'mypurecloud.com')
 
-#Twilio configuration.
+# Twilio configuration.
 TWILIO_FLEX_ENVIRONMENT = os.environ.get('TWILIO_FLEX_ENVIRONMENT', 'YOUR_DOMAIN.twil.io')
 TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID', 'YOUR_TWILIO_ACCOUNT_SID')
 TWILIO_ACCOUNTS_API_URL = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}.json"
+
+# Five9 configuration.
+FIVE9_TRUST_TOKEN = os.environ.get('FIVE9_TRUST_TOKEN', 'YOUR_FIVE9_TRUST_TOKEN')

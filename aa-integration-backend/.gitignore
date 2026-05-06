@@ -3,10 +3,15 @@
 venv
 
 # Environment Variables
-.env
+.env*
+!.env.sample
 
 # Commit message file
 commit.txt
 
-# Partial deployment scripts for development
-deploy-*.sh
+# Python
+*.pyc
+__pycache__
+
+# Mac
+.DS_Store

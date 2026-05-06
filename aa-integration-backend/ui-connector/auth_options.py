@@ -12,35 +12,42 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import re
 import requests
 import logging
 import config
 from urllib.parse import urlencode
 
+
 def check_salesforce_token(token):
     """Verifies the access token using Salesforce OpenID Connect.
     Reference: https://help.salesforce.com/s/articleView?id=sf.remoteaccess_using_userinfo_endpoint.htm
     """
-    request_headers = {
-        'Authorization': 'Bearer ' + token
-    }
+    request_headers = {"Authorization": "Bearer " + token}
     # Get the user info.
-    user_info_url = f'https://{config.SALESFORCE_DOMAIN}/services/oauth2/userinfo'
+    user_info_url = f"https://{config.SALESFORCE_DOMAIN}/services/oauth2/userinfo"
     user_info_resp = requests.get(user_info_url, headers=request_headers)
     # Check response.
     if user_info_resp.status_code == 200:
         user_info = user_info_resp.json()
-        logging.info('Verifying user {}.'.format(user_info['user_id']))
+        logging.info("Verifying user {}.".format(user_info["user_id"]))
         # Check the user's organization.
-        if user_info['organization_id'] == config.SALESFORCE_ORGANIZATION_ID:
+        if user_info["organization_id"] == config.SALESFORCE_ORGANIZATION_ID:
             return True
         else:
-            logging.warning('The organization of user {} is not allowed.'.format(user_info['user_id']))
+            logging.warning(
+                "The organization of user {} is not allowed.".format(
+                    user_info["user_id"]
+                )
+            )
     else:
-        logging.warning('Failed to verify the access token, {0}, {1}.'.format(user_info_resp.status_code, user_info_resp.reason))
+        logging.warning(
+            "Failed to verify the access token, {0}, {1}.".format(
+                user_info_resp.status_code, user_info_resp.reason
+            )
+        )
     return False
+
 
 def check_salesforce_lwc_token(token):
     """Verifies Salesforce Org Id using Client Credentials OAuth flow.
@@ -62,32 +69,34 @@ def check_salesforce_lwc_token(token):
     Reference: https://help.salesforce.com/s/articleView?id=sf.remoteaccess_oauth_client_credentials_flow.htm&type=5
 
     """
-    access_token = re.sub(r'Bearer ', '', token, re.IGNORECASE)
-    if config.SALESFORCE_DOMAIN == 'login.salesforce.com':
-        logging.error('SALESFORCE_DOMAIN is not set. Auth will fail.')
-    if config.SALESFORCE_ORGANIZATION_ID == 'YOUR_ORGANIZATION_ID':
-        logging.error('SALESFORCE_ORGANIZATION_ID is not set. Auth will fail.')
+    access_token = re.sub(r"Bearer ", "", token, re.IGNORECASE)
+    if config.SALESFORCE_DOMAIN == "login.salesforce.com":
+        logging.error("SALESFORCE_DOMAIN is not set. Auth will fail.")
+    if config.SALESFORCE_ORGANIZATION_ID == "YOUR_ORGANIZATION_ID":
+        logging.error("SALESFORCE_ORGANIZATION_ID is not set. Auth will fail.")
     user_info_resp = requests.get(
-        f'https://{config.SALESFORCE_DOMAIN}/services/oauth2/userinfo?' + \
-        urlencode({
-            'access_token': access_token
-        })
+        f"https://{config.SALESFORCE_DOMAIN}/services/oauth2/userinfo?"
+        + urlencode({"access_token": access_token})
     )
     if user_info_resp.status_code == 200:
         user_info = user_info_resp.json()
-        user_org = user_info['organization_id']
+        user_org = user_info["organization_id"]
         config_org = config.SALESFORCE_ORGANIZATION_ID
         min_len = min(len(user_org), len(config_org))
         if min_len and user_org[:min_len] == config_org[:min_len]:
             return True
         else:
             logging.warning(
-                'The Salesforce org of user {} is not allowed.'.format(
-                    user_info['user_id']))
+                "The Salesforce org of user {} is not allowed.".format(
+                    user_info["user_id"]
+                )
+            )
     else:
         logging.warning(
-            'Failed to verify Salesforce access_token, {0}, {1}.'.format(
-                user_info_resp.status_code, user_info_resp.reason))
+            "Failed to verify Salesforce access_token, {0}, {1}.".format(
+                user_info_resp.status_code, user_info_resp.reason
+            )
+        )
 
 
 def check_genesyscloud_token(token):
@@ -113,42 +122,78 @@ def check_genesyscloud_token(token):
 
     """
     # Prepare for GET /api/v2/authorization/roles request.
-    request_headers = {
-        'Authorization': 'Bearer ' + token
-    }
-    response = requests.get(f'https://api.{config.GENESYS_CLOUD_ENVIRONMENT}/api/v2/users/me', headers=request_headers)
+    request_headers = {"Authorization": "Bearer " + token}
+    response = requests.get(
+        f"https://api.{config.GENESYS_CLOUD_ENVIRONMENT}/api/v2/users/me",
+        headers=request_headers,
+    )
     # Check response.
     if response.status_code == 200:
         response_json = response.json()
-        logging.info('Verifying user {}.'.format(response_json['id']))
+        logging.info("Verifying user {}.".format(response_json["id"]))
         # Genesys cloud response does not have organization to check
         return True
     else:
-        logging.warning('Failed to verify the access token, {0}, {1}.'.format(response.status_code, response.reason))
+        logging.warning(
+            "Failed to verify the access token, {0}, {1}.".format(
+                response.status_code, response.reason
+            )
+        )
     return False
 
+
 def check_twilio_token(token):
-   """Verifies the Twilio token for the flex plugin.
+    """Verifies the Twilio token for the flex plugin.
 
-   Args:
-        token: An open smalltable.Table instance.
+    Args:
+         token: An open smalltable.Table instance.
 
-    Returns:
-        A Boolean, if it is True, then the token is valid, otherwise False.
+     Returns:
+         A Boolean, if it is True, then the token is valid, otherwise False.
 
-    Raises:
-        Warning: When The token is not valid.
+     Raises:
+         Warning: When The token is not valid.
 
-    Reference:
-        Twilio flex plugin
-        https://www.twilio.com/en-us/blog/sms-otp-authentication-flex
-        https://www.twilio.com/docs/flex/developer/ui/add-components-flex-ui
+     Reference:
+         Twilio flex plugin
+         https://www.twilio.com/en-us/blog/sms-otp-authentication-flex
+         https://www.twilio.com/docs/flex/developer/ui/add-components-flex-ui
 
     """
-   body = {"Token": token}
-   response = requests.post(f'https://{config.TWILIO_FLEX_ENVIRONMENT}/verify', json=body)
-   # If the endpoint return 200 then the token was validated
-   if response.status_code == 200:
+    body = {"Token": token}
+    response = requests.post(
+        f"https://{config.TWILIO_FLEX_ENVIRONMENT}/verify", json=body
+    )
+    # If the endpoint return 200 then the token was validated
+    if response.status_code == 200:
         return True
-   else:
-        logging.warning('Failed to verify the access token, {0}, {1}.'.format(response.status_code, response.reason))
+    else:
+        logging.warning(
+            "Failed to verify the access token, {0}, {1}.".format(
+                response.status_code, response.reason
+            )
+        )
+
+
+def check_five9_token(token):
+    """
+    Verifies the internal shared secret (FIVE9_TRUST_TOKEN) sent in the Authorization header.
+    Expects: 'Bearer <FIVE9_TRUST_TOKEN>'
+    """
+    if not token or not token.startswith("Bearer "):
+        logging.warning("Missing or malformed Authorization header.")
+        return False
+
+    # Extract the token from 'Bearer <token>'
+    token = token.split(" ")[1]
+
+    try:
+        # Secure string comparison
+        if token == config.FIVE9_TRUST_TOKEN:
+            return True
+        else:
+            logging.warning("Failed to verify the Five9 trust token.")
+            return False
+    except Exception as e:
+        logging.error(f"Error during token verification: {e}")
+        return False
