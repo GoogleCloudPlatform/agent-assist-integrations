@@ -10,7 +10,9 @@
     "test": "sfdx-lwc-jest --",
     "test:verbose": "sfdx-lwc-jest -- --verbose",
     "test:coverage": "sfdx-lwc-jest -- --coverage --verbose",
-    "test:log": "SHOW_LOGS=true sfdx-lwc-jest -- --testNamePattern"
+    "test:log": "SHOW_LOGS=true sfdx-lwc-jest -- --testNamePattern",
+    "lint": "prettier --check \"force-app/**/*.{js,html,css}\"",
+    "lint:fix": "prettier --write \"force-app/**/*.{js,html,css}\""
   },
   "author": "Jordan",
   "license": "Apache-2.0",

@@ -29,8 +29,8 @@
 
 /* Sets a max height and fixed height on the transcript to support (auto) scrolling */
 .agent-assist-transcript > * {
-  height: calc(var(--aa-container-height, 710px) - 66px);
-  max-height: calc(var(--aa-container-height, 710px) - 66px);
+  height: calc(var(--aa-container-height, 530px) - 66px);
+  max-height: calc(var(--aa-container-height, 530px) - 66px);
 }
 
 /* Hides a dimensionless LWC specific element that supports Messaging for In-App and Web */
@@ -43,8 +43,8 @@ lightning-service-cloud-voice-toolkit-api {
 /* Gives the transcript-container a fixed height, which lets autoscroll work properly and helps control LWC size */
 .agent-assist-component .transcript-container {
   flex: 2;
-  height: var(--aa-container-height, 710px);
-  max-height: var(--aa-container-height, 710px);
+  height: var(--aa-container-height, 530px);
+  max-height: var(--aa-container-height, 530px);
 }
 
 /* Prevents the footer from not respecting height of buttons with padding when the suggestions container is full */
@@ -55,7 +55,7 @@ lightning-service-cloud-voice-toolkit-api {
 /* Gives the agent-assist-container a fixed height, which matches the transcript height and helps control LWC size */
 .agent-assist-component .agent-assist-container {
   flex: 3;
-  max-height: var(--aa-container-height, 710px);
+  max-height: var(--aa-container-height, 530px);
   min-width: 360px;
 }
 
@@ -74,7 +74,8 @@ lightning-service-cloud-voice-toolkit-api {
 }
 
 /* Fixes misaligned settings button icon */
-.mat-mdc-icon-button .mdc-button__label, .mat-mdc-icon-button .mat-icon {
+.mat-mdc-icon-button .mdc-button__label,
+.mat-mdc-icon-button .mat-icon {
   display: flex;
 }
 
@@ -93,9 +94,7 @@ lightning-service-cloud-voice-toolkit-api {
 }
 
 /* Adds consistent vertical padding to the suggestions container */
-.agent-assist-ui-modules 
-  .main
-  .suggestions-container {
+.agent-assist-ui-modules .main .suggestions-container {
   padding-top: 1.5rem;
   padding-bottom: 1.5rem;
 }
@@ -158,14 +157,14 @@ lightning-service-cloud-voice-toolkit-api {
 }
 
 .transcript-container.dark-mode {
-    background: #212124;
-    border-right: 1px solid #5f6368
+  background: #212124;
+  border-right: 1px solid #5f6368;
 }
 
 .transcript-container.dark-mode h3 {
-    background: #3c4043;
-    border-color: #212124;
-    color: rgb(218, 220, 224);
+  background: #3c4043;
+  border-color: #212124;
+  color: rgb(218, 220, 224);
 }
 
 .transcript-container.dark-mode ::-webkit-scrollbar-thumb {
@@ -174,12 +173,12 @@ lightning-service-cloud-voice-toolkit-api {
 
 .agent-assist-transcript .conversation-container {
   padding: 8px 0;
+  overflow-y: auto;
 }
-
 
 /* Fixes the participant role icon */
 .container .icon-container .role-icon {
-  line-height: 0 !important;
+  box-sizing: content-box;
 }
 
 /* Load Error =============================================================== */

@@ -42,8 +42,8 @@
         description="The Consumer Key from your Salesforce Connected App for authentication. [Required]" />
       <property name="consumerSecret" type="String" default="" label="Connected App Consumer Secret"
         description="The Consumer Secret from your Salesforce Connected App for authentication. [Required]" />
-      <property name="containerHeight" type="String" default="710px" label="Container Height"
-        description="The height of the Agent Assist container (e.g. 710px). [Required]" />
+      <property name="containerHeight" type="String" default="530px" label="Container Height"
+        description="The height of the Agent Assist container (e.g. 530px). [Required]" />
       <property name="showDarkModeToggle" type="Boolean" default="true" label="Show Dark Mode Toggle"
         description="Enable the dark mode toggle in the UI Module. [Optional]" />
       <property name="showHeader" type="Boolean" default="false" label="Show Header"

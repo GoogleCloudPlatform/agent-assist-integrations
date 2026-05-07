@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import BasePlatformService from './BasePlatformService';
+import BasePlatformService from "./BasePlatformService";
 
 export default class TwilioFlexPlatformService extends BasePlatformService {
   pollingTimeout = null;
@@ -26,14 +26,15 @@ export default class TwilioFlexPlatformService extends BasePlatformService {
 
   constructor(lwc, refs) {
     super(lwc, refs);
-    this.handleConversationEndedForTwilioFlex = this.handleConversationEndedForTwilioFlex.bind(this);
+    this.handleConversationEndedForTwilioFlex =
+      this.handleConversationEndedForTwilioFlex.bind(this);
   }
 
   async init() {
     // Set up Agent Assist UIM to work with Twilio Flex
-    this.lwc.debugLog('initTwilioFlex called');
+    this.lwc.debugLog("initTwilioFlex called");
     this.lwc.conversationName = await this.fetchConversationName(
-      this.lwc.contactPhone,
+      this.lwc.contactPhone
     );
     if (
       !this.lwc.conversationName ||
@@ -57,12 +58,12 @@ export default class TwilioFlexPlatformService extends BasePlatformService {
   ////////////////////////////////////////////////////////////////////////////
 
   listenToAgentAssistEventsForTwilioFlex() {
-    this.lwc.debugLog('listenToAgentAssistEventsForTwilioFlex called');
+    this.lwc.debugLog("listenToAgentAssistEventsForTwilioFlex called");
     // Handle Agent Assist events
     addAgentAssistEventListener(
       "conversation-completed",
       this.handleConversationEndedForTwilioFlex,
-      { namespace: this.lwc.recordId },
+      { namespace: this.lwc.recordId }
     );
   }
 
@@ -79,9 +80,9 @@ export default class TwilioFlexPlatformService extends BasePlatformService {
     try {
       const response = await fetch(
         this.lwc.endpoint +
-           '/conversation-name?conversationIntegrationKey=' +
-           conversationIntegrationKey,
-        { ...this.createRequestOptions('GET'), signal: controller.signal },
+          "/conversation-name?conversationIntegrationKey=" +
+          conversationIntegrationKey,
+        { ...this.createRequestOptions("GET"), signal: controller.signal }
       );
 
       if (response?.ok) {
@@ -89,16 +90,16 @@ export default class TwilioFlexPlatformService extends BasePlatformService {
         return data.conversationName;
       } else if (response && response.status !== 404) {
         this.lwc.debugLog(
-          `Error fetching conversation name: ${response.status} ${response.statusText}`,
+          `Error fetching conversation name: ${response.status} ${response.statusText}`
         );
       }
     } catch (error) {
-      if (error.name === 'AbortError') {
+      if (error.name === "AbortError") {
         // Re-throw the abort error so the poller can catch it and stop.
         throw error;
       } else {
         this.lwc.debugLog(
-          `Network error fetching conversation name: ${error.message}`,
+          `Network error fetching conversation name: ${error.message}`
         );
       }
     } finally {
@@ -109,11 +110,7 @@ export default class TwilioFlexPlatformService extends BasePlatformService {
 
   async pollForConversationNameByIntegrationKey(
     conversationIntegrationKey,
-    {
-      initialDelay = 1000,
-      maxDelay = 10000,
-      requestTimeoutMs = 9900,
-    } = {},
+    { initialDelay = 1000, maxDelay = 10000, requestTimeoutMs = 9900 } = {}
   ) {
     // Poll continuously for a conversationName with a backoff.
     // It starts polling rapidly, then cools down to a 10-second interval.
@@ -122,27 +119,33 @@ export default class TwilioFlexPlatformService extends BasePlatformService {
 
     const poll = async (delayMs) => {
       attempt++;
-      this.lwc.debugLog(`Polling for conversationName... (attempt ${attempt}, delay: ${delayMs}ms)`);
+      this.lwc.debugLog(
+        `Polling for conversationName... (attempt ${attempt}, delay: ${delayMs}ms)`
+      );
 
       try {
         this.lwc.conversationName = await this.fetchConversationName(
           conversationIntegrationKey,
-          requestTimeoutMs,
+          requestTimeoutMs
         );
 
         if (
           this.lwc.conversationName &&
           !(await this.isConversationCompleted(conversationIntegrationKey))
         ) {
-          this.lwc.debugLog(`Found conversationName: ${this.lwc.conversationName}. Initializing UI Modules.`);
+          this.lwc.debugLog(
+            `Found conversationName: ${this.lwc.conversationName}. Initializing UI Modules.`
+          );
           this.handleConnectorInitialized();
           this.initUIModules();
           return; // Stop polling on success
         } else {
-          throw new Error('Conversation not found or already completed.'); // Force retry
+          throw new Error("Conversation not found or already completed."); // Force retry
         }
       } catch (error) {
-        this.lwc.debugLog(`Polling attempt ${attempt} failed: ${error.message}`);
+        this.lwc.debugLog(
+          `Polling attempt ${attempt} failed: ${error.message}`
+        );
 
         // Calculate the next delay with a linear increase, capped at maxDelay.
         // This reaches maxDelay in ~10 attempts.

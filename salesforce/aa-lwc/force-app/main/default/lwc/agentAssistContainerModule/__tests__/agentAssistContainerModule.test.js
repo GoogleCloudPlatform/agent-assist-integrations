@@ -18,6 +18,7 @@
 import AgentAssistContainerModule from "c/agentAssistContainerModule";
 import { createElement } from "lwc"; // eslint-disable-line no-unused-vars
 import { loadScript, loadStyle } from "lightning/platformResourceLoader";
+import { DIALOGFLOW_API_VERSION } from "../config";
 
 // Mock platform services to ensure we can verify instantiation without real implementations.
 jest.mock("./../platformServices/MessagingPlatformService", () =>
@@ -419,7 +420,7 @@ describe("c-agent-assist-container-module", () => {
       // fetch called with expected URL containing conversationName
       expect(fetch).toHaveBeenCalledWith(
         expect.stringContaining(
-          "/v2/projects/p/locations/l/conversations/1:ingestContextReferences"
+          `/${DIALOGFLOW_API_VERSION}/projects/p/locations/l/conversations/1:ingestContextReferences`
         ),
         {}
       );

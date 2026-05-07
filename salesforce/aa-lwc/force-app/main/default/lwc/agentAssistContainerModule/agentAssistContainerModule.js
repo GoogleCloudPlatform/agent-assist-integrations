@@ -16,22 +16,27 @@
 
 import { api, wire } from "lwc";
 import { loadScript, loadStyle } from "lightning/platformResourceLoader";
-import { getRecord, getFieldValue } from 'lightning/uiRecordApi';
-import { MessageContext } from 'lightning/messageService';
+import { getRecord, getFieldValue } from "lightning/uiRecordApi";
+import { MessageContext } from "lightning/messageService";
 
 // static resources
 import ui_modules from "@salesforce/resourceUrl/ui_modules";
 import global_styles from "@salesforce/resourceUrl/global_styles";
 import google_logo from "@salesforce/resourceUrl/google_logo";
 
-import { LightningElement } from 'lwc';
-import agentAssistEventNames from './data/agentAssistEventNames';
-import sampleContext from './data/sampleContext';
+import { LightningElement } from "lwc";
+import agentAssistEventNames from "./data/agentAssistEventNames";
+import sampleContext from "./data/sampleContext";
+import {
+  DIALOGFLOW_API_VERSION,
+  TOKEN_REFRESH_CHECK_INTERVAL_MS,
+  CONTEXT_INJECTION_DELAY_MS
+} from "./config";
 
 // Platform Services
-import MessagingPlatformService from './platformServices/MessagingPlatformService';
-import TwilioFlexPlatformService from './platformServices/TwilioFlexPlatformService';
-import ServiceCloudVoicePlatformService from './platformServices/ServiceCloudVoicePlatformService';
+import MessagingPlatformService from "./platformServices/MessagingPlatformService";
+import TwilioFlexPlatformService from "./platformServices/TwilioFlexPlatformService";
+import ServiceCloudVoicePlatformService from "./platformServices/ServiceCloudVoicePlatformService";
 
 // This Zone.js flag must be set to prevent monkey-patching of DOM APIs,
 // some of which are forbidden by Lightning Web Security (LWS).
@@ -141,10 +146,10 @@ export default class AgentAssistContainerModule extends LightningElement {
       // Get a UI Connector auth token
       this.token = await this.platformService.registerAuthToken();
 
-      // Automatically check and refresh the token dynamically every 60 seconds
+      // Automatically check and refresh the token dynamically
       this.tokenRefreshInterval = setInterval(async () => {
         await this.platformService.checkAndRefreshToken();
-      }, 60000);
+      }, TOKEN_REFRESH_CHECK_INTERVAL_MS);
       // Run an initial check immediately
       await this.platformService.checkAndRefreshToken();
 
@@ -254,7 +259,11 @@ export default class AgentAssistContainerModule extends LightningElement {
   debugLog(message) {
     // A debug utility to log messages only if debugMode is set to true.
     if (this.debugMode) {
-      console.log(`%c[AgentAssist]%c ${message}`, "background-color: #0070d2; color: #ffffff; padding: 2px 4px; border-radius: 3px; font-weight: bold;", "");
+      console.log(
+        `%c[AgentAssist]%c ${message}`,
+        "background-color: #0070d2; color: #ffffff; padding: 2px 4px; border-radius: 3px; font-weight: bold;",
+        ""
+      );
     }
   }
 
@@ -275,7 +284,7 @@ export default class AgentAssistContainerModule extends LightningElement {
     // Injects context into the Dialogflow conversation for demos and testing.
     // https://cloud.google.com/dialogflow/es/docs/reference/rest/v2/projects.locations.conversations/ingestContextReferences
     const injectContext = () => {
-      let url = `${this.endpoint}/v2/${this.conversationName}:ingestContextReferences`;
+      let url = `${this.endpoint}/${DIALOGFLOW_API_VERSION}/${this.conversationName}:ingestContextReferences`;
       let body = JSON.stringify({
         contextReferences: {
           context: {
@@ -297,6 +306,6 @@ export default class AgentAssistContainerModule extends LightningElement {
           this.debugLog(`ingestDemoContextReferences failed: ${err.message}`);
         });
     };
-    setTimeout(injectContext, 1000);
+    setTimeout(injectContext, CONTEXT_INJECTION_DELAY_MS);
   }
 }

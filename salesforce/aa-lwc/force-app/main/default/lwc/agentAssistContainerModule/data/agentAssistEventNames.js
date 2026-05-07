@@ -24,6 +24,7 @@ const agentAssistEventNames = [
   "conversation-initialized",
   "conversation-started",
   "conversation-completed",
+  "complete-conversation-requested",
   "conversation-profile-requested",
   "conversation-profile-received",
   "conversation-model-requested",

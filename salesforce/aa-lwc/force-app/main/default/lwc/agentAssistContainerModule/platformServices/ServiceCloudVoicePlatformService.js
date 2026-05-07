@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import TwilioFlexPlatformService from './TwilioFlexPlatformService';
+import TwilioFlexPlatformService from "./TwilioFlexPlatformService";
 
 import scvEventNames from "../data/scvEventNames";
 const SCV_EVENTS_TO_SUBSCRIBE = [
