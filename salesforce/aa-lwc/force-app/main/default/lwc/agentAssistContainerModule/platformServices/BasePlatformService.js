@@ -14,8 +14,19 @@
  * limitations under the License.
  */
 
-import agentAssistEventNames from '../data/agentAssistEventNames';
-import sampleContext from '../data/sampleContext';
+import agentAssistEventNames from "../data/agentAssistEventNames";
+import sampleContext from "../data/sampleContext";
+import {
+  DIALOGFLOW_API_VERSION,
+  TOKEN_EXPIRATION_THRESHOLD_SEC,
+  TOKEN_WAIT_INTERVAL_MS,
+  TOKEN_HEALTHY_LOG_INTERVAL_MS,
+  POLL_MAX_RETRIES,
+  POLL_INITIAL_DELAY_MS,
+  POLL_DELAY_INCREMENT_MS
+} from "../config";
+
+let lastTokenHealthyLogTimeMs = 0;
 
 export default class BasePlatformService {
   lwc;
@@ -42,11 +53,11 @@ export default class BasePlatformService {
     // Get a UI Connector auth token using a SF External Client App id token.
     const access_token = await fetch(
       `/services/oauth2/token?` +
-      new URLSearchParams({
-        grant_type: "client_credentials",
-        client_id: this.lwc.consumerKey,
-        client_secret: this.lwc.consumerSecret
-      })
+        new URLSearchParams({
+          grant_type: "client_credentials",
+          client_id: this.lwc.consumerKey,
+          client_secret: this.lwc.consumerSecret
+        })
     )
       .then((res) => {
         if (!res.ok)
@@ -59,7 +70,9 @@ export default class BasePlatformService {
         this.lwc.loadError = err;
         return null;
       });
-    this.lwc.debugLog(`Salesforce External Client App OAuth Token successfully retrieved.`);
+    this.lwc.debugLog(
+      `Salesforce External Client App OAuth Token successfully retrieved.`
+    );
 
     if (!access_token) {
       return null;
@@ -110,19 +123,28 @@ export default class BasePlatformService {
         const timeUntilExpSec = payload.exp - currentTimeSec;
 
         // Refresh if token is within 1 minute (60s) of expiring
-        if (timeUntilExpSec < 60) {
+        if (timeUntilExpSec < TOKEN_EXPIRATION_THRESHOLD_SEC) {
           this.lwc.debugLog(
-            `Token is expiring in ${timeUntilExpSec}s (threshold 60s). Refreshing...`
+            `Token is expiring in ${timeUntilExpSec}s (threshold ${TOKEN_EXPIRATION_THRESHOLD_SEC}s). Refreshing...`
           );
           this.lwc.token = await this.registerAuthToken();
           if (this.connector) {
             this.connector.setAuthToken(this.lwc.token);
-            this.lwc.debugLog("Auth token successfully updated on UiModulesConnector instance.");
+            this.lwc.debugLog(
+              "Auth token successfully updated on UiModulesConnector instance."
+            );
           }
         } else {
-          this.lwc.debugLog(
-            `Token is healthy. Expires in ${timeUntilExpSec}s.`
-          );
+          const currentTimeMs = Date.now();
+          if (
+            currentTimeMs - lastTokenHealthyLogTimeMs >=
+            TOKEN_HEALTHY_LOG_INTERVAL_MS
+          ) {
+            this.lwc.debugLog(
+              `Token is healthy. Expires in ${timeUntilExpSec}s.`
+            );
+            lastTokenHealthyLogTimeMs = currentTimeMs;
+          }
         }
       }
     } catch (err) {
@@ -154,9 +176,15 @@ export default class BasePlatformService {
     containerEl.setAttribute("namespace", this.lwc.recordId);
 
     // Optional attributes for UI Modules
-    containerEl.setAttribute("show-dark-mode-toggle", this.lwc.showDarkModeToggle);
+    containerEl.setAttribute(
+      "show-dark-mode-toggle",
+      this.lwc.showDarkModeToggle
+    );
     containerEl.setAttribute("show-header", this.lwc.showHeader);
-    containerEl.setAttribute("show-correctness-feedback", this.lwc.showCorrectnessFeedback);
+    containerEl.setAttribute(
+      "show-correctness-feedback",
+      this.lwc.showCorrectnessFeedback
+    );
     containerEl.setAttribute("disabled-features", this.lwc.disabledFeatures);
 
     // Create the UI Modules Connector.
@@ -264,7 +292,9 @@ export default class BasePlatformService {
     // Ensure we have a token before proceeding.
     while (!this.lwc.token) {
       this.lwc.debugLog("waiting for ui connector token...");
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await new Promise((resolve) =>
+        setTimeout(resolve, TOKEN_WAIT_INTERVAL_MS)
+      );
     }
     this.lwc.debugLog(`ui connector token: ${this.lwc.token}`);
 
@@ -282,15 +312,15 @@ export default class BasePlatformService {
   }
 
   async pollDialogflowForConversationExistence(
-    maxRetries = 15,
-    initialDelay = 100
+    maxRetries = POLL_MAX_RETRIES,
+    initialDelay = POLL_INITIAL_DELAY_MS
   ) {
     // Poll for this.conversationName until Dialogflow confirms it exists.
     let delayMs = initialDelay;
     for (let i = 0; i < maxRetries; i++) {
       try {
         const response = await fetch(
-          `${this.lwc.endpoint}/v2beta1/${this.lwc.conversationName}`,
+          `${this.lwc.endpoint}/${DIALOGFLOW_API_VERSION}/${this.lwc.conversationName}`,
           this.createRequestOptions("GET")
         );
         this.lwc.debugLog(
@@ -298,7 +328,7 @@ export default class BasePlatformService {
         );
         if (response.ok) return true; // Conversation exists, exit polling
         await new Promise((resolve) => setTimeout(resolve, delayMs));
-        delayMs += 100;
+        delayMs += POLL_DELAY_INCREMENT_MS;
       } catch (error) {
         this.lwc.debugLog(
           `pollDialogflowForConversationExistence - error: ${error}`
@@ -315,8 +345,8 @@ export default class BasePlatformService {
     // Deletes conversationIntegrationKey:conversationName pair from Redis.
     return await fetch(
       this.lwc.endpoint +
-      "/conversation-name?conversationIntegrationKey=" +
-      conversationIntegrationKey,
+        "/conversation-name?conversationIntegrationKey=" +
+        conversationIntegrationKey,
       this.createRequestOptions("DELETE")
     )
       .then((res) => this.lwc.debugLog(`deleteConversationName: ${res.status}`))
@@ -325,7 +355,7 @@ export default class BasePlatformService {
 
   async fetchConversationLifecycleState() {
     return await fetch(
-      `${this.lwc.endpoint}/v2/${this.lwc.conversationName}`,
+      `${this.lwc.endpoint}/${DIALOGFLOW_API_VERSION}/${this.lwc.conversationName}`,
       this.createRequestOptions("GET")
     )
       .then((res) => res.json())

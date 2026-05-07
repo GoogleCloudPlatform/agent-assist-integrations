@@ -44,3 +44,25 @@ Because of Salesforce's tabbed conversation management, it is neccesary for Agen
     { namespace: uniqueIdForUiModuleInstance } // binds event to namespaced instance
   );
 ```
+
+### Local Configuration and Customization
+
+High-level behavioral configuration parameters (e.g., the Dialogflow API version, polling attempts, delays, token refresh intervals, and console logging throttle rates) are fully centralized in [config.js](file:///Users/jblakey/projects/agent-assist-ui-modules/salesforce/aa-lwc/force-app/main/default/lwc/agentAssistContainerModule/config.js) right next to the main controller:
+
+* **`DIALOGFLOW_API_VERSION`**: Specifies the Dialogflow API version used for API requests (defaults to `"v2beta1"`).
+* **`TOKEN_REFRESH_CHECK_INTERVAL_MS`**: Interval in milliseconds to automatically check and refresh UI Connector JWT tokens.
+* **`TOKEN_HEALTHY_LOG_INTERVAL_MS`**: Controls console debug log verbosity by throttling the "Token is healthy" status log to output at most once every X milliseconds (defaults to 5 minutes).
+* **Polling Configuration**: Customize Dialogflow conversation status check retries and delays via `POLL_MAX_RETRIES`, `POLL_INITIAL_DELAY_MS`, and `POLL_DELAY_INCREMENT_MS`.
+
+### Code Quality and Formatting
+
+The LWC codebase uses Prettier (configured via `.prettierrc`) to enforce code formatting and style guidelines. You can run checks and format the source tree using the following scripts:
+
+```bash
+# Verify code style compliance
+npm run lint
+
+# Automatically format and clean the codebase
+npm run lint:fix
+```
+

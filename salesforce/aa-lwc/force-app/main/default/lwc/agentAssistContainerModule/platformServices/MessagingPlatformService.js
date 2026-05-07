@@ -26,7 +26,8 @@ import conversationEndUserMessageChannel from "@salesforce/messageChannel/lightn
 import conversationEndedChannel from "@salesforce/messageChannel/lightning__conversationEnded";
 import tabClosedChannel from "@salesforce/messageChannel/lightning__tabClosed";
 
-import BasePlatformService from './BasePlatformService';
+import BasePlatformService from "./BasePlatformService";
+import { DIALOGFLOW_API_VERSION } from "../config";
 
 export default class MessagingPlatformService extends BasePlatformService {
   subscriptions = [];
@@ -68,7 +69,7 @@ export default class MessagingPlatformService extends BasePlatformService {
       (event) =>
         this.handleAgentAssistEventForMessaging(
           "agent-coaching-response-selected",
-          event,
+          event
         ),
       { namespace: this.lwc.recordId }
     );
@@ -80,33 +81,33 @@ export default class MessagingPlatformService extends BasePlatformService {
       subscribe(
         this.lwc.messageContext,
         conversationAgentSendChannel,
-        (event) => this.handleMessageSendForMessaging('HUMAN_AGENT', event),
-        { scope: APPLICATION_SCOPE },
-      ),
+        (event) => this.handleMessageSendForMessaging("HUMAN_AGENT", event),
+        { scope: APPLICATION_SCOPE }
+      )
     );
     this.subscriptions.push(
       subscribe(
         this.lwc.messageContext,
         conversationEndUserMessageChannel,
-        (event) => this.handleMessageSendForMessaging('END_USER', event),
-        { scope: APPLICATION_SCOPE },
-      ),
+        (event) => this.handleMessageSendForMessaging("END_USER", event),
+        { scope: APPLICATION_SCOPE }
+      )
     );
     this.subscriptions.push(
       subscribe(
         this.lwc.messageContext,
         conversationEndedChannel,
         (event) => this.handleConversationEndedForMessaging(event),
-        { scope: APPLICATION_SCOPE },
-      ),
+        { scope: APPLICATION_SCOPE }
+      )
     );
     this.subscriptions.push(
       subscribe(
         this.lwc.messageContext,
         tabClosedChannel,
         (event) => this.handleTabClosedForMessaging(event),
-        { scope: APPLICATION_SCOPE },
-      ),
+        { scope: APPLICATION_SCOPE }
+      )
     );
   }
 
@@ -161,7 +162,9 @@ export default class MessagingPlatformService extends BasePlatformService {
     let prefix = this.lwc.projectLocationName;
     this.lwc.conversationId = `SF-${this.lwc.recordId}`;
     this.lwc.conversationName = `${prefix}/conversations/${this.lwc.conversationId}`;
-    this.lwc.debugLog(`this.lwc.conversationName - ${this.lwc.conversationName}`);
+    this.lwc.debugLog(
+      `this.lwc.conversationName - ${this.lwc.conversationName}`
+    );
   }
 
   handleConversationEndedForMessaging(event) {
@@ -170,7 +173,7 @@ export default class MessagingPlatformService extends BasePlatformService {
 
     if (this.lwc.recordId !== event.recordId) return;
     dispatchAgentAssistEvent(
-      "conversation-completed",
+      "complete-conversation-requested",
       { detail: { conversationName: this.lwc.conversationName } },
       { namespace: this.lwc.recordId }
     );
