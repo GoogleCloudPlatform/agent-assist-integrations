@@ -1,0 +1,47 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+  five9-mediastream-grpc:
+    container_name: ${GRPC_SERVICE_NAME:-five9-mediastream-grpc}
+    build:
+      context: ./mediastream-grpc
+      dockerfile: Dockerfile
+    ports:
+      - "${GRPC_PORT:-50051}:${GRPC_PORT:-50051}"
+    environment:
+      - PORT=${GRPC_PORT:-50051}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/gcloud-config/application_default_credentials.json
+    env_file:
+      - .env
+    volumes:
+      - ${HOME}/.config/gcloud:/app/gcloud-config:ro
+      - ./mediastream-grpc:/app
+    command: ["watchfiles", "python main.py", "."]
+
+  five9-mediastream-http:
+    container_name: ${HTTP_SERVICE_NAME:-five9-mediastream-http}
+    build:
+      context: ./mediastream-http
+      dockerfile: Dockerfile
+    ports:
+      - "${HTTP_PORT:-8080}:${HTTP_PORT:-8080}"
+    environment:
+      - PORT=${HTTP_PORT:-8080}
+      - UI_CONNECTOR_URL
+    command: ["gunicorn", "--no-control-socket", "--reload", "--bind", ":${HTTP_PORT:-8080}", "--workers", "2", "--threads", "8", "--timeout", "0", "main:app"]
+    env_file:
+      - .env
+    volumes:
+      - ./mediastream-http:/app

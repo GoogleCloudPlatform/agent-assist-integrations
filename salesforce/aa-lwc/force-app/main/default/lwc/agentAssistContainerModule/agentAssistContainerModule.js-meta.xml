@@ -24,13 +24,37 @@
     <target>lightning__RecordPage</target>
   </targets>
   <targetConfigs>
-    <targetConfig targets="lightning__RecordPage">
-      <property name="endpoint" type="String" />
-      <property name="features" type="String" />
-      <property name="conversationProfile" type="String" />
-      <property name="channel" type="String" default="chat" />
-      <property name="consumerKey" type="String" />
-      <property name="consumerSecret" type="String" />
-    </targetConfig>
+      <targetConfig targets="lightning__RecordPage">
+      <property name="debugMode" type="Boolean" default="true" label="Debug Mode"
+        description="Enable debug logging to the browser console." />
+      <property name="endpoint" type="String"
+        default="" label="UI Connector Endpoint"
+        description="The URL of your UI Connector endpoint. [Required]" />
+      <property name="conversationProfile" type="String"
+        default="projects/{project-id}/locations/{location-id}/conversation-profiles/{profile-id}"
+        label="Conversation Profile"
+        description="The full resource name of the Conversation Profile. [Required]" />
+      <property name="channel" type="String" default="chat" label="Channel"
+        description="The type of conversation channel, either 'chat' or 'voice'. [Required]" />
+      <property name="platform" type="String" default="messaging" label="Platform"
+        description="The Salesforce platform integration (e.g., messaging, twilioflex, servicecloudvoice-nice). [Required]" />
+      <property name="consumerKey" type="String" default="" label="Connected App Consumer Key"
+        description="The Consumer Key from your Salesforce Connected App for authentication. [Required]" />
+      <property name="consumerSecret" type="String" default="" label="Connected App Consumer Secret"
+        description="The Consumer Secret from your Salesforce Connected App for authentication. [Required]" />
+      <property name="containerHeight" type="String" default="530px" label="Container Height"
+        description="The height of the Agent Assist container (e.g. 530px). [Required]" />
+      <property name="showDarkModeToggle" type="Boolean" default="true" label="Show Dark Mode Toggle"
+        description="Enable the dark mode toggle in the UI Module. [Optional]" />
+      <property name="showHeader" type="Boolean" default="false" label="Show Header"
+        description="Enable the header in the UI Module. [Optional]" />
+      <property name="showCorrectnessFeedback" type="Boolean" default="false" label="Show Correctness Feedback"
+        description="Enable correctness feedback in the UI Module. [Optional]" />
+      <property name="disabledFeatures" type="String" default="" label="Disabled Features"
+        description="Comma-separated list of features to disable in the UI Modules. See https://docs.cloud.google.com/agent-assist/docs/ui-modules-container-v2#properties. [Optional]" />
+      </targetConfig>
   </targetConfigs>
+  <capabilities>
+      <capability>lightning__ServiceCloudVoiceToolkitApi</capability>
+  </capabilities>
 </LightningComponentBundle>

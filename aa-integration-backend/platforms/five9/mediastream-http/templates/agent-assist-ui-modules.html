@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<!--
+ Copyright 2026 Google LLC
+
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+-->
+
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Assist UI Modules</title>
+
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css?family=Roboto:400,500,700" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css?family=Google+Sans:400,500" rel="stylesheet">
+    <link rel="icon" href="https://www.gstatic.com/dialogflow-console/common/assets/agent-assist/img/favicon.png">
+    <link rel="stylesheet" href="../static/styles.css">
+
+    <script src="https://www.gstatic.com/agent-assist-ui-modules/v1.5/transcript.js"></script>
+    <script src="https://www.gstatic.com/agent-assist-ui-modules/v2.5/container.js"></script>
+    <script src="https://www.gstatic.com/agent-assist-ui-modules/v1.13/common.js"></script>
+    <script>
+        window.authToken = "{{ auth_token }}";
+        window.conversationProfile = "{{ conversation_profile }}";
+        window.features = "{{ features }}";
+        window.uiConnectorUrl = "{{ ui_connector_url }}";
+    </script>
+    <script src="../static/all-event-listeners.js"></script>
+    <script src="../static/agent-assist.js"></script>
+</head>
+
+<body class="agent-assist">
+    <nav class="navbar">
+        <div class="nav-left">
+            <img src="https://www.gstatic.com/dialogflow-console/common/assets/agent-assist/img/agent-assist-48-multi.png"
+                alt="Logo" class="nav-logo">
+            <span class="nav-title">Agent Assist</span>
+        </div>
+    </nav>
+
+    <div class="main-container">
+        <!-- Left Column: Transcript -->
+        <div class="left-pane">
+            <div class="transcript-container">
+                <!-- Transcript will be injected here -->
+            </div>
+        </div>
+
+        <!-- Right Column: UI Modules -->
+        <div class="right-pane">
+            <div class="ui-modules-container">
+                <!-- UI Modules will be injected here -->
+            </div>
+        </div>
+    </div>
+    <div id="toast"></div>
+</body>
+
+</html>
