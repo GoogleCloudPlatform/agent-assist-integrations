@@ -1,4 +1,4 @@
-# Copyright 2025 Google LLC
+# Copyright 2022 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -89,8 +89,10 @@ def cloud_pubsub_handler(request, data_type):
             return True
 
         conversation_name = data_object['conversation']
-        conversation_name = get_conversation_name_without_location(conversation_name)
-        logging.debug('conversation_name: {0}, conversation_name_without_location: {1}'.format(data_object['conversation'], conversation_name))
+        conversation_name = get_conversation_name_without_location(
+            conversation_name)
+        logging.debug('conversation_name: {0}, conversation_name_without_location: {1}'.format(
+            data_object['conversation'], conversation_name))
 
         # Emits messages to redis pub/sub
         msg_data = {'conversation_name': conversation_name,
