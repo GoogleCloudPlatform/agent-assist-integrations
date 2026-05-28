@@ -235,6 +235,8 @@ class DialogflowAPI:
             for response in responses:
                 audio_stream.speech_end_offset = response.recognition_result.speech_end_offset.seconds * 1000
                 logging.debug(response)
+                if not response.recognition_result:
+                    continue
                 if response.recognition_result.is_final:
                     audio_stream.is_final = True
                     logging.debug(

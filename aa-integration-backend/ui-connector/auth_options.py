@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -124,7 +124,7 @@ def check_genesyscloud_token(token):
     # Prepare for GET /api/v2/authorization/roles request.
     request_headers = {"Authorization": "Bearer " + token}
     response = requests.get(
-        f"https://api.{config.GENESYS_CLOUD_ENVIRONMENT}/api/v2/users/me",
+        f"https://api.{config.GENESYS_CLOUD_REGION}/api/v2/users/me",
         headers=request_headers,
     )
     # Check response.

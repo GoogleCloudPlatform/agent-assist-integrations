@@ -11,9 +11,10 @@
   <!-- WebComponents polyfill. Needed for rendering web components in older browsers. -->
   <script src="https://www.gstatic.com/external_hosted/document_register_element/document-register-element.js"></script>
   <!-- Core UI module container. Loads all UI module-specific scripts. -->
-  <script src="https://www.gstatic.com/agent-assist-ui-modules/v1.8/common.js"></script>
-  <script src="https://www.gstatic.com/agent-assist-ui-modules/v1.3/transcript.js"></script>
-  <script src="https://www.gstatic.com/agent-assist-ui-modules/v2.0/container.js"></script>
+  <script src="https://www.gstatic.com/agent-assist-ui-modules/v1.14/common.js"></script>
+  <script src="https://www.gstatic.com/agent-assist-ui-modules/v1.4/transcript.js"></script>
+  <script src="https://www.gstatic.com/agent-assist-ui-modules/v2.5/container.js"></script>
+  <script src="https://www.gstatic.com/agent-assist-ui-modules/v1.1/genesys_cloud_connector.js"></script>
 </head>
 <body>
   <div class="app-container">
@@ -24,7 +25,6 @@
   </div>
   <script>
 
-    // window._uiModuleFlags = { debug: true }
     window.addEventListener('load', function () {
 
       const UI_MODULES_EL_SELECTOR = 'agent-assist-ui-modules-v2';
