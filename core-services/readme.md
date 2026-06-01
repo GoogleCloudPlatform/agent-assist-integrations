@@ -42,31 +42,30 @@ A backend infrastructure for Agent Assist integration, including Cloud Pub/Sub I
 ```text
 .
 ├── LICENSE
-├── cloud-pubsub-interceptor
+├── cloud-pubsub-interceptor/
 │   ├── Dockerfile - Builds Docker image for Cloud Pub/Sub Interceptor deployment on Cloud Run
-│   ├── main.py - A starter for flask app
+│   ├── main.py - A starter for Flask app
 │   ├── requirements.txt
 │   └── unit_test.py - Unit test code for Cloud Pub/Sub Interceptor
 ├── cloudbuild.yaml - An example configuration file for Cloud Build
 ├── deploy.sh - An automated deployment script
-├── images
-├── README.md
-├── platforms - Contains 3rd party CX platform specific integration code
-├── terraform
+├── images/
+├── readme.md
+├── terraform/
 │   ├── backend.tf
 │   ├── cloudbuild.yaml
 │   ├── main.tf
 │   ├── variables.tf
 │   └── versions.tf
-└── ui-connector
+└── ui-connector/
     ├── Dockerfile - Builds Docker image for UI Connector deployment on Cloud Run
     ├── auth.py - Handles JWT validation and registration
     ├── auth_options.py - Supports authentication via different identity providers
     ├── config.py - Configures variables about authentication, logging and CORS origins
     ├── dialogflow.py - Includes dialogflow utilities for handling conversations at runtime
-    ├── main.py - A starter for flask app
+    ├── main.py - A starter for Flask app
     ├── requirements.txt
-    ├── templates
+    ├── templates/
     │   └── index.html - A simple interactive demo
     └── unit_test.py - Unit test code for UI Connector
 ```
@@ -460,9 +459,9 @@ All terraform files are included under folder `/terraform`. Before applying terr
     ```bash
     # Example
     # Under './ui-connector' folder.
-    $ gcloud builds submit --tag gcr.io/$GCP_PROJECT_ID/aa-integration-backend/ui-connector
+    $ gcloud builds submit --tag gcr.io/$GCP_PROJECT_ID/core-services/ui-connector
     # Under './cloud-pubsub-interceptor' folder.
-    $ gcloud builds submit --tag gcr.io/$GCP_PROJECT_ID/aa-integration-backend/cloud-pubsub-interceptor
+    $ gcloud builds submit --tag gcr.io/$GCP_PROJECT_ID/core-services/cloud-pubsub-interceptor
     ```
 
 3. Create a GCS bucket to store terraform state and update the backend bucket value at `/terraform/backend.tf`.

@@ -43,7 +43,7 @@
 #     4. Customize authentication method by modifying `auth.check_auth()` method under folder `/ui-connector`.
 #
 # How to run this script:
-#     cd aa-integration-backend/ && sh ./deploy.sh
+#     cd core-services/ && sh ./deploy.sh
 
 set -e  # exit the script with a non-zero status if any individual command fails.
 
@@ -115,7 +115,7 @@ export CONVERSATION_LIFECYCLE_NOTIFICATIONS_SUBSCRIPTION_ID='aa-conversation-eve
 export NEW_RECOGNITION_RESULT_NOTIFICATION_SUBSCRIPTION_ID='aa-intermediate-transcript-event-sub'
 
 # Optionally configure the root directory of service source code.
-# For example, you can specify '/aa-integration-backend' if you're building a continuous deployment pipeline at the parent directory.
+# For example, you can specify '/core-services' if you're building a continuous deployment pipeline at the parent directory.
 export BACKEND_DIR=${BACKEND_DIR:=''}
 
 # Optionally load environment variables from a .env file if one exists

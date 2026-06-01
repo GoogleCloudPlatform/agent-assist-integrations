@@ -62,7 +62,7 @@ build-protos: build-images ## Build gRPC protos using the container (no local ve
 		-I./proto --python_out=./proto --grpc_python_out=./proto voice.proto
 
 up: ## Run services in background
-	@CONNECTOR_SERVICE_NAME=$$(grep CONNECTOR_SERVICE_NAME ../../.env | cut -d '=' -f2 | tr -d "'"); \
+	@CONNECTOR_SERVICE_NAME=$$(grep CONNECTOR_SERVICE_NAME ../../core-services/.env | cut -d '=' -f2 | tr -d "'"); \
 	export UI_CONNECTOR_URL=$$(gcloud run services describe $$CONNECTOR_SERVICE_NAME --platform managed --region $(REGION) --format 'value(status.url)'); \
 	$(COMPOSE_CLI) up -d
 
@@ -142,7 +142,7 @@ generate-trust-token: ## Generate a random trust token
 	@token=$$(openssl rand -hex 32); \
 	echo "" >> .env; \
 	echo "\nFIVE9_TRUST_TOKEN='$$token'" >> .env; \
-	echo "\nFIVE9_TRUST_TOKEN='$$token'" >> ../../.env; \
+	echo "\nFIVE9_TRUST_TOKEN='$$token'" >> ../../core-services/.env; \
 	echo "Generated and appended FIVE9_TRUST_TOKEN to .env"
 
 deploy: ## Deploy both services sequentially
@@ -165,7 +165,7 @@ deploy-grpc: ## Deploy gRPC Service
 
 deploy-http: ## Deploy HTTP Service
 	@echo "$(BLUE)Starting HTTP Deployment...$(RESET)"
-	@CONNECTOR_SERVICE_NAME=$$(grep CONNECTOR_SERVICE_NAME ../../.env | cut -d '=' -f2 | tr -d "'"); \
+	@CONNECTOR_SERVICE_NAME=$$(grep CONNECTOR_SERVICE_NAME ../../core-services/.env | cut -d '=' -f2 | tr -d "'"); \
 	UI_CONNECTOR_URL=$$(gcloud run services describe $$CONNECTOR_SERVICE_NAME --platform managed --region $(REGION) --format 'value(status.url)'); \
 	echo "UI Connector URL: $$UI_CONNECTOR_URL"; \
 	gcloud run deploy $(HTTP_SERVICE_NAME) \

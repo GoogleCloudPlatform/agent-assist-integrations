@@ -15,7 +15,7 @@ Create or select a Google Cloud project in which you will manage your resources.
 # Steps
 
 ## 1. Set up connector services
-* Follow the instructions in [this repository](https://partner-code.googlesource.com/aa-integration-backend/+/refs/heads/main#how-to-deploy-and-run) to clone and deploy the Agent Assist connector services
+* Follow the instructions in [this repository](https://partner-code.googlesource.com/core-services/+/refs/heads/main#how-to-deploy-and-run) to clone and deploy the Agent Assist connector services
   * This will allow the Salesforce client that we eventually create to receive real-time suggestions through Pub/Sub. 
 * When creating your Conversation Profile, configure it with only the `Conversation Summarization` feature, and choose the Baseline model option.
 * Before deploying the connector service, replace the `check_auth` function with the following code.

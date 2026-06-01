@@ -35,11 +35,11 @@ steps:
 - name: 'gcr.io/cloud-builders/gcloud'
   id: 'Deploy Agent Assist integration backend'
   entrypoint: 'bash'
-  args: ['aa-integration-backend/deploy.sh']
+  args: ['core-services/deploy.sh']
   env:
   - 'GCP_PROJECT_ID=$PROJECT_ID'
   - 'ADMIN_ACCOUNT=$SERVICE_ACCOUNT_EMAIL'
   - 'AUTH_OPTION=Skip'
-  - 'BACKEND_DIR=/aa-integration-backend'
+  - 'BACKEND_DIR=/core-services'
   - 'CONNECTOR_SERVICE_NAME=ui-connector-presubmit-${SHORT_SHA}'
   - 'INTERCEPTOR_SERVICE_NAME=cloud-pubsub-interceptor-presubmit-${SHORT_SHA}'
