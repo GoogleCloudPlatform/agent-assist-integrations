@@ -16,16 +16,16 @@
 
 steps:
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'gcr.io/$PROJECT_ID/aa-integration-backend/ui-connector-$BRANCH_NAME:$SHORT_SHA', './aa-integration-backend/ui-connector']
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/core-services/ui-connector-$BRANCH_NAME:$SHORT_SHA', './core-services/ui-connector']
 
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['push',  'gcr.io/$PROJECT_ID/aa-integration-backend/ui-connector-$BRANCH_NAME:$SHORT_SHA']
+  args: ['push',  'gcr.io/$PROJECT_ID/core-services/ui-connector-$BRANCH_NAME:$SHORT_SHA']
 
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'gcr.io/$PROJECT_ID/aa-integration-backend/cloud-pubsub-interceptor-$BRANCH_NAME:$SHORT_SHA', './aa-integration-backend/cloud-pubsub-interceptor']
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/core-services/cloud-pubsub-interceptor-$BRANCH_NAME:$SHORT_SHA', './core-services/cloud-pubsub-interceptor']
 
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['push',  'gcr.io/$PROJECT_ID/aa-integration-backend/cloud-pubsub-interceptor-$BRANCH_NAME:$SHORT_SHA']
+  args: ['push',  'gcr.io/$PROJECT_ID/core-services/cloud-pubsub-interceptor-$BRANCH_NAME:$SHORT_SHA']
 
 - id: 'branch name'
   name: 'alpine'
@@ -43,7 +43,7 @@ steps:
   args:
   - '-c'
   - |
-      cd ./aa-integration-backend/terraform
+      cd ./core-services/terraform
       echo ""
       echo "*************** TERRAFORM INIT ******************"
       tf_state_bucket="$PROJECT_ID-tfstate"
@@ -58,12 +58,12 @@ steps:
   args:
   - '-c'
   - |
-      cd ./aa-integration-backend/terraform
+      cd ./core-services/terraform
       echo ""
       echo "*************** TERRAFOM PLAN ******************"
       terraform plan -var="gcp_project_id=$PROJECT_ID" \
-        -var="ui_connector_docker_image=gcr.io/$PROJECT_ID/aa-integration-backend/ui-connector-$BRANCH_NAME:$SHORT_SHA" \
-        -var="cloud_pubsub_interceptor_docker_image=gcr.io/$PROJECT_ID/aa-integration-backend/cloud-pubsub-interceptor-$BRANCH_NAME:$SHORT_SHA" \
+        -var="ui_connector_docker_image=gcr.io/$PROJECT_ID/core-services/ui-connector-$BRANCH_NAME:$SHORT_SHA" \
+        -var="cloud_pubsub_interceptor_docker_image=gcr.io/$PROJECT_ID/core-services/cloud-pubsub-interceptor-$BRANCH_NAME:$SHORT_SHA" \
         -var="connector_service_name=ui-connector-$BRANCH_NAME" \
         -var="interceptor_service_name=cloud-pubsub-interceptor-$BRANCH_NAME" \
         || exit 1
@@ -75,7 +75,7 @@ steps:
   args:
   - '-c'
   - |
-      cd ./aa-integration-backend/terraform
+      cd ./core-services/terraform
       echo ""
       echo "*************** TERRAFOM APPLYING ******************"
       auth_option=""
@@ -84,8 +84,8 @@ steps:
       fi
       terraform apply -auto-approve \
         -var="gcp_project_id=$PROJECT_ID" \
-        -var="ui_connector_docker_image=gcr.io/$PROJECT_ID/aa-integration-backend/ui-connector-$BRANCH_NAME:$SHORT_SHA" \
-        -var="cloud_pubsub_interceptor_docker_image=gcr.io/$PROJECT_ID/aa-integration-backend/cloud-pubsub-interceptor-$BRANCH_NAME:$SHORT_SHA" \
+        -var="ui_connector_docker_image=gcr.io/$PROJECT_ID/core-services/ui-connector-$BRANCH_NAME:$SHORT_SHA" \
+        -var="cloud_pubsub_interceptor_docker_image=gcr.io/$PROJECT_ID/core-services/cloud-pubsub-interceptor-$BRANCH_NAME:$SHORT_SHA" \
         -var="connector_service_name=ui-connector-$BRANCH_NAME" \
         -var="interceptor_service_name=cloud-pubsub-interceptor-$BRANCH_NAME" \
         -var="redis_instance_id=aa-integration-redis-$BRANCH_NAME" \

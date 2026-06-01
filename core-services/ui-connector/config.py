@@ -31,7 +31,7 @@ logging.basicConfig(filename=os.environ.get(
 # The path to a jwt secret key file. It is specified when mounting the secret key
 # stored in SecretManager to Cloud Run service as a volume.
 # Reference: https://cloud.google.com/run/docs/configuring/secrets#mounting-secrets.
-JWT_SECRET_KEY_PATH = '/secret/jwt_secret_key'
+JWT_SECRET_KEY_PATH = os.environ.get('JWT_SECRET_KEY_PATH', '/secret/jwt_secret_key')
 
 # TODO replace '*' with a list of allowed origins to limit the access to your server.
 # Origin or list of origins that are allowed to connect to this server.
