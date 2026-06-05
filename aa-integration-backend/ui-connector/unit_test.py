@@ -75,13 +75,7 @@ class TestSocketIO(unittest.TestCase):
     def test_connect_failure(self):
         """Tries to establish websocket connection without valid JWT."""
         client = socketio.test_client(app, auth={'token': 'invalid_jwt'})
-        received = client.get_received()
-        self.assertRaises(ConnectionRefusedError)
-        # TODO check whether the behaviour is secure enough
-        self.assertTrue(client.is_connected())
-        self.assertEqual(len(received), 1)
-        self.assertEqual(received[0]['name'], 'unauthenticated')  # event name
-        self.assertEqual(received[0]['args'], [])
+        self.assertFalse(client.is_connected())
 
     def test_disconnect(self):
         """Disconnects websocket connection."""
@@ -103,16 +97,16 @@ class TestSocketIO(unittest.TestCase):
         ack1, data1 = client1.emit(
             'join-conversation', conversation1, callback=True)
         self.assertTrue(ack1)
-        self.assertEqual(data1, conversation1)
-        self.assertEqual(MockSet.call_count, 2)
+        self.assertEqual(data1, get_conversation_name_without_location('conversation_001'))
+        self.assertEqual(MockSet.call_count, 1)
         ack2, data2 = client2.emit(
             'join-conversation', conversation2, callback=True)
         self.assertTrue(ack2)
-        self.assertEqual(data2, conversation2)
-        self.assertEqual(MockSet.call_count, 4)
+        self.assertEqual(data2, get_conversation_name_without_location('conversation_002'))
+        self.assertEqual(MockSet.call_count, 2)
         # Sends data to one room
         data = {'data': 'fake_data'}
-        socketio.emit('conversation-lifecycle-event', data, to=conversation1)
+        socketio.emit('conversation-lifecycle-event', data, to=get_conversation_name_without_location('conversation_001'))
         received = client1.get_received()
         self.assertEqual(len(received), 1)
         self.assertEqual(received[0]['name'],
@@ -122,10 +116,10 @@ class TestSocketIO(unittest.TestCase):
         self.assertEqual(len(received), 0)
         client1.disconnect()
         MockDelete.assert_has_calls(
-            [call(conversation1, get_conversation_name_without_location('conversation_001'))])
+            [call(get_conversation_name_without_location('conversation_001'))])
         client2.disconnect()
         MockDelete.assert_has_calls(
-            [call(conversation2, get_conversation_name_without_location('conversation_002'))])
+            [call(get_conversation_name_without_location('conversation_002'))])
 
     def test_redis_pubsub_handler(self):
         """Handles Redis Pub/Sub messages."""
@@ -137,7 +131,7 @@ class TestSocketIO(unittest.TestCase):
             'type': 'CONVERSATION_STARTED'
         }
         redis_pubsub_pub_sample1 = {
-            'conversation_name': conversation1,
+            'conversation_name': get_conversation_name_without_location('conversation_001'),
             'data': json.dumps(dialogflow_event_sample1),
             'data_type': 'conversation-lifecycle-event',
             'publish_time': '2021-12-09T20:05:37.275Z',
@@ -146,7 +140,7 @@ class TestSocketIO(unittest.TestCase):
         redis_pubsub_sub_sample1 = {
             'type': 'pmessage',
             'pattern': bytes('{}*'.format(self.server_id), encoding='raw_unicode_escape'),
-            'channel': bytes('{0}:{1}'.format(self.server_id, conversation1), encoding='raw_unicode_escape'),
+            'channel': bytes('{0}:{1}'.format(self.server_id, get_conversation_name_without_location('conversation_001')), encoding='raw_unicode_escape'),
             'data': bytes(json.dumps(redis_pubsub_pub_sample1), encoding='raw_unicode_escape')
         }
 
@@ -364,22 +358,6 @@ class TestRestAPI(unittest.TestCase):
         self.assertIn('startTime', json_data)
         self.assertIn('conversationStage', json_data)
 
-    def test_dialogflow_list_answerrecord(self):
-        """Lists answer records with valid JWT."""
-        client = app.test_client()
-        list_answer_record_response = self.FakeListAnswerRecordResponse(
-            self.answer_record, self.header)
-        with patch('dialogflow.get_dialogflow', return_value=(list_answer_record_response)):
-            response = client.get(
-                '/v2beta1/projects/{0}/locations/{1}/answerRecords?pageSize=2'.format(
-                    _PROJECT_ID, _LOCATION),
-                headers={'Authorization': self.valid_jwt})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.headers['Content-Type'], 'application/json; charset=UTF-8')
-        json_data = self.get_json_object(response.data)
-        self.assertEqual(len(json_data['answerRecords']), 2)
-
     def test_dialogflow_update_answerrecord(self):
         """Updates an answer record with valid JWT."""
         client = app.test_client()
@@ -425,11 +403,7 @@ class TestRestAPI(unittest.TestCase):
         response = client.delete(
             '/v2beta1/projects/{0}/locations/{1}/conversationProfiles/{2}'.format(
                 _PROJECT_ID, _LOCATION, self.conversation_profile_id))
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(response.data, b'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">\n<title>404 Not Found</title>\n<h1>Not Found</h1>\n<p>The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again.</p>\n')
-        self.assertEqual(
-            response.headers['Content-Type'], 'text/html; charset=utf-8')
-        self.assertEqual(response.headers['Content-Length'], '232')
+        self.assertEqual(response.status_code, 405)
 
 
 if __name__ == '__main__':

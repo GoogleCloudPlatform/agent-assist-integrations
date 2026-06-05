@@ -1,4 +1,4 @@
-# Copyright 2026 Google LLC
+# Copyright 2022 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -38,8 +38,6 @@ def check_auth(token):
         return auth_options.check_genesyscloud_token(token)
     elif (config.AUTH_OPTION == 'Twilio'):
         return auth_options.check_twilio_token(token)
-    elif (config.AUTH_OPTION == 'Five9'):
-        return auth_options.check_five9_token(token)
     elif (config.AUTH_OPTION == 'Skip'):
         return True
     # Customize your authentication method here.

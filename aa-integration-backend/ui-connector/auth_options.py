@@ -1,4 +1,4 @@
-# Copyright 2026 Google LLC
+# Copyright 2024 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -173,27 +173,3 @@ def check_twilio_token(token):
                 response.status_code, response.reason
             )
         )
-
-
-def check_five9_token(token):
-    """
-    Verifies the internal shared secret (FIVE9_TRUST_TOKEN) sent in the Authorization header.
-    Expects: 'Bearer <FIVE9_TRUST_TOKEN>'
-    """
-    if not token or not token.startswith("Bearer "):
-        logging.warning("Missing or malformed Authorization header.")
-        return False
-
-    # Extract the token from 'Bearer <token>'
-    token = token.split(" ")[1]
-
-    try:
-        # Secure string comparison
-        if token == config.FIVE9_TRUST_TOKEN:
-            return True
-        else:
-            logging.warning("Failed to verify the Five9 trust token.")
-            return False
-    except Exception as e:
-        logging.error(f"Error during token verification: {e}")
-        return False
