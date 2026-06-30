@@ -40,7 +40,7 @@ pygments==2.19.2
 pyparsing==3.3.2
 pytest==9.0.2
 python-engineio==4.13.0
-python-socketio==5.16.0
+python-socketio==5.16.2
 pyzmq==27.1.0
 requests==2.32.5
 requests-oauthlib==2.0.0
