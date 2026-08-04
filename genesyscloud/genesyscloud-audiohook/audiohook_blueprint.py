@@ -62,14 +62,16 @@ def process_open_conversation_message(
         agent_stream: Stream,
         customer_stream: Stream,
         ws: Server,
-        audiohook: AudioHook
+        audiohook: AudioHook,
+        conversation_profile_name: str = None
 ) -> OpenConversationState:
     """Process "open" message get from Audiohook Monitor, and establish a state
     object for conversation_name, agent_thread, user_thread, and is_opened bool
     """
 
+    profile_name = conversation_profile_name or config.conversation_profile_name
     conversation_profile = dialogflow_api.get_conversation_profile(
-        conversation_profile_name=config.conversation_profile_name)
+        conversation_profile_name=profile_name)
     agent_audio_config = agent_stream.define_audio_config(conversation_profile)
     customer_audio_config = customer_stream.define_audio_config(
         conversation_profile)
@@ -190,6 +192,11 @@ def audiohook_connect(ws: Server):
     Args:
         ws (Server): Websocket server for exchange messages
     """
+    from flask import request
+
+    # Priority 1: Query parameter 'conversationProfile'
+    query_profile = request.args.get('conversationProfile')
+
     agent_stream = Stream(
         config.rate, chunk_size=config.chunk_size)
     customer_stream = Stream(
@@ -222,6 +229,12 @@ def audiohook_connect(ws: Server):
                         "Connection Probe, not creating Dialogflow Conversation")
                     ws.send(json.dumps(audiohook.create_opened_message()))
                 elif conversation_id != DEFAULT_CONVERSATION_ID and open_conversation_state is None:
+                    # Priority 2: Custom parameter in open message
+                    open_params = json_message.get("parameters", {})
+                    msg_profile = open_params.get("conversationProfile")
+
+                    selected_profile = query_profile or msg_profile or config.conversation_profile_name
+
                     # Get the first "open" message for real conversation
                     # open_state contains the agent and user thread for
                     # calling streaming_analyze_content
@@ -234,6 +247,7 @@ def audiohook_connect(ws: Server):
                         customer_stream,
                         ws,
                         audiohook,
+                        conversation_profile_name=selected_profile,
                     )
                     logging.debug(
                         "open conversation message %s ", open_conversation_state)
