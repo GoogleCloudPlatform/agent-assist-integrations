@@ -16,23 +16,6 @@
 
 /* UIM v2 CSS Adjustments for LWC - These rules affect elements outside the component root that need to be unscoped */
 
-/* Fixes button icon misalignment */
-.mat-mdc-button>.mat-icon, .mat-mdc-unelevated-button>.mat-icon, .mat-mdc-raised-button>.mat-icon, .mat-mdc-outlined-button>.mat-icon, .mat-tonal-button>.mat-icon {
-  line-height: var(--slds-spacing-none) !important;
-}
-
-/* Adds padding bottom to loading spinner in summary modal */
-.mat-mdc-dialog-container .summary__content .mat-mdc-progress-spinner.mdc-circular-progress.mat-primary {
-  margin-bottom: var(--slds-spacing-xx-large);
-}
-
-/* Adds a margin to the bottom of the loading spinner in the knowledge search container */
-.mat-mdc-progress-spinner.mdc-circular-progress.mat-primary.mdc-circular-progress--indeterminate.gmat-mdc-progress-spinner {
-  margin-top: var(--slds-spacing-medium);
-  margin-bottom: var(--slds-spacing-medium);
-}
-
-/* Fixes modal scrolling */
-.summary-dialog .summary__content-wrapper .summary__content {
-  max-height: unset;
-}
+/* Currently no global CSS adjustments are needed.
+   This is desirable to avoid CSS drift from the core UI Modules.
+   If issues arise later, then add the necessary CSS here. */

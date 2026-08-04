@@ -16,10 +16,15 @@
 
 // Mock the message channels by creating a mock file in jest-mocks
 // This approach avoids the module resolution issues
-jest.mock('lightning/messageService');
+jest.mock("lightning/messageService");
 import MessagingPlatformService from "../MessagingPlatformService";
 import { subscribe, unsubscribe } from "lightning/messageService";
-import { setupPlatformServiceTest, createMockLwcComponent, createMockRefs } from "../testUtils";
+import {
+  setupPlatformServiceTest,
+  createMockLwcComponent,
+  createMockRefs
+} from "../testUtils";
+import { DIALOGFLOW_API_VERSION } from "../../config";
 
 describe("MessagingPlatformService", () => {
   let mockLwc;
@@ -31,13 +36,19 @@ describe("MessagingPlatformService", () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
+    global.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({})
+    });
+
     mockLwc = createMockLwcComponent({
       consumerKey: "test-key",
       consumerSecret: "test-secret",
       endpoint: "https://test-endpoint.com",
       recordId: "test-record-id",
       channel: "chat",
-      features: "CONVERSATION_SUMMARIZATION",
+      disabledFeatures: "",
       conversationProfile:
         "projects/test/locations/test/conversationProfiles/test",
       debugMode: false,
@@ -70,7 +81,7 @@ describe("MessagingPlatformService", () => {
     messagingPlatformService = new MessagingPlatformService(mockLwc, mockRefs);
   });
 
-  afterEach(() => {});
+  afterEach(() => { });
 
   describe("constructor", () => {
     it("initializes with lwc and refs parameters", () => {
@@ -232,34 +243,23 @@ describe("MessagingPlatformService", () => {
       jest.useRealTimers();
     });
 
-    it("dispatches conversation-completed event when features include CONVERSATION_SUMMARIZATION", () => {
+    it("dispatches complete-conversation-requested event", () => {
       const event = {
-        recordId: "test-record-id",
+        recordId: "test-record-id"
       };
 
       messagingPlatformService.handleConversationEndedForMessaging(event);
 
       expect(global.dispatchAgentAssistEvent).toHaveBeenCalledWith(
-        "conversation-completed",
+        "complete-conversation-requested",
         { detail: { conversationName: "test-conversation-name" } },
         { namespace: "test-record-id" }
       );
     });
 
-    it("does not dispatch conversation-completed event when features do not include CONVERSATION_SUMMARIZATION", () => {
-      mockLwc.features = "OTHER_FEATURE";
+    it("does not dispatch complete-conversation-requested event when recordId does not match", () => {
       const event = {
-        recordId: "test-record-id",
-      };
-
-      messagingPlatformService.handleConversationEndedForMessaging(event);
-
-      expect(global.dispatchAgentAssistEvent).not.toHaveBeenCalled();
-    });
-
-    it("does not dispatch conversation-completed event when recordId does not match", () => {
-      const event = {
-        recordId: "different-record-id",
+        recordId: "different-record-id"
       };
 
       messagingPlatformService.handleConversationEndedForMessaging(event);
@@ -269,7 +269,7 @@ describe("MessagingPlatformService", () => {
 
     it("should call triggerSummarization after a timeout", () => {
       const event = {
-        recordId: "test-record-id",
+        recordId: "test-record-id"
       };
 
       messagingPlatformService.handleConversationEndedForMessaging(event);

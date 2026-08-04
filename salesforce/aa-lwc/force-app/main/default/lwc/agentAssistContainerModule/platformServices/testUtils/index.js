@@ -78,7 +78,6 @@ export const createMockLwcComponent = (overrides = {}) => {
     debugMode: false,
     debugLog: jest.fn(),
     recordId: "test-record-id",
-    features: "CONVERSATION_SUMMARIZATION",
     conversationProfile:
       "projects/test/locations/test/conversationProfiles/test",
     token: "test-token",
@@ -111,7 +110,8 @@ export const createMockPlatformService = () => {
       initAgentAssistEvents: jest.fn(),
       initEventDragnet: jest.fn(),
       teardown: jest.fn(),
-      registerAuthToken: jest.fn().mockResolvedValue("mock-token")
+      registerAuthToken: jest.fn().mockResolvedValue("mock-token"),
+      checkAndRefreshToken: jest.fn().mockResolvedValue(undefined)
     };
   });
   return { __esModule: true, default: mock };

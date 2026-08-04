@@ -15,7 +15,12 @@
  */
 
 import BasePlatformService from "../BasePlatformService";
-import { setupPlatformServiceTest, createMockLwcComponent, createMockRefs } from "../testUtils";
+import {
+  setupPlatformServiceTest,
+  createMockLwcComponent,
+  createMockRefs
+} from "../testUtils";
+import { DIALOGFLOW_API_VERSION } from "../../config";
 
 describe("BasePlatformService", () => {
   let mockLwc;
@@ -33,7 +38,6 @@ describe("BasePlatformService", () => {
       endpoint: "https://test-endpoint.com",
       recordId: "test-record-id",
       channel: "chat",
-      features: "CONVERSATION_SUMMARIZATION",
       conversationProfile:
         "projects/test/locations/test/conversationProfiles/test",
       debugMode: false,
@@ -389,7 +393,7 @@ describe("BasePlatformService", () => {
         await basePlatformService.fetchConversationLifecycleState();
 
       expect(global.fetch).toHaveBeenCalledWith(
-        "https://test-endpoint.com/v2/test-conversation-name",
+        `https://test-endpoint.com/${DIALOGFLOW_API_VERSION}/test-conversation-name`,
         {
           method: "GET",
           headers: {

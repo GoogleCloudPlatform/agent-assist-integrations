@@ -284,6 +284,7 @@ if [[ -z $VPC_CONNECTOR_NAME ]]; then
   --subnet $VPC_SUBNET \
   --clear-vpc-connector \
   --min-instances=1 \
+  --concurrency=80 \
   --no-cpu-throttling \
   --update-secrets=/secret/jwt_secret_key=${JWT_SECRET_NAME}:latest \
   --set-env-vars REDISHOST=$REDIS_HOST \
@@ -294,7 +295,8 @@ if [[ -z $VPC_CONNECTOR_NAME ]]; then
   --set-env-vars SALESFORCE_ORGANIZATION_ID=$SALESFORCE_ORGANIZATION_ID \
   --set-env-vars GENESYS_CLOUD_ENVIRONMENT=$GENESYS_CLOUD_ENVIRONMENT \
   --set-env-vars TWILIO_ACCOUNT_SID=$TWILIO_ACCOUNT_SID \
-  --set-env-vars APP_AUTH_OPTION=$APP_AUTH_OPTION
+  --set-env-vars APP_AUTH_OPTION=$APP_AUTH_OPTION \
+  --set-env-vars FIVE9_TRUST_TOKEN=$FIVE9_TRUST_TOKEN
 
 else
   echo "Deploying with a Serverless VPC Access connector."
@@ -318,7 +320,8 @@ else
     --set-env-vars SALESFORCE_ORGANIZATION_ID=$SALESFORCE_ORGANIZATION_ID \
     --set-env-vars GENESYS_CLOUD_ENVIRONMENT=$GENESYS_CLOUD_ENVIRONMENT \
     --set-env-vars TWILIO_ACCOUNT_SID=$TWILIO_ACCOUNT_SID \
-    --set-env-vars APP_AUTH_OPTION=$APP_AUTH_OPTION
+    --set-env-vars APP_AUTH_OPTION=$APP_AUTH_OPTION \
+    --set-env-vars FIVE9_TRUST_TOKEN=$FIVE9_TRUST_TOKEN
 fi
 
 
@@ -338,6 +341,7 @@ if [[ -z $VPC_CONNECTOR_NAME ]]; then
     --clear-vpc-connector \
     --ingress=internal \
     --min-instances=1 \
+    --concurrency=80 \
     --no-cpu-throttling \
     --set-env-vars REDISHOST=$REDIS_HOST \
     --set-env-vars REDISPORT=$REDIS_PORT

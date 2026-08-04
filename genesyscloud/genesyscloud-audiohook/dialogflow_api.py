@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,9 +35,22 @@ AWAIT_REDIS_SECOND_PER_COUNTER = 0.5
 LOCATION_ID_REGEX = r"^projects\/[^/]+\/locations\/([^/]+)"
 
 credentials, project = google.auth.default()
+# Initialize redis client with retry strategy for connection resilience
 redis_client = redis.StrictRedis(
-    host=config.redis_host, port=config.redis_port)
-
+    host=config.redis_host, port=config.redis_port,
+    health_check_interval=10,
+    socket_connect_timeout=15,
+    socket_keepalive=True,
+    retry=redis.retry.Retry(
+        redis.backoff.ExponentialBackoff(cap=5, base=1),
+        5,
+        supported_errors=(
+            redis.exceptions.ConnectionError,
+            redis.exceptions.TimeoutError,
+            redis.exceptions.ResponseError
+        )
+    )
+)
 
 try:
     location_id = re.match(
@@ -218,10 +231,35 @@ class DialogflowAPI:
             responses = self.participants_client.streaming_analyze_content(
                 requests=self.generator_streaming_analyze_content_request(
                     audio_config, participant, audio_stream))
+
+            for response in responses:
+                audio_stream.speech_end_offset = response.recognition_result.speech_end_offset.seconds * 1000
+                logging.debug(response)
+                if not response.recognition_result:
+                    continue
+                if response.recognition_result.is_final:
+                    audio_stream.is_final = True
+                    logging.debug(
+                        "Final transcript for %s: %s, and is final offset",
+                        participant.role.name,
+                        response.recognition_result.transcript,
+                    )
+                    offset = response.recognition_result.speech_end_offset
+                    audio_stream.is_final_offset = int(
+                        offset.seconds * 1000 + offset.microseconds / 1000
+                    )
+
+                if response.recognition_result:
+                    logging.debug(
+                        "Role %s: Interim response recognition result transcript: %s, time %s",
+                        participant.role.name,
+                        response.recognition_result.transcript,
+                        response.recognition_result.speech_end_offset)
+
         except OutOfRange as e:
-            audio_stream.closed = True
             logging.warning(
-                "The single audio stream last more than 120 second %s ", e)
+                "The single audio stream exceeded maximum duration restrictions %s ", e)
+            # return to restart the stream.
             return
         except FailedPrecondition as e:
             audio_stream.closed = True
@@ -233,28 +271,6 @@ class DialogflowAPI:
             logging.warning(
                 "Exceed quota for calling streaming analyze content %s ", e)
             return
-
-        for response in responses:
-            audio_stream.speech_end_offset = response.recognition_result.speech_end_offset.seconds * 1000
-            logging.debug(response)
-            if response.recognition_result.is_final:
-                audio_stream.is_final = True
-                logging.debug(
-                    "Final transcript for %s: %s, and is final offset",
-                    participant.role.name,
-                    response.recognition_result.transcript,
-                )
-                offset = response.recognition_result.speech_end_offset
-                audio_stream.is_final_offset = int(
-                    offset.seconds * 1000 + offset.microseconds / 1000
-                )
-
-            if response.recognition_result:
-                logging.debug(
-                    "Role %s: Interim response recognition result transcript: %s, time %s",
-                    participant.role.name,
-                    response.recognition_result.transcript,
-                    response.recognition_result.speech_end_offset)
 
     def complete_conversation(self, conversation_name: str):
         """Send complete conversation request to Dialogflow
@@ -291,6 +307,7 @@ class DialogflowAPI:
             participant=participant.name,
             audio_config=audio_config,
             enable_debugging_info=enable_debugging_info,
+            output_multiple_utterances=True,
         )
 
         for content in generator:
@@ -298,6 +315,7 @@ class DialogflowAPI:
             yield dialogflow.StreamingAnalyzeContentRequest(
                 input_audio=content,
                 enable_debugging_info=enable_debugging_info,
+                output_multiple_utterances=True,
             )
 
         logging.info(
@@ -319,10 +337,17 @@ def await_redis(conversation_name: str) -> bool:
     # to create the redis memory store
     counter = AWAIT_REDIS_COUNTER
 
-    redis_exists = redis_client.exists(conversation_name) != 0
+    def _check_exists():
+        try:
+            return redis_client.exists(conversation_name) != 0
+        except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
+            logging.warning("Redis connection error in await_redis: %s", e)
+            return False
+
+    redis_exists = _check_exists()
     while not redis_exists and counter > 0:
         time.sleep(AWAIT_REDIS_SECOND_PER_COUNTER)
-        redis_exists = redis_client.exists(conversation_name) != 0
+        redis_exists = _check_exists()
         counter = counter - 1
     logging.debug("return to send resume message redis client exist %s and final counter %s ",
                   redis_exists, counter)

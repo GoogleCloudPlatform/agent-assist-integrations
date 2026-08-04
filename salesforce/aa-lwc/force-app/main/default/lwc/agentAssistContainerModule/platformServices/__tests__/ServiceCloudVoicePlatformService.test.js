@@ -38,7 +38,6 @@ describe("ServiceCloudVoicePlatformService", () => {
       debugMode: false,
       debugLog: jest.fn(),
       recordId: "test-record-id",
-      features: "CONVERSATION_SUMMARIZATION",
       conversationProfile:
         "projects/test/locations/test/conversationProfiles/test",
       token: "test-token",

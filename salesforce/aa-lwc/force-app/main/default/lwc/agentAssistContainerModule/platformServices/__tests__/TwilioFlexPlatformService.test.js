@@ -204,19 +204,12 @@ describe("TwilioFlexPlatformService", () => {
   });
 
   describe("handleConversationEndedForTwilioFlex", () => {
-    it("triggers summarization when the feature is enabled", () => {
+    it("triggers summarization", () => {
       mockLwc.conversationName = "test-conversation-name";
-      mockLwc.features = "CONVERSATION_SUMMARIZATION";
 
       twilioFlexPlatformService.handleConversationEndedForTwilioFlex();
 
       expect(mockLwc.triggerSummarization).toHaveBeenCalled();
-    });
-
-    it("does not trigger summarization when the feature is disabled", () => {
-      mockLwc.features = ""; // Ensure the feature is not present
-      twilioFlexPlatformService.handleConversationEndedForTwilioFlex();
-      expect(mockLwc.triggerSummarization).not.toHaveBeenCalled();
     });
 
     it("starts polling for conversation name after handling conversation ended", () => {
