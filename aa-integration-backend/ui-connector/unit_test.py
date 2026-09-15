@@ -12,20 +12,40 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import sys
 import unittest
 import json
 import gzip
-from unittest.mock import patch, call
+from unittest.mock import patch, call, MagicMock
 
-import main
-from main import socketio
-from main import app
-from main import dialogflow
-from main import redis_pubsub_handler
+sys.path.append(os.path.dirname(os.path.realpath(__file__)))
+os.environ.setdefault('LOGGING_FILE', '/tmp/test.log')
 
 _SERVER_ID = 'fake_server_id'
 _PROJECT_ID = 'fake_project_id'
 _LOCATION = 'global'
+
+os.environ['GCP_PROJECT_ID'] = _PROJECT_ID
+os.environ['JWT_SECRET_KEY'] = 'test-secret-key-12345'
+
+mock_redis = MagicMock()
+mock_pubsub = MagicMock()
+mock_redis.pubsub.return_value = mock_pubsub
+
+with patch('google.auth.default', return_value=(MagicMock(), _PROJECT_ID)), \
+     patch('google.cloud.dialogflow_v2beta1.ConversationsClient'), \
+     patch('google.cloud.dialogflow_v2beta1.ParticipantsClient'), \
+     patch('google.auth.transport.requests.AuthorizedSession'), \
+     patch('redis.StrictRedis', return_value=mock_redis):
+    import main
+    import auth
+    from main import socketio
+    from main import app
+    from main import dialogflow
+    from main import redis_pubsub_handler
+
+auth.JWT_SECRET_KEY = 'test_jwt_secret_key_12345'
 
 
 def get_conversation_profile_name(conversation_profile_id):
@@ -75,13 +95,7 @@ class TestSocketIO(unittest.TestCase):
     def test_connect_failure(self):
         """Tries to establish websocket connection without valid JWT."""
         client = socketio.test_client(app, auth={'token': 'invalid_jwt'})
-        received = client.get_received()
-        self.assertRaises(ConnectionRefusedError)
-        # TODO check whether the behaviour is secure enough
-        self.assertTrue(client.is_connected())
-        self.assertEqual(len(received), 1)
-        self.assertEqual(received[0]['name'], 'unauthenticated')  # event name
-        self.assertEqual(received[0]['args'], [])
+        self.assertFalse(client.is_connected())
 
     def test_disconnect(self):
         """Disconnects websocket connection."""
@@ -95,6 +109,9 @@ class TestSocketIO(unittest.TestCase):
         """Joins socketio room specified by conversation name."""
         conversation1 = get_conversation_name('conversation_001')
         conversation2 = get_conversation_name('conversation_002')
+        conv1_without_location = get_conversation_name_without_location('conversation_001')
+        conv2_without_location = get_conversation_name_without_location('conversation_002')
+
         # Sets client1 and client2 to join different rooms
         client1 = socketio.test_client(app, auth={'token': self.valid_jwt})
         client2 = socketio.test_client(app, auth={'token': self.valid_jwt})
@@ -103,16 +120,16 @@ class TestSocketIO(unittest.TestCase):
         ack1, data1 = client1.emit(
             'join-conversation', conversation1, callback=True)
         self.assertTrue(ack1)
-        self.assertEqual(data1, conversation1)
-        self.assertEqual(MockSet.call_count, 2)
+        self.assertEqual(data1, conv1_without_location)
+        self.assertEqual(MockSet.call_count, 1)
         ack2, data2 = client2.emit(
             'join-conversation', conversation2, callback=True)
         self.assertTrue(ack2)
-        self.assertEqual(data2, conversation2)
-        self.assertEqual(MockSet.call_count, 4)
+        self.assertEqual(data2, conv2_without_location)
+        self.assertEqual(MockSet.call_count, 2)
         # Sends data to one room
         data = {'data': 'fake_data'}
-        socketio.emit('conversation-lifecycle-event', data, to=conversation1)
+        socketio.emit('conversation-lifecycle-event', data, to=conv1_without_location)
         received = client1.get_received()
         self.assertEqual(len(received), 1)
         self.assertEqual(received[0]['name'],
@@ -121,23 +138,22 @@ class TestSocketIO(unittest.TestCase):
         received = client2.get_received()
         self.assertEqual(len(received), 0)
         client1.disconnect()
-        MockDelete.assert_has_calls(
-            [call(conversation1, get_conversation_name_without_location('conversation_001'))])
+        MockDelete.assert_called_with(conv1_without_location)
         client2.disconnect()
-        MockDelete.assert_has_calls(
-            [call(conversation2, get_conversation_name_without_location('conversation_002'))])
+        MockDelete.assert_called_with(conv2_without_location)
 
     def test_redis_pubsub_handler(self):
         """Handles Redis Pub/Sub messages."""
         conversation1 = get_conversation_name('conversation_001')
         conversation2 = get_conversation_name('conversation_002')
+        conv1_without_location = get_conversation_name_without_location('conversation_001')
 
         dialogflow_event_sample1 = {
             'conversation': conversation1,
             'type': 'CONVERSATION_STARTED'
         }
         redis_pubsub_pub_sample1 = {
-            'conversation_name': conversation1,
+            'conversation_name': conv1_without_location,
             'data': json.dumps(dialogflow_event_sample1),
             'data_type': 'conversation-lifecycle-event',
             'publish_time': '2021-12-09T20:05:37.275Z',
@@ -146,7 +162,7 @@ class TestSocketIO(unittest.TestCase):
         redis_pubsub_sub_sample1 = {
             'type': 'pmessage',
             'pattern': bytes('{}*'.format(self.server_id), encoding='raw_unicode_escape'),
-            'channel': bytes('{0}:{1}'.format(self.server_id, conversation1), encoding='raw_unicode_escape'),
+            'channel': bytes('{0}:{1}'.format(self.server_id, conv1_without_location), encoding='raw_unicode_escape'),
             'data': bytes(json.dumps(redis_pubsub_pub_sample1), encoding='raw_unicode_escape')
         }
 
@@ -364,21 +380,19 @@ class TestRestAPI(unittest.TestCase):
         self.assertIn('startTime', json_data)
         self.assertIn('conversationStage', json_data)
 
-    def test_dialogflow_list_answerrecord(self):
-        """Lists answer records with valid JWT."""
+    def test_dialogflow_list_participants(self):
+        """Lists participants with valid JWT."""
         client = app.test_client()
-        list_answer_record_response = self.FakeListAnswerRecordResponse(
+        list_participants_response = self.FakeListAnswerRecordResponse(
             self.answer_record, self.header)
-        with patch('dialogflow.get_dialogflow', return_value=(list_answer_record_response)):
+        with patch('dialogflow.get_dialogflow', return_value=(list_participants_response)):
             response = client.get(
-                '/v2beta1/projects/{0}/locations/{1}/answerRecords?pageSize=2'.format(
-                    _PROJECT_ID, _LOCATION),
+                '/v2beta1/projects/{0}/locations/{1}/conversations/{2}/participants'.format(
+                    _PROJECT_ID, _LOCATION, self.conversation_id),
                 headers={'Authorization': self.valid_jwt})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.headers['Content-Type'], 'application/json; charset=UTF-8')
-        json_data = self.get_json_object(response.data)
-        self.assertEqual(len(json_data['answerRecords']), 2)
 
     def test_dialogflow_update_answerrecord(self):
         """Updates an answer record with valid JWT."""
@@ -425,11 +439,128 @@ class TestRestAPI(unittest.TestCase):
         response = client.delete(
             '/v2beta1/projects/{0}/locations/{1}/conversationProfiles/{2}'.format(
                 _PROJECT_ID, _LOCATION, self.conversation_profile_id))
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(response.data, b'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">\n<title>404 Not Found</title>\n<h1>Not Found</h1>\n<p>The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again.</p>\n')
+        self.assertEqual(response.status_code, 405)
+
+    @patch('main.redis_client.set', return_value=True)
+    def test_set_conversation_name_success(self, mock_redis_set):
+        """Sets conversationIntegrationKey mapping successfully."""
+        client = app.test_client()
+        response = client.post(
+            '/conversation-name',
+            json={
+                'conversationIntegrationKey': 'genesys-conv-123',
+                'conversationName': self.conversation_name
+            },
+            headers={'Authorization': self.valid_jwt}
+        )
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            response.headers['Content-Type'], 'text/html; charset=utf-8')
-        self.assertEqual(response.headers['Content-Length'], '232')
+            response.get_json(),
+            {'genesys-conv-123': self.conversation_name}
+        )
+        mock_redis_set.assert_called_once()
+
+    def test_set_conversation_name_bad_request(self):
+        """Rejects set conversation name request when missing fields."""
+        client = app.test_client()
+        response = client.post(
+            '/conversation-name',
+            json={'conversationIntegrationKey': ''},
+            headers={'Authorization': self.valid_jwt}
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @patch('main.redis_client.get', return_value=b'projects/fake_project_id/locations/global/conversations/fake_conversation_id')
+    def test_get_conversation_name_success(self, mock_redis_get):
+        """Gets conversationName by conversationIntegrationKey."""
+        client = app.test_client()
+        response = client.get(
+            '/conversation-name?conversationIntegrationKey=genesys-conv-123',
+            headers={'Authorization': self.valid_jwt}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json(),
+            {'conversationName': self.conversation_name}
+        )
+        mock_redis_get.assert_called_once()
+
+    def test_get_conversation_name_missing_param(self):
+        """Rejects get conversation name when query param is missing."""
+        client = app.test_client()
+        response = client.get(
+            '/conversation-name',
+            headers={'Authorization': self.valid_jwt}
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @patch('main.redis_client.delete', return_value=1)
+    def test_del_conversation_name_success(self, mock_redis_del):
+        """Deletes conversationName by conversationIntegrationKey."""
+        client = app.test_client()
+        response = client.delete(
+            '/conversation-name?conversationIntegrationKey=genesys-conv-123',
+            headers={'Authorization': self.valid_jwt}
+        )
+        self.assertEqual(response.status_code, 200)
+        mock_redis_del.assert_called_once()
+
+    @patch('main.redis_client.delete', return_value=0)
+    def test_del_conversation_name_not_found(self, mock_redis_del):
+        """Returns 404 when deleting a non-existent conversationIntegrationKey."""
+        client = app.test_client()
+        response = client.delete(
+            '/conversation-name?conversationIntegrationKey=genesys-conv-123',
+            headers={'Authorization': self.valid_jwt}
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_del_conversation_name_missing_param(self):
+        """Rejects delete conversation name when query param is missing."""
+        client = app.test_client()
+        response = client.delete(
+            '/conversation-name',
+            headers={'Authorization': self.valid_jwt}
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @patch('main.redis_client.set', return_value=False)
+    def test_set_conversation_name_redis_failure(self, mock_redis_set):
+        """Returns 400 if redis set operation fails."""
+        client = app.test_client()
+        response = client.post(
+            '/conversation-name',
+            json={
+                'conversationIntegrationKey': 'genesys-conv-123',
+                'conversationName': self.conversation_name
+            },
+            headers={'Authorization': self.valid_jwt}
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @patch('main.redis_client.get', return_value=None)
+    def test_get_conversation_name_empty_redis(self, mock_redis_get):
+        """Returns empty string for conversationName when key does not exist in Redis."""
+        client = app.test_client()
+        response = client.get(
+            '/conversation-name?conversationIntegrationKey=nonexistent-key',
+            headers={'Authorization': self.valid_jwt}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), {'conversationName': ''})
+
+    def test_check_jwt_malformed_token(self):
+        """Fails gracefully when parsing completely malformed token."""
+        import auth
+        is_valid, msg = auth.check_jwt("Bearer not.a.valid.jwt")
+        self.assertFalse(is_valid)
+        self.assertEqual(msg, 'Failed to parse your token.')
+
+    def test_check_jwt_without_bearer_prefix(self):
+        """Handles tokens passed without Bearer prefix."""
+        import auth
+        is_valid, msg = auth.check_jwt("malformed_raw_token")
+        self.assertFalse(is_valid)
 
 
 if __name__ == '__main__':

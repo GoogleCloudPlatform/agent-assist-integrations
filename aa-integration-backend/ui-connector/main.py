@@ -186,21 +186,21 @@ def call_dialogflow_with_tail(version, project, location, tail):
 @app.route('/conversation-name', methods=['POST'])
 @token_required
 def set_conversation_name():
-    """Allows setting a conversationIntegrationKey:conversationName key/value pair in Redis.
-    This is useful in cases where it's not possible to send the DialogFlow
-    conversation name to the agent desktop directly. A good example of a
-    conversationIntegrationKey is a phone number.
-    """
-    conversation_integration_key = request.json.get('conversationIntegrationKey', '')
+    """Allows setting a conversationIntegrationKey:conversationName key/value pair in Redis."""
+    body = request.get_json(silent=True) or {}
+    conversation_integration_key = body.get('conversationIntegrationKey', '')
+    conversation_name = body.get('conversationName', '')
+    if not (conversation_integration_key and conversation_name):
+        return make_response('Bad request', 400)
+    
     hashed_key = hashlib.sha256(conversation_integration_key.encode('utf-8')).hexdigest()
-    conversation_name = request.json.get('conversationName', '')
     logging.info(
         '/conversation-name - redis: SET %s %s', conversation_integration_key, conversation_name)
-    result = redis_client.set(hashed_key, conversation_name)
-    if not (conversation_integration_key and conversation_name and result):
+    result = redis_client.set(hashed_key, conversation_name, ex=86400)
+    if not result:
         return make_response('Bad request', 400)
-    else:
-        return jsonify({conversation_integration_key: conversation_name})
+    return jsonify({conversation_integration_key: conversation_name})
+
 
 @app.route('/conversation-name', methods=['GET'])
 @token_required
@@ -208,15 +208,15 @@ def get_conversation_name():
     """Allows agent desktops to get a DialogFlow conversation name from Redis
     using a conversationIntegrationKey.
     """
-    conversation_integration_key = str(request.args.get('conversationIntegrationKey'))
+    conversation_integration_key = request.args.get('conversationIntegrationKey')
+    if not conversation_integration_key:
+        return make_response('Bad request', 400)
+
     hashed_key = hashlib.sha256(conversation_integration_key.encode('utf-8')).hexdigest()
     conversation_name = redis_client.get(hashed_key)
     logging.info(
         '/conversation-name - redis: GET %s -> %s', conversation_integration_key, conversation_name)
-    if not conversation_integration_key:
-        return make_response('Bad request', 400)
-    else:
-        return jsonify({'conversationName': str(conversation_name, encoding='utf-8') if conversation_name else ''})
+    return jsonify({'conversationName': str(conversation_name, encoding='utf-8') if conversation_name else ''})
 
 
 @app.route('/conversation-name', methods=['DELETE'])
@@ -225,17 +225,17 @@ def del_conversation_name():
     """Allows agent desktops to delete a DialogFlow conversation name from Redis
     using a conversationIntegrationKey.
     """
-    conversation_integration_key = str(request.args.get('conversationIntegrationKey'))
+    conversation_integration_key = request.args.get('conversationIntegrationKey')
+    if not conversation_integration_key:
+        return make_response('Bad request', 400)
+
     hashed_key = hashlib.sha256(conversation_integration_key.encode('utf-8')).hexdigest()
     result = redis_client.delete(hashed_key)
     logging.info(
         '/conversation-name - redis: DEL %s, result %s', conversation_integration_key, result)
-    if conversation_integration_key == 'None':
-        return make_response('Bad request', 400)
-    elif not result:
+    if not result:
         return make_response('Not found', 404)
-    else:
-        return make_response('Success', 200)
+    return make_response('Success', 200)
 
 
 @socketio.on('connect')
