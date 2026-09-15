@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import datetime
 import jwt
 import requests
@@ -25,8 +26,12 @@ jwt_secret_key = ''  # To be loaded from config.JWT_SECRET_KEY_PATH
 
 
 def load_jwt_secret_key():
-    with open(config.JWT_SECRET_KEY_PATH, 'r') as key_file:
-        jwt_secret_key = key_file.read()
+    global jwt_secret_key
+    if os.path.exists(config.JWT_SECRET_KEY_PATH):
+        with open(config.JWT_SECRET_KEY_PATH, 'r') as key_file:
+            jwt_secret_key = key_file.read().strip()
+    else:
+        jwt_secret_key = os.environ.get('JWT_SECRET_KEY', 'default-test-jwt-secret-key')
 
 
 def check_auth(token):

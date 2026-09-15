@@ -22,8 +22,8 @@ from datetime import datetime
 from flask import Flask, request
 
 # Cloud run could recognize logging files under '/var/log/' folder
-# Comment this line for local test
-logging.basicConfig(filename='/var/log/test.log', level=logging.INFO)
+# Can be overridden via LOGGING_FILE for local testing
+logging.basicConfig(filename=os.environ.get('LOGGING_FILE', '/var/log/test.log'), level=logging.INFO)
 app = Flask(__name__)
 
 # Redis setup
@@ -51,7 +51,7 @@ def get_conversation_name_without_location(conversation_name):
 
 def cloud_pubsub_handler(request, data_type):
     """Verifies and checks requests from Cloud Pub/Sub."""
-    envelope = request.get_json()
+    envelope = request.get_json(silent=True)
     if not envelope:
         msg = 'No Pub/Sub message received.'
         logging.warning('Warning: {}'.format(msg))

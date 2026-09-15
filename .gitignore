@@ -1,3 +1,11 @@
+# Environment
 *.code-workspace
 .env
 .env.*
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
