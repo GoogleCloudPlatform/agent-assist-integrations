@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import datetime
 import jwt
 import requests
@@ -25,8 +26,12 @@ jwt_secret_key = ''  # To be loaded from config.JWT_SECRET_KEY_PATH
 
 
 def load_jwt_secret_key():
-    with open(config.JWT_SECRET_KEY_PATH, 'r') as key_file:
-        jwt_secret_key = key_file.read()
+    global jwt_secret_key
+    if os.path.exists(config.JWT_SECRET_KEY_PATH):
+        with open(config.JWT_SECRET_KEY_PATH, 'r') as key_file:
+            jwt_secret_key = key_file.read().strip()
+    else:
+        jwt_secret_key = os.environ.get('JWT_SECRET_KEY', 'default-test-jwt-secret-key')
 
 
 def check_auth(token):
@@ -48,10 +53,19 @@ def check_auth(token):
     return False
 
 
+check_google_oidc_token = auth_options.check_google_oidc_token
+
+
 def check_jwt(token):
     try:
         if token.startswith("Bearer "):
-            token = token.split(" ")[1]
+            token = token.split(" ", 1)[1]
+
+        # Attempt to verify as a Google IAM OIDC token (service-to-service auth)
+        is_oidc_valid, oidc_msg = check_google_oidc_token(token)
+        if is_oidc_valid:
+            return True, oidc_msg
+
         # Decode the payload to fetch the stored details.
         data = jwt.decode(token, jwt_secret_key, algorithms=['HS256'])
         if 'gcp_agent_assist_project' not in data:
@@ -63,7 +77,7 @@ def check_jwt(token):
         if data['exp'] < datetime.datetime.now().timestamp():
             return False, 'Your token has expired.'
         return True, 'Your token is valid.'
-    except:
+    except Exception:
         return False, 'Failed to parse your token.'
 
 
@@ -71,11 +85,16 @@ def generate_jwt(user_info=None):
     gcp_agent_assist_user = ''
     if user_info:
         gcp_agent_assist_user = user_info.get('gcp_agent_assist_user')
-    return jwt.encode({'exp': datetime.datetime.utcnow() + datetime.timedelta(minutes=config.JWT_TOKEN_LIFETIME),
-                       'gcp_agent_assist_project': config.GCP_PROJECT_ID,
-                       'gcp_agent_assist_user': gcp_agent_assist_user},
-                      jwt_secret_key,
-                      'HS256')
+    return jwt.encode(
+        {
+            'exp': datetime.datetime.now(datetime.timezone.utc) +
+                   datetime.timedelta(minutes=config.JWT_TOKEN_LIFETIME),
+            'gcp_agent_assist_project': config.GCP_PROJECT_ID,
+            'gcp_agent_assist_user': gcp_agent_assist_user
+        },
+        jwt_secret_key,
+        'HS256'
+    )
 
 
 def check_app_auth(auth):

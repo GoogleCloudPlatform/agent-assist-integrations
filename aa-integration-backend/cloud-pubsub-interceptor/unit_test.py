@@ -15,8 +15,20 @@
 import unittest
 import json
 import base64
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 import datetime
+import os
+import sys
+
+os.environ.setdefault('LOGGING_FILE', '/tmp/test.log')
+sys.path.append(os.path.dirname(os.path.realpath(__file__)))
+
+if 'redis' not in sys.modules:
+    try:
+        import redis
+    except ImportError:
+        mock_redis = MagicMock()
+        sys.modules['redis'] = mock_redis
 
 import main
 from main import app
@@ -26,12 +38,14 @@ CONVERSATION_ID = 'fake-conversation-001'
 PROJECT_ID = 'aa-integration-poc'
 CONVERSATION_NAME = 'projects/{0}/locations/global/conversations/{1}'.format(
     PROJECT_ID, CONVERSATION_ID)
+CONVERSATION_NAME_WITHOUT_LOCATION = 'projects/{0}/conversations/{1}'.format(
+    PROJECT_ID, CONVERSATION_ID)
 SAMPLE_DIALOGFLOW_EVENT = {
     'conversation': CONVERSATION_NAME,
     'type': 'CONVERSATION_STARTED'
 }
 SAMPLE_REDIS_PUBSUB_PUB = {
-    'conversation_name': CONVERSATION_NAME,
+    'conversation_name': CONVERSATION_NAME_WITHOUT_LOCATION,
     'data': json.dumps(SAMPLE_DIALOGFLOW_EVENT),
     'data_type': 'conversation-lifecycle-event',
     'ack_time': '2022-03-11T00:00:10Z',
@@ -68,10 +82,10 @@ class TestInterceptorAPI(unittest.TestCase):
         response = client.post('/conversation-lifecycle-event',
                                json=SAMPLE_CLOUD_PUBSUB_MSG)
         MockPublish.assert_called_with(
-            '{}:{}'.format(SERVER_ID, CONVERSATION_NAME),
+            '{}:{}'.format(SERVER_ID, CONVERSATION_NAME_WITHOUT_LOCATION),
             json.dumps(SAMPLE_REDIS_PUBSUB_PUB))
-        MockGet.assert_called_with(CONVERSATION_NAME)
-        MockExists.assert_called_with(CONVERSATION_NAME)
+        MockGet.assert_called_with(CONVERSATION_NAME_WITHOUT_LOCATION)
+        MockExists.assert_called_with(CONVERSATION_NAME_WITHOUT_LOCATION)
         self.assertEqual(MockDateTime.now.call_count, 1)
         self.assertEqual(response.status_code, 204)
 
