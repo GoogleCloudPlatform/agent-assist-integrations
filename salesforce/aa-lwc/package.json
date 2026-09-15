@@ -5,6 +5,10 @@
   "main": "index.js",
   "scripts": {
     "generate-static-resources": "./setup.sh generate-static-resources",
+    "onboard": "./setup.sh onboard",
+    "setup-scratch": "./setup.sh setup-scratch",
+    "deploy-scratch": "./setup.sh deploy-scratch",
+    "teardown-scratch": "./setup.sh teardown-scratch",
     "login": "sf org login web --alias ProdOrg && sf config set target-org ProdOrg",
     "deploy": "npm test && read -p 'Press any key to deploy...' && sf project deploy start --target-org ProdOrg --source-dir .",
     "test": "sfdx-lwc-jest --",

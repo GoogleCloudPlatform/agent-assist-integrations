@@ -77,6 +77,37 @@ def create_conversation_name(conversation_id: str, location_id: str, project: st
     return f"projects/{project}/locations/{location_id}/conversations/{conversation_id}"
 
 
+def store_conversation_mapping(integration_key: str, conversation_name: str):
+    """Stores the conversationIntegrationKey:conversationName mapping via UI Connector."""
+    if not integration_key or not conversation_name:
+        logging.warning("Cannot store mapping with empty key or conversation name.")
+        return
+    import requests
+    try:
+        url = f"{config.ui_connector_endpoint}/conversation-name"
+        payload = {
+            "conversationIntegrationKey": integration_key,
+            "conversationName": conversation_name
+        }
+        
+        # Authenticate using a Google OIDC token (Cloud Run to Cloud Run)
+        headers = {"Content-Type": "application/json"}
+        try:
+            import google.auth.transport.requests
+            import google.oauth2.id_token
+            req = google.auth.transport.requests.Request()
+            token = google.oauth2.id_token.fetch_id_token(req, config.ui_connector_endpoint)
+            headers["Authorization"] = f"Bearer {token}"
+        except Exception as e:
+            logging.warning("Failed to fetch Google ID token: %s", e)
+            
+        response = requests.post(url, json=payload, headers=headers, timeout=5)
+        response.raise_for_status()
+        logging.info("Stored mapping in UI connector: %s -> %s", integration_key, conversation_name)
+    except Exception as e:
+        logging.error("Failed to store conversation name mapping via UI connector: %s", e)
+
+
 def find_participant_by_role(role: dialogflow.Participant.Role, participants_list: list[dialogflow.Participant]) -> dialogflow.Participant | None:
 
     for participant in participants_list:

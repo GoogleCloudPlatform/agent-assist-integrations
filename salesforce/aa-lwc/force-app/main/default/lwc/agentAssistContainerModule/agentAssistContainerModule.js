@@ -37,6 +37,7 @@ import {
 import MessagingPlatformService from "./platformServices/MessagingPlatformService";
 import TwilioFlexPlatformService from "./platformServices/TwilioFlexPlatformService";
 import ServiceCloudVoicePlatformService from "./platformServices/ServiceCloudVoicePlatformService";
+import GenesysCloudPlatformService from "./platformServices/GenesysCloudPlatformService";
 
 // This Zone.js flag must be set to prevent monkey-patching of DOM APIs,
 // some of which are forbidden by Lightning Web Security (LWS).
@@ -52,7 +53,7 @@ export default class AgentAssistContainerModule extends LightningElement {
   @api endpoint; // e.g. https://your-ui-connector-endpoint.a.run.app
   @api conversationProfile; // e.g. projects/your-gcp-project-id/locations/your-location/conversationProfiles/your-conversation-profile-id
   @api channel; // Either 'chat' or 'voice'
-  @api platform; // One of 'messaging', 'twilioflex', 'servicecloudvoice-nice'
+  @api platform; // One of 'messaging', 'twilioflex', 'servicecloudvoice-nice', 'genesyscloud'
   @api consumerKey; // SF Connected App Consumer Key
   @api consumerSecret; // SF Connected App Consumer Secret
   @api containerHeight;
@@ -132,6 +133,8 @@ export default class AgentAssistContainerModule extends LightningElement {
         this.platformService = new MessagingPlatformService(this, refs);
       } else if (this.platform === "twilioflex") {
         this.platformService = new TwilioFlexPlatformService(this, refs);
+      } else if (this.platform === "genesyscloud") {
+        this.platformService = new GenesysCloudPlatformService(this, refs);
       } else if (this.platform.includes("servicecloudvoice")) {
         this.platformService = new ServiceCloudVoicePlatformService(this, refs);
       } else {

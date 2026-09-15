@@ -129,10 +129,7 @@ export default class TwilioFlexPlatformService extends BasePlatformService {
           requestTimeoutMs
         );
 
-        if (
-          this.lwc.conversationName &&
-          !(await this.isConversationCompleted(conversationIntegrationKey))
-        ) {
+        if (this.lwc.conversationName) {
           this.lwc.debugLog(
             `Found conversationName: ${this.lwc.conversationName}. Initializing UI Modules.`
           );
@@ -140,7 +137,7 @@ export default class TwilioFlexPlatformService extends BasePlatformService {
           this.initUIModules();
           return; // Stop polling on success
         } else {
-          throw new Error("Conversation not found or already completed."); // Force retry
+          throw new Error("Conversation not found."); // Force retry
         }
       } catch (error) {
         this.lwc.debugLog(
