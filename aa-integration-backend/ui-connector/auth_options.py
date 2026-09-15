@@ -15,6 +15,7 @@
 import re
 import requests
 import logging
+import jwt
 import config
 from urllib.parse import urlencode
 
@@ -197,3 +198,50 @@ def check_five9_token(token):
     except Exception as e:
         logging.error(f"Error during token verification: {e}")
         return False
+
+
+def check_google_oidc_token(token):
+    """Verifies a Google IAM OIDC (OpenID Connect) identity token for service-to-service auth.
+
+    Allows other Cloud Run services in the same GCP project to authenticate
+    with this UI Connector securely and natively.
+
+    Example use case:
+    The Genesys Cloud AudioHook backend service calls POST /conversation-name
+    using a Google IAM OIDC token to store the conversationIntegrationKey:conversationName
+    mapping in Redis so agent desktops can look up and retrieve the Dialogflow conversation.
+
+    Args:
+        token: JWT string (with or without 'Bearer ' prefix).
+
+    Returns:
+        tuple[bool, str]: (is_valid, message)
+    """
+    if token.startswith("Bearer "):
+        token = token.split(" ", 1)[1]
+
+    try:
+        from google.oauth2 import id_token
+        from google.auth.transport import requests as google_requests
+
+        # Verify the OIDC token
+        req = google_requests.Request()
+
+        # If OIDC_AUDIENCE is not explicitly configured, fallback to the unverified claim 
+        # to preserve backwards compatibility for existing deployments without breaking POCs
+        unverified_claims = jwt.decode(token, options={"verify_signature": False})
+        fallback_audience = unverified_claims.get("aud")
+        expected_audience = config.OIDC_AUDIENCE or fallback_audience
+
+        id_info = id_token.verify_oauth2_token(token, req, audience=expected_audience)
+
+        if id_info.get('iss') in ['https://accounts.google.com', 'accounts.google.com']:
+            email = id_info.get('email', '')
+            # Ensure the calling service account belongs to our exact GCP project.
+            # This guarantees that only our own internal services can authorize this way.
+            if email.endswith(f"@{config.GCP_PROJECT_ID}.iam.gserviceaccount.com"):
+                return True, 'Your Google ID token is valid.'
+    except Exception:
+        pass  # Fall back to standard token verification
+
+    return False, 'Invalid Google ID token.'

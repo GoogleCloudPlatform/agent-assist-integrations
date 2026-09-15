@@ -81,7 +81,7 @@ describe("MessagingPlatformService", () => {
     messagingPlatformService = new MessagingPlatformService(mockLwc, mockRefs);
   });
 
-  afterEach(() => { });
+  afterEach(() => {});
 
   describe("constructor", () => {
     it("initializes with lwc and refs parameters", () => {

@@ -50,7 +50,7 @@ else
   --display-name='Genesys cloud audiohook interceptor service account'
 fi
 
-# Add necessary IAM roles for UI Connector service account.
+# Add necessary IAM roles for AudioHook Interceptor service account.
 gcloud projects add-iam-policy-binding $GCP_PROJECT_ID \
   --member="serviceAccount:$service_account" \
   --role='roles/redis.editor' \
@@ -65,9 +65,16 @@ gcloud projects add-iam-policy-binding $GCP_PROJECT_ID \
   --condition="None"
 gcloud projects add-iam-policy-binding $GCP_PROJECT_ID \
   --member="serviceAccount:$service_account" \
+  --role='roles/secretmanager.secretAccessor' \
+  --condition="None"
+gcloud projects add-iam-policy-binding $GCP_PROJECT_ID \
+  --member="serviceAccount:$service_account" \
   --role='roles/dialogflow.agentAssistClient' \
   --condition="None"
 
+# Fallback for variable naming differences between .env files
+export API_KEY=${API_KEY:=$AUDIOHOOK_API_KEY}
+export CLIENT_SECRET=${CLIENT_SECRET:=$AUDIOHOOK_CLIENT_SECRET}
 
 gcloud run deploy $VOICE_INTERCEPTOR_SERVICE\
   --source . \
@@ -82,7 +89,8 @@ gcloud run deploy $VOICE_INTERCEPTOR_SERVICE\
   --set-env-vars GCP_PROJECT_ID=$GCP_PROJECT_ID \
   --set-env-vars SERVICE_REGION=$SERVICE_REGION \
   --set-env-vars CONVERSATION_PROFILE_NAME=$CONVERSATION_PROFILE_NAME \
-  --set-env-vars API_KEY=$API_KEY \
+  --set-env-vars API_KEY="$API_KEY" \
+  --set-env-vars CLIENT_SECRET="$CLIENT_SECRET" \
   --set-env-vars UI_CONNECTOR=$UI_CONNECTOR \
   --set-env-vars REDISPORT=$REDISPORT \
   --set-env-vars REDISHOST=$REDISHOST

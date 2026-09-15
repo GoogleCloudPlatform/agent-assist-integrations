@@ -16,7 +16,7 @@ import os
 import logging
 
 # The id of the GCP project where Cloud Run services are deployed on.
-GCP_PROJECT_ID = os.environ['GCP_PROJECT_ID']
+GCP_PROJECT_ID = os.environ.get('GCP_PROJECT_ID', '')
 
 # Set up the connection with Redis database
 REDIS_HOST = os.environ.get('REDISHOST', 'localhost')
@@ -32,6 +32,9 @@ logging.basicConfig(filename=os.environ.get(
 # stored in SecretManager to Cloud Run service as a volume.
 # Reference: https://cloud.google.com/run/docs/configuring/secrets#mounting-secrets.
 JWT_SECRET_KEY_PATH = '/secret/jwt_secret_key'
+
+# The expected audience for OIDC tokens used for service-to-service authentication.
+OIDC_AUDIENCE = os.environ.get('OIDC_AUDIENCE', '')
 
 # TODO replace '*' with a list of allowed origins to limit the access to your server.
 # Origin or list of origins that are allowed to connect to this server.

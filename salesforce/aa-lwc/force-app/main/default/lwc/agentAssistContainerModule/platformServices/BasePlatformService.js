@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import getOAuthToken from "@salesforce/apex/AgentAssistAuthController.getOAuthToken";
 import agentAssistEventNames from "../data/agentAssistEventNames";
 import sampleContext from "../data/sampleContext";
 import {
@@ -50,31 +51,24 @@ export default class BasePlatformService {
   ////////////////////////////////////////////////////////////////////////////
 
   async registerAuthToken() {
-    // Get a UI Connector auth token using a SF External Client App id token.
-    const access_token = await fetch(
-      `/services/oauth2/token?` +
-        new URLSearchParams({
-          grant_type: "client_credentials",
-          client_id: this.lwc.consumerKey,
-          client_secret: this.lwc.consumerSecret
-        })
-    )
-      .then((res) => {
-        if (!res.ok)
-          throw new Error(`OAuth token request failed: ${res.statusText}`);
-        return res.json();
-      })
-      .then((data) => data.access_token)
-      .catch((err) => {
-        console.error("Failed to register auth token:", err);
-        this.lwc.loadError = err;
-        return null;
+    // Get a UI Connector auth token using a SF External Client App id token via Apex.
+    let access_token = null;
+    try {
+      access_token = await getOAuthToken({
+        consumerKey: this.lwc.consumerKey,
+        consumerSecret: this.lwc.consumerSecret
       });
-    this.lwc.debugLog(
-      `Salesforce External Client App OAuth Token successfully retrieved.`
-    );
+    } catch (err) {
+      console.error("Failed to retrieve OAuth token via Apex:", err);
+      this.lwc.loadError = err;
+      return null;
+    }
 
-    if (!access_token) {
+    if (access_token) {
+      this.lwc.debugLog(
+        `Salesforce External Client App OAuth Token successfully retrieved.`
+      );
+    } else {
       return null;
     }
 
@@ -160,9 +154,12 @@ export default class BasePlatformService {
     // Create Transcript UI Module.
     if (this.lwc.showTranscript) {
       const transcriptContainerEl = this.lwc.refs.agentAssistTranscript;
-      const transcriptEl = document.createElement("agent-assist-transcript");
-      transcriptEl.setAttribute("namespace", this.lwc.recordId);
-      transcriptContainerEl.appendChild(transcriptEl);
+      if (transcriptContainerEl) {
+        transcriptContainerEl.innerHTML = "";
+        const transcriptEl = document.createElement("agent-assist-transcript");
+        transcriptEl.setAttribute("namespace", this.lwc.recordId);
+        transcriptContainerEl.appendChild(transcriptEl);
+      }
     }
 
     // Create Container UI Module element.
@@ -170,6 +167,9 @@ export default class BasePlatformService {
     containerEl.generalConfig = { clipboardMode: "EVENT_ONLY" };
     containerEl.classList.add("agent-assist-ui-modules");
     const uiModulesWrapperEl = this.lwc.refs.agentAssistContainer;
+    if (uiModulesWrapperEl) {
+      uiModulesWrapperEl.innerHTML = "";
+    }
 
     // Required attributes for UI Modules
     containerEl.setAttribute("use-configured-features", true);
@@ -213,23 +213,23 @@ export default class BasePlatformService {
     };
 
     // Initialize the UI Modules
-    if (this.lwc.conversationName) {
-      uiModulesWrapperEl.appendChild(containerEl);
-      this.connector.init(config);
-      if (this.lwc.debugMode) {
-        this.lwc.debugLog("UiModulesConnector initialized with config:");
-        console.log(config);
-      }
+    uiModulesWrapperEl.appendChild(containerEl);
+    this.connector.init(config);
+    if (this.lwc.debugMode) {
+      this.lwc.debugLog("UiModulesConnector initialized with config:");
+      console.log(config);
+    }
 
-      // Check if Dark Mode is (still) on from another UIM instance
-      if (document.body.classList.contains("dark-mode")) {
-        this.handleDarkModeToggled({ detail: { on: true } });
-      }
+    // Check if Dark Mode is (still) on from another UIM instance
+    if (document.body.classList.contains("dark-mode")) {
+      this.handleDarkModeToggled({ detail: { on: true } });
+    }
 
-      // Make the UI Modules visible
-      uiModulesWrapperEl.classList.remove("hidden");
-      if (this.lwc.showTranscript) {
-        const transcriptContainerEl = this.lwc.refs.transcriptContainer;
+    // Make the UI Modules visible
+    uiModulesWrapperEl.classList.remove("hidden");
+    if (this.lwc.showTranscript) {
+      const transcriptContainerEl = this.lwc.refs.transcriptContainer;
+      if (transcriptContainerEl) {
         transcriptContainerEl.classList.remove("hidden");
       }
     }
@@ -298,10 +298,37 @@ export default class BasePlatformService {
     }
     this.lwc.debugLog(`ui connector token: ${this.lwc.token}`);
 
+    // Inspect the active Dialogflow Conversation (GET /v2beta1/<conversationName>)
+    // and dynamically update this.lwc.conversationProfile so container.js loads
+    // the matching Summarization Generator when routing across profiles.
+    if (!this.lwc.conversationName) {
+      this.lwc.debugLog(
+        "handleConnectorInitialized: UI shell rendered; waiting for active call conversationName..."
+      );
+      return;
+    }
+
     // Poll until Dialogflow confirms the existence of the conversationName.
     if (this.lwc.channel !== "chat") {
       await this.pollDialogflowForConversationExistence();
     }
+
+    try {
+      const conv = await this.fetchConversationDetails(
+        this.lwc.conversationName
+      );
+      if (
+        conv &&
+        conv.conversationProfile &&
+        conv.conversationProfile !== this.lwc.conversationProfile
+      ) {
+        this.lwc.debugLog(
+          `[AgentAssist] Switching Conversation Profile dynamically from ${this.lwc.conversationProfile} to ${conv.conversationProfile}`
+        );
+        this.lwc.conversationProfile = conv.conversationProfile;
+        this.initUIModules();
+      }
+    } catch (e) {}
 
     // Set the active conversation for UIM on connector initialization.
     dispatchAgentAssistEvent(
@@ -309,6 +336,18 @@ export default class BasePlatformService {
       { detail: { conversationName: this.lwc.conversationName } },
       { namespace: this.lwc.recordId }
     );
+  }
+
+  async fetchConversationDetails(
+    conversationName = this.lwc.conversationName
+  ) {
+    if (!conversationName) return null;
+    return await fetch(
+      `${this.lwc.endpoint}/${DIALOGFLOW_API_VERSION}/${conversationName}`,
+      this.createRequestOptions("GET")
+    )
+      .then((res) => (res.ok ? res.json() : null))
+      .catch(() => null);
   }
 
   async pollDialogflowForConversationExistence(
@@ -353,13 +392,17 @@ export default class BasePlatformService {
       .catch((err) => console.error(err));
   }
 
-  async fetchConversationLifecycleState() {
+  async fetchConversationLifecycleState(
+    conversationName = this.lwc.conversationName
+  ) {
+    if (!conversationName) return null;
     return await fetch(
-      `${this.lwc.endpoint}/${DIALOGFLOW_API_VERSION}/${this.lwc.conversationName}`,
+      `${this.lwc.endpoint}/${DIALOGFLOW_API_VERSION}/${conversationName}`,
       this.createRequestOptions("GET")
     )
       .then((res) => res.json())
-      .then((conversation) => conversation.lifecycleState);
+      .then((conversation) => conversation.lifecycleState)
+      .catch(() => null);
   }
 
   async handleCopyToClipboard(event) {
@@ -376,15 +419,10 @@ export default class BasePlatformService {
     }
   }
 
-  async isConversationCompleted(conversationIntegrationKey) {
-    // Checks if this.conversationName is COMPLETED.
+  async isConversationCompleted() {
+    // Checks if this.conversationName is COMPLETED without deleting from Redis.
     const lifecycleState = await this.fetchConversationLifecycleState();
-    if (lifecycleState === "COMPLETED") {
-      this.lwc.debugLog(`conversation COMPLETED, deleting key from redis.`);
-      this.deleteConversationName(conversationIntegrationKey);
-      return true;
-    }
-    return false;
+    return lifecycleState === "COMPLETED";
   }
 
   ////////////////////////////////////////////////////////////////////////////

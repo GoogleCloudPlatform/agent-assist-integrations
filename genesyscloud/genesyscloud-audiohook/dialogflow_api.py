@@ -77,6 +77,37 @@ def create_conversation_name(conversation_id: str, location_id: str, project: st
     return f"projects/{project}/locations/{location_id}/conversations/{conversation_id}"
 
 
+def store_conversation_mapping(integration_key: str, conversation_name: str):
+    """Stores the conversationIntegrationKey:conversationName mapping via UI Connector."""
+    if not integration_key or not conversation_name:
+        logging.warning("Cannot store mapping with empty key or conversation name.")
+        return
+    import requests
+    try:
+        url = f"{config.ui_connector_endpoint}/conversation-name"
+        payload = {
+            "conversationIntegrationKey": integration_key,
+            "conversationName": conversation_name
+        }
+        
+        # Authenticate using a Google OIDC token (Cloud Run to Cloud Run)
+        headers = {"Content-Type": "application/json"}
+        try:
+            import google.auth.transport.requests
+            import google.oauth2.id_token
+            req = google.auth.transport.requests.Request()
+            token = google.oauth2.id_token.fetch_id_token(req, config.ui_connector_endpoint)
+            headers["Authorization"] = f"Bearer {token}"
+        except Exception as e:
+            logging.warning("Failed to fetch Google ID token: %s", e)
+            
+        response = requests.post(url, json=payload, headers=headers, timeout=5)
+        response.raise_for_status()
+        logging.info("Stored mapping in UI connector: %s -> %s", integration_key, conversation_name)
+    except Exception as e:
+        logging.error("Failed to store conversation name mapping via UI connector: %s", e)
+
+
 def find_participant_by_role(role: dialogflow.Participant.Role, participants_list: list[dialogflow.Participant]) -> dialogflow.Participant | None:
 
     for participant in participants_list:
@@ -126,31 +157,75 @@ class DialogflowAPI:
         )
 
     def create_conversation(
-            self,
-            conversation_profile: dialogflow.ConversationProfile,
-            conversation_id: str,
+        self,
+        conversation_profile_name: str,
+        conversation_id: str,
+        labels: dict | None = None,
     ) -> dialogflow.Conversation:
-        """Create conversation using conversation_id
+        """Create conversation using conversation_id, a dynamically resolved
+        conversation profile resource name, and optional labels.
         """
+        if hasattr(conversation_profile_name, "name"):
+            conversation_profile_name = conversation_profile_name.name
         conversation = dialogflow.Conversation(
-            conversation_profile=conversation_profile.name
+            conversation_profile=conversation_profile_name
         )
+        # Guard for google-cloud-dialogflow==2.47.0 where Conversation proto omits labels
+        if labels:
+            try:
+                conversation.labels = labels
+            except (AttributeError, KeyError, TypeError, ValueError):
+                logging.debug(
+                    "Conversation proto has no 'labels' field; skipping labels %s", labels
+                )
         project_path = self.conversations_client.common_location_path(
-            project, location_id)
+            project, location_id
+        )
         conversation_request = dialogflow.CreateConversationRequest(
             parent=project_path,
             conversation=conversation,
             conversation_id=conversation_id,
         )
-
         conversation = self.conversations_client.create_conversation(
-            request=conversation_request)
-
+            request=conversation_request
+        )
         logging.info(
-            "Created conversation %s for project path %s", conversation.name,
-            project_path)
-
+            "Created conversation %s (profile %s) with labels %s for project path %s",
+            conversation.name,
+            conversation_profile_name,
+            labels,
+            project_path,
+        )
         return conversation
+
+    def analyze_text_content(self, participant_name: str, text: str):
+        """Injects a synthetic text turn (Message #0) into the conversation transcript
+        via unary AnalyzeContent(text_input=...).
+        """
+        text_input = dialogflow.TextInput(
+            text=text, language_code=config.language_code
+        )
+        request = dialogflow.AnalyzeContentRequest(
+            participant=participant_name,
+            text_input=text_input,
+        )
+        return self.participants_client.analyze_content(request=request)
+
+    def ingest_context_references(
+        self, conversation_name: str, context_references: dict
+    ):
+        """Ingest context references for a conversation via ConversationsClient."""
+        try:
+            request = dialogflow.IngestContextReferencesRequest(
+                conversation=conversation_name,
+                context_references=context_references,
+            )
+            return self.conversations_client.ingest_context_references(
+                request=request
+            )
+        except Exception as e:
+            logging.error("Failed to ingest context references: %s", e)
+            return None
 
     def get_conversation(
             self, conversation_name: str) -> dialogflow.Conversation:
