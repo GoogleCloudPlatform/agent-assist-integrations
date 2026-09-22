@@ -10,11 +10,11 @@ The _Flex Project Template_ is a starting point for Flex solutions of any size. 
 
 ---
 
-### [Flex Project Template Documentation &raquo;](https://twilio-professional-services.github.io/flex-project-template/)
+## [Flex Project Template Documentation &raquo;](https://twilio-professional-services.github.io/flex-project-template/)
 
 ---
 
-## Why use this template?
+### Why use this template?
 
 The Twilio platform is a robust suite of tools that can be orchestrated together to create incredible custom solutions. The biggest challenge is how to automatically configure and orchestrate these different tools together from an single source of truth. This is the problem the template aims to resolve.
 
@@ -22,7 +22,7 @@ The template provides a means to manage all of the assets which make up a Flex s
 
 Furthermore, with the rich library of examples and conventions, developers can quickly see how to approach different problems on the platform by seeing working code that they can easily reverse engineer.
 
-## How do I get started?
+### How do I get started?
 
 Installing the template in your Twilio account is fast and easy. [Follow this step-by-step guide to install the template](https://twilio-professional-services.github.io/flex-project-template/getting-started/install-template) in under 10 minutes.
 
