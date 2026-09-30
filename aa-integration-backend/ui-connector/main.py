@@ -26,7 +26,7 @@ from typing import Any, NotRequired, TypedDict
 
 from flask import Flask, jsonify, make_response, render_template, request
 from flask_cors import CORS
-from flask_socketio import join_room, leave_room, rooms, SocketIO
+from flask_socketio import join_room, leave_room, SocketIO
 import redis
 from socketio.exceptions import ConnectionRefusedError as SocketConnectionRefusedError
 
@@ -110,6 +110,11 @@ def get_conversation_name_without_location(conversation_name):
         conversation_name_without_location = "/".join(
             name_array[i] for i in [0, 1, -2, -1])
     return conversation_name_without_location
+
+
+def get_conversation_servers_key(conversation_name):
+    """Returns the Redis key for the set of instances serving a conversation."""
+    return f"{conversation_name}:servers"
 
 
 @app.route("/")
@@ -345,7 +350,7 @@ def connect(auth=None):
         logging.info(log_info)
         if is_valid:
             return True
-    socketio.emit("unauthenticated")
+    socketio.emit("unauthenticated", to=request.sid)
     raise SocketConnectionRefusedError("authentication failed")
 
 
@@ -359,11 +364,10 @@ def disconnect(reason):
         client = ACTIVE_STREAMS.pop(stream_id, None)
         if client:
             client.close(reason=f"socket_disconnect: {reason}")
-    room_list = rooms()
-    # Delete mapping for conversation_name and SERVER_ID.
-    if len(room_list) > 1:
-        room_list.pop(0)  # the first one in room list is request.sid
-        redis_client.delete(*room_list)
+    # Conversation routing in Redis is intentionally kept across disconnects so
+    # transient reconnects keep receiving events. Abandoned entries expire via
+    # CONVERSATION_ROUTING_TTL_SECONDS; explicit removal happens on
+    # leave-conversation.
 
 
 @app.errorhandler(500)
@@ -384,8 +388,12 @@ def on_join(message):
     # Remove location id from the conversation name.
     conversation_name = get_conversation_name_without_location(message)
     join_room(conversation_name)
-    # Update mapping for conversation_name and SERVER_ID.
-    redis_client.set(conversation_name, SERVER_ID)
+    # Add this instance to the conversation's routing set and refresh its TTL.
+    servers_key = get_conversation_servers_key(conversation_name)
+    pipe = redis_client.pipeline()
+    pipe.sadd(servers_key, SERVER_ID)
+    pipe.expire(servers_key, config.CONVERSATION_ROUTING_TTL_SECONDS)
+    pipe.execute()
     logging.info("join-conversation for: %s", conversation_name)
     return True, conversation_name
 
@@ -397,8 +405,15 @@ def on_leave(message):
     # Remove location id from the conversation name.
     conversation_name = get_conversation_name_without_location(message)
     leave_room(conversation_name)
-    # Delete mapping for conversation_name and SERVER_ID.
-    redis_client.delete(conversation_name)
+    # Other sockets on this instance may still be in the conversation (e.g.
+    # during a transfer), so only remove this instance once none remain.
+    server = socketio.server
+    remaining_local_members = (
+        list(server.manager.get_participants("/", conversation_name))
+        if server else [])
+    if not remaining_local_members:
+        redis_client.srem(get_conversation_servers_key(conversation_name),
+                          SERVER_ID)
     logging.info("leave-conversation for: %s", conversation_name)
     return True, conversation_name
 

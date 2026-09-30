@@ -57,51 +57,74 @@ class TestInterceptorAPI(unittest.TestCase):
         pass
 
     @patch('main.datetime')
-    @patch('main.redis_client.exists', return_value=1)
-    @patch('main.redis_client.get', return_value=bytes(SERVER_ID, encoding='raw_unicode_escape'))
+    @patch('main.redis_client.smembers', return_value={bytes(SERVER_ID, encoding='raw_unicode_escape')})
     @patch('main.redis_client.publish')
-    def test_cloud_pubsub_handler(self, MockPublish, MockGet, MockExists, MockDateTime):
+    def test_cloud_pubsub_handler(self, MockPublish, MockSmembers, MockDateTime):
         """Handles messages posted by Cloud Pub/Sub."""
         MockDateTime.now = Mock(
             return_value=datetime.datetime(2022, 3, 11, 0, 0, 10))
         client = app.test_client()
         response = client.post('/conversation-lifecycle-event',
                                json=SAMPLE_CLOUD_PUBSUB_MSG)
-        MockPublish.assert_called_with(
+        MockPublish.assert_called_once_with(
             '{}:{}'.format(SERVER_ID, CONVERSATION_NAME),
             json.dumps(SAMPLE_REDIS_PUBSUB_PUB))
-        MockGet.assert_called_with(CONVERSATION_NAME)
-        MockExists.assert_called_with(CONVERSATION_NAME)
+        MockSmembers.assert_called_once_with(main.get_conversation_servers_key(
+            main.get_conversation_name_without_location(CONVERSATION_NAME)))
         self.assertEqual(MockDateTime.now.call_count, 1)
         self.assertEqual(response.status_code, 204)
 
     @patch('main.datetime')
-    @patch('main.redis_client.exists', return_value=1)
-    @patch('main.redis_client.get', return_value=bytes(SERVER_ID, encoding='raw_unicode_escape'))
+    @patch('main.redis_client.smembers', return_value={b'SERVER_001', b'SERVER_002'})
     @patch('main.redis_client.publish')
-    def test_missing_json_failure(self, MockPublish, MockGet, MockExists, MockDateTime):
+    def test_cloud_pubsub_handler_fans_out_to_all_servers(self, MockPublish, unused_MockSmembers, MockDateTime):
+        """Publishes to every UI Connector instance serving the conversation."""
+        MockDateTime.now = Mock(
+            return_value=datetime.datetime(2022, 3, 11, 0, 0, 10))
+        conversation_name = main.get_conversation_name_without_location(
+            CONVERSATION_NAME)
+        client = app.test_client()
+        response = client.post('/conversation-lifecycle-event',
+                               json=SAMPLE_CLOUD_PUBSUB_MSG)
+        self.assertCountEqual(
+            [call.args[0] for call in MockPublish.call_args_list],
+            ['SERVER_001:{}'.format(conversation_name),
+             'SERVER_002:{}'.format(conversation_name)])
+        self.assertEqual(response.status_code, 204)
+
+    @patch('main.redis_client.smembers', return_value=set())
+    @patch('main.redis_client.publish')
+    def test_cloud_pubsub_handler_no_servers_acks_without_publish(self, MockPublish, unused_MockSmembers):
+        """Acks without publishing when no instance serves the conversation."""
+        client = app.test_client()
+        response = client.post('/conversation-lifecycle-event',
+                               json=SAMPLE_CLOUD_PUBSUB_MSG)
+        self.assertFalse(MockPublish.called)
+        self.assertEqual(response.status_code, 204)
+
+    @patch('main.datetime')
+    @patch('main.redis_client.smembers', return_value={bytes(SERVER_ID, encoding='raw_unicode_escape')})
+    @patch('main.redis_client.publish')
+    def test_missing_json_failure(self, MockPublish, MockSmembers, MockDateTime):
         """Rejects HTTP requests without a request body."""
         client = app.test_client()
         response = client.post('/conversation-lifecycle-event')
         self.assertFalse(MockPublish.called)
-        self.assertFalse(MockGet.called)
-        self.assertFalse(MockExists.called)
+        self.assertFalse(MockSmembers.called)
         self.assertFalse(MockDateTime.called)
         # Ack messeages to avoid unnecessary retry.
         self.assertEqual(response.status_code, 204)
 
     @patch('main.datetime')
-    @patch('main.redis_client.exists', return_value=1)
-    @patch('main.redis_client.get', return_value=bytes(SERVER_ID, encoding='raw_unicode_escape'))
+    @patch('main.redis_client.smembers', return_value={bytes(SERVER_ID, encoding='raw_unicode_escape')})
     @patch('main.redis_client.publish')
-    def test_wrong_message_format_failure(self, MockPublish, MockGet, MockExists, MockDateTime):
+    def test_wrong_message_format_failure(self, MockPublish, MockSmembers, MockDateTime):
         """Rejects HTTP requests with wrong body format."""
         client = app.test_client()
         response = client.post('/conversation-lifecycle-event',
                                json=SAMPLE_DIALOGFLOW_EVENT)
         self.assertFalse(MockPublish.called)
-        self.assertFalse(MockGet.called)
-        self.assertFalse(MockExists.called)
+        self.assertFalse(MockSmembers.called)
         self.assertFalse(MockDateTime.called)
         # Ack messeages to avoid unnecessary retry.
         self.assertEqual(response.status_code, 204)
