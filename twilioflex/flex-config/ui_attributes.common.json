@@ -47,9 +47,9 @@
         "script_sources":{
           "prod": {
             "common":
-              "https://www.gstatic.com/agent-assist-ui-modules/v1.9/common.js",
+              "https://www.gstatic.com/agent-assist-ui-modules/v1.11/common.js",
             "container":
-              "https://www.gstatic.com/agent-assist-ui-modules/v2.0/container.js",
+              "https://www.gstatic.com/agent-assist-ui-modules/v2.3/container.js",
             "summarization":
               "https://www.gstatic.com/agent-assist-ui-modules/v1.3/summarization.js",
             "knowledge_assist_v2":
