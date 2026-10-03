@@ -95,3 +95,5 @@ steps:
         -var="new_recognition_result_notification_subscription_id=aa-intermediate-transcript-event-sub-$BRANCH_NAME" \
         -var="auth_option=$auth_option"
       cd ../../
+      options:
+  logging: CLOUD_LOGGING_ONLY
