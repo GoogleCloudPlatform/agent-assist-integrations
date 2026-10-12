@@ -22,6 +22,14 @@ GCP_PROJECT_ID = os.environ['GCP_PROJECT_ID']
 REDIS_HOST = os.environ.get('REDISHOST', 'localhost')
 REDIS_PORT = int(os.environ.get('REDISPORT', 6379))
 
+# TTL for the conversation -> UI Connector instances routing set in Redis.
+# Refreshed on every join-conversation. Must exceed the maximum WebSocket
+# lifetime so the forced reconnect (and resulting re-join) refreshes it before
+# expiry. Cloud Run caps WebSocket lifetime at 3600s (--timeout in deploy.sh).
+# Deployments without a forced disconnect may expire routing mid-conversation.
+CONVERSATION_ROUTING_TTL_SECONDS = int(
+    os.environ.get('CONVERSATION_ROUTING_TTL_SECONDS', 21600))
+
 # Cloud run could recognize logging files under '/var/log/' folder
 logging.basicConfig(filename=os.environ.get(
     'LOGGING_FILE', '/var/log/test.log'), level=logging.INFO)

@@ -103,15 +103,41 @@ class TestSocketIO(unittest.TestCase):
         client = socketio.test_client(app, auth={"token": "invalid_jwt"})
         self.assertFalse(client.is_connected())
 
+    def test_connect_failure_does_not_broadcast(self):
+        """Refusing one client does not notify other connected clients."""
+        healthy_client = socketio.test_client(app,
+                                              auth={"token": self.valid_jwt})
+        healthy_client.get_received()
+        refused_client = socketio.test_client(app,
+                                              auth={"token": "invalid_jwt"})
+        self.assertFalse(refused_client.is_connected())
+        self.assertTrue(healthy_client.is_connected())
+        self.assertEqual(healthy_client.get_received(), [])
+        healthy_client.disconnect()
+
+    @patch("main.socketio.emit")
+    def test_connect_failure_scopes_emit(self, mock_emit):
+        """Scopes the unauthenticated emit to the refused client."""
+        with app.test_request_context():
+            main.request.sid = "test-sid"
+            with self.assertRaises(main.SocketConnectionRefusedError) as ctx:
+                main.connect({"token": "invalid_jwt"})
+        mock_emit.assert_called_once_with("unauthenticated", to="test-sid")
+        self.assertEqual(
+            ctx.exception.error_args,
+            {
+                "message": "authentication failed",
+            },
+        )
+
     def test_disconnect(self):
         """Disconnects websocket connection."""
         client = socketio.test_client(app, auth={"token": self.valid_jwt})
         client.disconnect()
         self.assertFalse(client.is_connected())
 
-    @patch("main.redis_client.set")
-    @patch("main.redis_client.delete")
-    def test_join_conversation(self, mock_delete, mock_set):
+    @patch("main.redis_client.pipeline")
+    def test_join_conversation(self, mock_pipeline):
         """Joins socketio room specified by conversation name."""
         conversation1 = get_conversation_name("conversation_001")
         conversation2 = get_conversation_name("conversation_002")
@@ -119,6 +145,11 @@ class TestSocketIO(unittest.TestCase):
             get_conversation_name_without_location("conversation_001"))
         conversation2_without_location = (
             get_conversation_name_without_location("conversation_002"))
+        servers_key1 = main.get_conversation_servers_key(
+            conversation1_without_location)
+        servers_key2 = main.get_conversation_servers_key(
+            conversation2_without_location)
+        mock_pipe = mock_pipeline.return_value
         # Sets client1 and client2 to join different rooms
         client1 = socketio.test_client(app, auth={"token": self.valid_jwt})
         client2 = socketio.test_client(app, auth={"token": self.valid_jwt})
@@ -129,13 +160,19 @@ class TestSocketIO(unittest.TestCase):
                                    callback=True)
         self.assertTrue(ack1)
         self.assertEqual(data1, conversation1_without_location)
-        self.assertEqual(mock_set.call_count, 1)
+        mock_pipe.sadd.assert_called_with(servers_key1, main.SERVER_ID)
+        mock_pipe.expire.assert_called_with(
+            servers_key1, main.config.CONVERSATION_ROUTING_TTL_SECONDS)
+        self.assertEqual(mock_pipe.execute.call_count, 1)
         ack2, data2 = client2.emit("join-conversation",
                                    conversation2,
                                    callback=True)
         self.assertTrue(ack2)
         self.assertEqual(data2, conversation2_without_location)
-        self.assertEqual(mock_set.call_count, 2)
+        mock_pipe.sadd.assert_called_with(servers_key2, main.SERVER_ID)
+        mock_pipe.expire.assert_called_with(
+            servers_key2, main.config.CONVERSATION_ROUTING_TTL_SECONDS)
+        self.assertEqual(mock_pipe.execute.call_count, 2)
         # Sends data to one room
         data = {"data": "fake_data"}
         socketio.emit(
@@ -151,9 +188,44 @@ class TestSocketIO(unittest.TestCase):
         received = client2.get_received()
         self.assertEqual(len(received), 0)
         client1.disconnect()
-        mock_delete.assert_called_with(conversation1_without_location)
         client2.disconnect()
-        mock_delete.assert_called_with(conversation2_without_location)
+
+    @patch("main.redis_client")
+    def test_disconnect_does_not_touch_redis(self, mock_redis_client):
+        """Keeps conversation routing in Redis when a socket disconnects."""
+        client = socketio.test_client(app, auth={"token": self.valid_jwt})
+        client.emit("join-conversation",
+                    get_conversation_name("conversation_003"),
+                    callback=True)
+        mock_redis_client.reset_mock()
+        client.disconnect()
+        self.assertEqual(mock_redis_client.method_calls, [])
+
+    @patch("main.redis_client.srem")
+    @patch("main.redis_client.pipeline")
+    def test_leave_keeps_server_when_room_shared(self, unused_mock_pipeline,
+                                                 mock_srem):
+        """Removes this instance only after its last local socket leaves."""
+        conversation = get_conversation_name("conversation_004")
+        servers_key = main.get_conversation_servers_key(
+            get_conversation_name_without_location("conversation_004"))
+        client1 = socketio.test_client(app, auth={"token": self.valid_jwt})
+        client2 = socketio.test_client(app, auth={"token": self.valid_jwt})
+        client1.emit("join-conversation", conversation, callback=True)
+        client2.emit("join-conversation", conversation, callback=True)
+        client1.emit("leave-conversation", conversation, callback=True)
+        mock_srem.assert_not_called()
+        client2.emit("leave-conversation", conversation, callback=True)
+        mock_srem.assert_called_once_with(servers_key, main.SERVER_ID)
+        client1.disconnect()
+        client2.disconnect()
+
+    def test_get_conversation_servers_key(self):
+        """Builds the routing set key from a conversation name."""
+        self.assertEqual(
+            main.get_conversation_servers_key("projects/p/conversations/c"),
+            "projects/p/conversations/c:servers",
+        )
 
     def test_redis_pubsub_handler(self):
         """Handles Redis Pub/Sub messages."""

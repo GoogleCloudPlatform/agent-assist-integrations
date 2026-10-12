@@ -49,6 +49,14 @@ def get_conversation_name_without_location(conversation_name):
     return conversation_name_without_location
 
 
+def get_conversation_servers_key(conversation_name):
+    """Returns the Redis key of the set of instances serving a conversation.
+
+    Must match get_conversation_servers_key in the UI Connector service.
+    """
+    return f'{conversation_name}:servers'
+
+
 def cloud_pubsub_handler(request, data_type):
     """Verifies and checks requests from Cloud Pub/Sub."""
     envelope = request.get_json()
@@ -102,23 +110,28 @@ def cloud_pubsub_handler(request, data_type):
                     'ack_time': datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ'),
                     'publish_time': pubsub_message['publishTime'],
                     'message_id': pubsub_message['messageId']}
-        server_id = '1'
         if data_type == 'new-recognition-result-notification-event':
             msg_data['participant_role'] = participant_role
             msg_data['new_recognition_result_message_id'] = new_recognition_result_message_id
             logging.debug('participant role {0} message id {1} for new recognition result'.format(
                 participant_role, new_recognition_result_message_id))
-        if redis_client.exists(conversation_name) == 0:
+        server_ids = redis_client.smembers(
+            get_conversation_servers_key(conversation_name))
+        if not server_ids:
             logging.warning(
-                "No SERVER_ID (UI Connector instance) for conversation name {}. Please subscribe to the conversation by sending join-conversation event.".format(conversation_name))
+                'No SERVER_ID (UI Connector instance) for conversation name {}. Please subscribe to the conversation by sending join-conversation event.'.format(conversation_name))
             return True
-        else:
-            server_id = redis_client.get(conversation_name).decode('utf-8')
-        channel = '{}:{}'.format(server_id, conversation_name)
-        redis_client.publish(channel, json.dumps(msg_data))
-        logging.debug(
-            'Redis publish (message_id: {0}, publish_time: {1}, conversation_name: {2}, channel: {3}, data_type: {4}.'.format(
-                pubsub_message['messageId'], pubsub_message['publishTime'], conversation_name, channel, data_type))
+
+        # Multiple UI Connector instances can serve one conversation (e.g.
+        # agents on different instances during a transfer); publish to each.
+        msg_json = json.dumps(msg_data)
+        for server_id in server_ids:
+            server = server_id.decode('utf-8')
+            channel = '{}:{}'.format(server, conversation_name)
+            redis_client.publish(channel, msg_json)
+            logging.debug(
+                'Redis publish (message_id: {0}, publish_time: {1}, conversation_name: {2}, channel: {3}, data_type: {4}.'.format(
+                    pubsub_message['messageId'], pubsub_message['publishTime'], conversation_name, channel, data_type))
     return True
 
 
