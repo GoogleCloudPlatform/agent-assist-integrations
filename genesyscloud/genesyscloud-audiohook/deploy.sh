@@ -78,6 +78,9 @@ gcloud run deploy $VOICE_INTERCEPTOR_SERVICE\
   --allow-unauthenticated \
   --vpc-connector=$VPC_CONNECTOR_NAME  \
   --timeout 3600 \
+  --concurrency 8 \
+  --no-cpu-throttling \
+  --liveness-probe=httpGet.path=/healthz,periodSeconds=10,timeoutSeconds=5,failureThreshold=3 \
   --region $CLOUD_RUN_SERVICE_REGION \
   --set-env-vars GCP_PROJECT_ID=$GCP_PROJECT_ID \
   --set-env-vars SERVICE_REGION=$SERVICE_REGION \

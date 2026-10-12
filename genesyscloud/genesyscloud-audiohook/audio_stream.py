@@ -59,6 +59,33 @@ class Stream:
         self.audio_encoding = dialogflow.AudioEncoding.AUDIO_ENCODING_MULAW
         self.buffer_byte_size = 0
         self._lock = threading.Lock()
+        # Set while Audiohook is streaming audio (after "resumed"), cleared
+        # while it is paused. Streaming threads wait on it instead of
+        # busy-spinning while the stream is closed.
+        self.active = threading.Event()
+        # Set once the Audiohook session has ended.
+        self.stopped = threading.Event()
+
+    def resume(self):
+        """Re-open the stream after an Audiohook "resumed" message."""
+        self.closed = False
+        self.active.set()
+
+    def pause(self):
+        """Close the current stream after an Audiohook "paused" message."""
+        self.closed = True
+        self.active.clear()
+
+    def stop(self):
+        """Permanently stop the stream when the Audiohook session ends.
+
+        Safe to call more than once. Wakes up any waiting streaming thread;
+        the audio generator exits on its next closed check.
+        """
+        self.closed = True
+        self.terminate = True
+        self.stopped.set()
+        self.active.set()
 
     def fill_buffer(self, in_data, *args, **kwargs):
         """Append audio data to buffer if not full"""

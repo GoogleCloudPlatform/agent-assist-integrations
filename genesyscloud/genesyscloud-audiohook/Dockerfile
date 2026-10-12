@@ -29,7 +29,13 @@ RUN pip install -r requirements.txt
 COPY . ./
 
 # Run the web service on container startup. Here we use the gunicorn
-# webserver, with one worker process and 8 threads.
-# For environments with multiple CPU cores, increase the number of workers
-# to be equal to the cores available.
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 main:app
+# webserver, with one worker process and GUNICORN_THREADS threads.
+# Each Audiohook websocket holds one gunicorn thread for the whole call, so
+# GUNICORN_THREADS must be greater than the Cloud Run concurrency (keep 2
+# spare threads for health checks), see deploy.sh.
+# --timeout must not be 0: with the gthread worker the heartbeat comes from the
+# worker main loop, so long-lived websockets do not trigger it, but a dead or
+# stuck worker is killed and replaced by the gunicorn master.
+ENV GUNICORN_THREADS=10
+ENV GUNICORN_TIMEOUT=60
+CMD exec gunicorn --bind :$PORT --workers 1 --threads $GUNICORN_THREADS --timeout $GUNICORN_TIMEOUT main:app
