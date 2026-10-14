@@ -272,6 +272,28 @@ class StreamingAnalyzeContentErrorsTest(unittest.TestCase):
             stream, _participant(), mock.Mock()))
 
 
+class LookbackTest(unittest.TestCase):
+    """Lookback replays only the unprocessed tail of the audio buffer."""
+
+    def _lookback(self, is_final_offset_ms):
+        stream = _new_stream()
+        stream.stt_model = "latest_long"
+        # 2 seconds of 8 kHz MULAW audio, every byte distinct by position.
+        stream.audio_input_chunks = [bytes(range(200)) * 80]
+        stream.is_final_offset = is_final_offset_ms
+        stream.closed = True  # only exercise the lookback step
+        return list(stream.generator())
+
+    def test_replays_unprocessed_tail(self):
+        audio = bytes(range(200)) * 80
+        # 1.5 s processed -> the last 0.5 s (4000 bytes) is replayed.
+        self.assertEqual(self._lookback(1500), [audio[-4000:]])
+
+    def test_nothing_to_replay_when_everything_was_processed(self):
+        # Previously audio_bytes[-0:] replayed the whole call buffer.
+        self.assertEqual(self._lookback(2000), [])
+
+
 class StreamStopTest(unittest.TestCase):
 
     def test_stop_ends_the_audio_generator(self):

@@ -163,8 +163,7 @@ class Stream:
             # Note that you need to explicitly use `int` type for
             # substring.
             if need_to_process_length > 0:
-                need_to_process_bytes = audio_bytes[(-1)
-                                                    * need_to_process_length:]
+                need_to_process_bytes = audio_bytes[-need_to_process_length:]
                 logging.debug(
                     "Sending need to process bytes length %s, total audio byte length %s, processed byte length %s ",
                     len(need_to_process_bytes),
