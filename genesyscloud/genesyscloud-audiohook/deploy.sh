@@ -69,6 +69,18 @@ gcloud projects add-iam-policy-binding $GCP_PROJECT_ID \
   --condition="None"
 
 
+# Cloud Run settings for long-lived Audiohook websockets:
+# --timeout 3600: Cloud Run request timeout (maximum). Each call is one
+#   websocket request, so this is the maximum call duration.
+# --concurrency 8: maximum calls per instance. Must be lower than the gunicorn
+#   thread count (GUNICORN_THREADS=10 in the Dockerfile) so that every routed
+#   call gets a thread and 2 threads stay free for the liveness probe.
+# --no-cpu-throttling: the streaming threads keep sending audio to Dialogflow
+#   between websocket messages, so CPU must stay allocated.
+# --liveness-probe on /healthz: served by the gunicorn worker, so Cloud Run
+#   restarts the instance if the worker stops accepting connections. A TCP
+#   probe cannot detect this because the gunicorn master keeps the port open.
+#   Paused or silent calls do not affect the probe.
 gcloud run deploy $VOICE_INTERCEPTOR_SERVICE\
   --source . \
   --platform managed \
@@ -78,6 +90,9 @@ gcloud run deploy $VOICE_INTERCEPTOR_SERVICE\
   --allow-unauthenticated \
   --vpc-connector=$VPC_CONNECTOR_NAME  \
   --timeout 3600 \
+  --concurrency 8 \
+  --no-cpu-throttling \
+  --liveness-probe=httpGet.path=/healthz,periodSeconds=10,timeoutSeconds=5,failureThreshold=3 \
   --region $CLOUD_RUN_SERVICE_REGION \
   --set-env-vars GCP_PROJECT_ID=$GCP_PROJECT_ID \
   --set-env-vars SERVICE_REGION=$SERVICE_REGION \
