@@ -25,7 +25,7 @@ from flask import Blueprint
 from flask_sock import Sock
 from google.api_core.exceptions import NotFound
 from google.cloud import dialogflow_v2beta1 as dialogflow
-from simple_websocket import Server
+from simple_websocket import ConnectionClosed, Server
 
 from audio_stream import Stream
 from audiohook import DEFAULT_CONVERSATION_ID, AudioHook
@@ -100,18 +100,32 @@ def process_open_conversation_message(
     except NotFound as e:
         logging.error("Participants not found %s: ", e)
 
+    # Streaming threads are daemon threads so that they can never keep the
+    # gunicorn worker process alive after its main loop has exited.
     agent_thread = Thread(
         target=dialogflow_api.maintained_streaming_analyze_content, args=(
-            agent_stream, participant_agent, agent_audio_config))
+            agent_stream, participant_agent, agent_audio_config), daemon=True)
     user_thread = Thread(
         target=dialogflow_api.maintained_streaming_analyze_content, args=(
-            customer_stream, participant_user, customer_audio_config))
+            customer_stream, participant_user, customer_audio_config), daemon=True)
     ws.send(json.dumps(audiohook.create_opened_message()))
     return OpenConversationState(
         agent_thread,
         user_thread,
         conversation_name,
         True)
+
+
+def start_streaming_threads(open_conversation_state: OpenConversationState):
+    """Start the agent and customer streaming threads if not started yet.
+
+    threading.Thread.start() raises RuntimeError when called more than once,
+    so this is safe to call on every "resumed" message.
+    """
+    for thread in (open_conversation_state.agent_thread,
+                   open_conversation_state.user_thread):
+        if thread.ident is None:
+            thread.start()
 
 
 def process_ongoing_conversation_messages(
@@ -140,21 +154,22 @@ def process_ongoing_conversation_messages(
     match message_type:
         case "resumed":
             # The first paused message after open message sets the
-            # closed to True, now after resume, need to flip the bit
-            customer_stream.closed = False
-            agent_stream.closed = False
-            open_conversation_state.agent_thread.start()
-            open_conversation_state.user_thread.start()
+            # closed to True, now after resume, need to flip the bit.
+            # Audiohook can send "paused"/"resumed" several times in the same
+            # session (startPaused, hold, secure pause), so the streaming
+            # threads are only started on the first "resumed". Later
+            # "resumed" messages only re-open the streams.
+            customer_stream.resume()
+            agent_stream.resume()
+            start_streaming_threads(open_conversation_state)
         case "paused":
-            customer_stream.closed = True
-            agent_stream.closed = True
+            customer_stream.pause()
+            agent_stream.pause()
             logging.debug("Audio stream is paused")
         case "close":
             # This "close" is for ending a real conversation
-            agent_stream.closed = True
-            customer_stream.closed = True
-            agent_stream.terminate = True
-            customer_stream.terminate = True
+            agent_stream.stop()
+            customer_stream.stop()
             ws.send(json.dumps(audiohook.create_close_message()))
             try:
                 dialogflow_api.complete_conversation(
@@ -190,11 +205,50 @@ def audiohook_connect(ws: Server):
     Args:
         ws (Server): Websocket server for exchange messages
     """
+    run_audiohook_connection(ws)
+
+
+def run_audiohook_connection(ws: Server):
+    """Run one Audiohook websocket connection and always clean it up.
+
+    Args:
+        ws (Server): Websocket server for exchange messages
+    """
     agent_stream = Stream(
         config.rate, chunk_size=config.chunk_size)
     customer_stream = Stream(
         config.rate, chunk_size=config.chunk_size)
+    try:
+        handle_audiohook_session(ws, agent_stream, customer_stream)
+    except ConnectionClosed:
+        logging.info("Audiohook client closed the websocket connection")
+    except Exception:  # pylint: disable=broad-except
+        # Never let an exception escape a flask_sock route. flask_sock only
+        # handles ConnectionClosed: any other exception skips ws.close(), and
+        # gunicorn then writes an HTTP 500 onto the upgraded socket and keeps
+        # it as a keep-alive HTTP connection while the websocket reader thread
+        # still owns the same file descriptor. That race surfaces as
+        # "OSError: [Errno 9] Bad file descriptor" and can take down the
+        # gunicorn worker for every call on the instance.
+        logging.exception(
+            "Unexpected error in Audiohook session, closing the session")
+    finally:
+        # Always stop both streaming threads, whatever ended the session
+        # (close message, client hang-up or an unexpected error), so that
+        # they never outlive the websocket connection.
+        agent_stream.stop()
+        customer_stream.stop()
 
+
+def handle_audiohook_session(ws: Server, agent_stream: Stream,
+                             customer_stream: Stream):
+    """Receive and process Audiohook messages until the session ends.
+
+    Args:
+        ws (Server): Websocket server for exchange messages
+        agent_stream (Stream): audio stream for the agent channel
+        customer_stream (Stream): audio stream for the customer channel
+    """
     dialogflow_api = DialogflowAPI()
     audiohook = AudioHook()
     logging.info(
@@ -242,7 +296,7 @@ def audiohook_connect(ws: Server):
                     # we should not publish any messages to the redis client
                     # otherwise e UI modules will not receive pub/subs until redis connects the conversation
                     await_redis_thread = Thread(target=wait_for_redis_resume, args=(
-                        open_conversation_state, audiohook, ws))
+                        open_conversation_state, audiohook, ws), daemon=True)
                     await_redis_thread.start()
             elif message_type == "ping":
                 ws.send(json.dumps(audiohook.create_pong_message()))

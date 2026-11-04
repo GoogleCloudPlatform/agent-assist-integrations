@@ -32,6 +32,11 @@ from audiohook_config import config
 # Wait for 2 units of 0.5 second for the redis client to set conversation name
 AWAIT_REDIS_COUNTER = 2
 AWAIT_REDIS_SECOND_PER_COUNTER = 0.5
+# While a stream is paused, re-check the terminate flag at this interval.
+STREAMING_PAUSED_WAIT_SECONDS = 1.0
+# Bounded exponential backoff between failed StreamingAnalyzeContent calls.
+STREAMING_RETRY_INITIAL_BACKOFF_SECONDS = 1.0
+STREAMING_RETRY_MAX_BACKOFF_SECONDS = 30.0
 LOCATION_ID_REGEX = r"^projects\/[^/]+\/locations\/([^/]+)"
 
 credentials, project = google.auth.default()
@@ -210,13 +215,34 @@ class DialogflowAPI:
         """
         logging.debug("Call streaming analyze content %s, %s",
                       audio_stream.closed, audio_stream.is_final)
+        backoff_seconds = STREAMING_RETRY_INITIAL_BACKOFF_SECONDS
         while not audio_stream.terminate:
-            # while not audio_stream.is_final and not audio_stream.closed:
-            while not audio_stream.closed:
-                self.streaming_analyze_content(
+            if audio_stream.closed:
+                # The stream is paused: block until it is resumed or
+                # terminated instead of busy-spinning, which would hold the
+                # GIL and starve every other call served by this process.
+                audio_stream.active.wait(timeout=STREAMING_PAUSED_WAIT_SECONDS)
+                continue
+            try:
+                succeeded = self.streaming_analyze_content(
                     audio_stream,
                     participant,
                     audio_config)
+            except Exception:  # pylint: disable=broad-except
+                # Any other error must not kill the streaming thread, which
+                # would silently stop transcription for the rest of the call.
+                logging.exception(
+                    "Unexpected error calling streaming analyze content for %s",
+                    participant.role.name)
+                succeeded = False
+            if succeeded:
+                backoff_seconds = STREAMING_RETRY_INITIAL_BACKOFF_SECONDS
+                continue
+            # Retry with a bounded exponential backoff. Waiting on the
+            # stopped event lets the session end without delay.
+            audio_stream.stopped.wait(timeout=backoff_seconds)
+            backoff_seconds = min(backoff_seconds * 2,
+                                  STREAMING_RETRY_MAX_BACKOFF_SECONDS)
 
     def streaming_analyze_content(
             self,
@@ -225,6 +251,10 @@ class DialogflowAPI:
             audio_config: dialogflow.InputAudioConfig):
         """Call dialogflow backend StreamingAnalyzeContent endpoint,
         and send the audio binary stream from Audiohook.
+
+        Returns:
+            True if the stream ended normally and can be restarted right
+            away, False if it failed and should be retried with backoff.
         """
         try:
             logging.debug("call streaming analyze content for %s", participant)
@@ -260,17 +290,19 @@ class DialogflowAPI:
             logging.warning(
                 "The single audio stream exceeded maximum duration restrictions %s ", e)
             # return to restart the stream.
-            return
+            return True
         except FailedPrecondition as e:
-            audio_stream.closed = True
+            # Do not close the stream here: a closed stream is only re-opened
+            # by the next "resumed" message, which may never come. Let the
+            # caller retry with backoff instead.
             logging.warning(
                 "Failed the precondition check for StreamingAnalyzeContent %s ", e)
-            return
+            return False
         except ResourceExhausted as e:
-            audio_stream.closed = True
             logging.warning(
                 "Exceed quota for calling streaming analyze content %s ", e)
-            return
+            return False
+        return True
 
     def complete_conversation(self, conversation_name: str):
         """Send complete conversation request to Dialogflow

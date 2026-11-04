@@ -59,6 +59,33 @@ class Stream:
         self.audio_encoding = dialogflow.AudioEncoding.AUDIO_ENCODING_MULAW
         self.buffer_byte_size = 0
         self._lock = threading.Lock()
+        # Set while Audiohook is streaming audio (after "resumed"), cleared
+        # while it is paused. Streaming threads wait on it instead of
+        # busy-spinning while the stream is closed.
+        self.active = threading.Event()
+        # Set once the Audiohook session has ended.
+        self.stopped = threading.Event()
+
+    def resume(self):
+        """Re-open the stream after an Audiohook "resumed" message."""
+        self.closed = False
+        self.active.set()
+
+    def pause(self):
+        """Close the current stream after an Audiohook "paused" message."""
+        self.closed = True
+        self.active.clear()
+
+    def stop(self):
+        """Permanently stop the stream when the Audiohook session ends.
+
+        Safe to call more than once. Wakes up any waiting streaming thread;
+        the audio generator exits on its next closed check.
+        """
+        self.closed = True
+        self.terminate = True
+        self.stopped.set()
+        self.active.set()
 
     def fill_buffer(self, in_data, *args, **kwargs):
         """Append audio data to buffer if not full"""
@@ -120,8 +147,10 @@ class Stream:
             self.is_final_offset,
             total_processed_time)
         self.last_start_time = total_processed_time
+        self.is_final_offset = 0  # already counted; don't add it again next restart
         # Send out bytes stored in self.audio_input_chunks that is after the
         # processed_bytes_length.
+        # For chirp3 model, we do not need to send the lookback audio chunks.
         if processed_bytes_length != 0 and self.stt_model != "chirp_3":
             audio_bytes = b"".join(self.audio_input_chunks)
             # Lookback for unprocessed audio data.
@@ -133,19 +162,19 @@ class Stream:
             )
             # Note that you need to explicitly use `int` type for
             # substring.
-            need_to_process_bytes = audio_bytes[(-1)
-                                                * need_to_process_length:]
-            logging.debug(
-                "Sending need to process bytes length %s, total audio byte length %s, processed byte length %s ",
-                len(need_to_process_bytes),
-                len(audio_bytes),
-                processed_bytes_length)
-            try:
-                yield need_to_process_bytes
-            except GeneratorExit as e:
+            if need_to_process_length > 0:
+                need_to_process_bytes = audio_bytes[-need_to_process_length:]
                 logging.debug(
-                    "Generator exit from the need to process step %s", e)
-                return
+                    "Sending need to process bytes length %s, total audio byte length %s, processed byte length %s ",
+                    len(need_to_process_bytes),
+                    len(audio_bytes),
+                    processed_bytes_length)
+                try:
+                    yield need_to_process_bytes
+                except GeneratorExit as e:
+                    logging.debug(
+                        "Generator exit from the need to process step %s", e)
+                    return
         try:
             while not self.closed:
                 if self.is_final:
