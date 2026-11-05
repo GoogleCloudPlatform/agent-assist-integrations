@@ -1,0 +1,10 @@
+**/.git
+**/.vs
+**/.vscode
+**/.idea
+**/bin
+**/obj
+**/TestResults
+credentials/
+.env
+.env.*

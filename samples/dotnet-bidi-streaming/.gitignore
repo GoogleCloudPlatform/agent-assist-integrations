@@ -1,0 +1,27 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio / VS Code / Rider
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Credentials & secrets
+credentials/
+*.json
+!appsettings.json
+!appsettings.*.json
+.env
+.env.*
+!.env.sample
+
+# Test results
+TestResults/
+*.trx

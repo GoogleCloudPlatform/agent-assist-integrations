@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  dialogflow-bidi-stream:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials/sa-key.json
+      - DialogflowStreaming__ProjectId=${PROJECT_ID}
+      - DialogflowStreaming__LocationId=${LOCATION_ID:-global}
+      - DialogflowStreaming__ConversationProfileName=${CONVERSATION_PROFILE_NAME}
+    volumes:
+      - ./credentials:/app/credentials:ro
