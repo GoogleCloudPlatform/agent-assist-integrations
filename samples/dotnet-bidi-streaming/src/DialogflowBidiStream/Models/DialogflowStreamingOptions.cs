@@ -56,13 +56,16 @@ public class DialogflowStreamingOptions
 
     /// <summary>
     /// Threshold after which the session safely rotates to a new gRPC stream upon the next final transcript.
-    /// Dialogflow limits streaming calls to ~15 minutes (900 seconds). Default is 14.5 minutes (870 seconds).
+    /// Note: Dialogflow's BidiStreamingAnalyzeContent server-side RPC deadline is 30 minutes (1,800 seconds).
+    /// The default is set conservatively to 14.5 minutes (870 seconds) to protect against intermediate network hops,
+    /// cloud load balancers, Cloud Run, or corporate NAT/firewalls with 10-15 minute idle/session timeouts.
+    /// Can be tuned up to 28.5 minutes in environments supporting long-lived 30-minute gRPC sockets.
     /// </summary>
     public TimeSpan RestartThreshold { get; set; } = TimeSpan.FromMinutes(14.5);
 
     /// <summary>
     /// Maximum lifetime before a forced rotation if no sentence boundary is detected.
-    /// Default is 14 minutes 50 seconds.
+    /// Defaults to 14 minutes 50 seconds (or ~29.5 minutes if tuned for 30m streams).
     /// </summary>
     public TimeSpan MaxStreamLifetime { get; set; } = TimeSpan.FromMinutes(14.83);
 

@@ -42,6 +42,10 @@ public interface IDialogflowConversationManager
     Task<ConversationProfile?> GetConversationProfileAsync(
         string conversationProfileName,
         CancellationToken cancellationToken = default);
+
+    Task<bool> ValidateConversationProfileAsync(
+        string conversationProfileName,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -253,5 +257,35 @@ public class DialogflowConversationManager : IDialogflowConversationManager
             _logger.LogWarning(ex, "Failed to retrieve conversation profile {ProfileName}", conversationProfileName);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Validates whether the specified Conversation Profile has bidirectional streaming enabled (<c>use_bidi_streaming = true</c>).
+    /// Logs a warning if bidirectional streaming is disabled, as downstream Agent Assist suggestion generators
+    /// and quota allocation require this setting for optimal operation.
+    /// </summary>
+    public async Task<bool> ValidateConversationProfileAsync(
+        string conversationProfileName,
+        CancellationToken cancellationToken = default)
+    {
+        var profile = await GetConversationProfileAsync(conversationProfileName, cancellationToken);
+        if (profile == null)
+        {
+            _logger.LogWarning("Unable to inspect ConversationProfile '{ProfileName}' for bidirectional streaming validation.", conversationProfileName);
+            return false;
+        }
+
+        if (!profile.UseBidiStreaming)
+        {
+            _logger.LogWarning(
+                "ConversationProfile '{ProfileName}' does not have 'use_bidi_streaming' enabled. " +
+                "BidiStreamingAnalyzeContent requires 'use_bidi_streaming: true' on the ConversationProfile for optimal " +
+                "downstream Agent Assist suggestions (Knowledge Assist, Smart Reply) and proper quota allocation.",
+                conversationProfileName);
+            return false;
+        }
+
+        _logger.LogInformation("ConversationProfile '{ProfileName}' validated: use_bidi_streaming is enabled.", conversationProfileName);
+        return true;
     }
 }

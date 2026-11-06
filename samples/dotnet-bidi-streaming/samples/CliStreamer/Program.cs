@@ -140,13 +140,30 @@ public static class Program
         }
         Console.ResetColor();
 
-        // 1. Create conversation & participant
+        // 1. Inspect and validate Conversation Profile for bidirectional streaming
+        Console.WriteLine("[Session] Validating Conversation Profile configuration...");
+        bool isBidiConfigured = await conversationManager.ValidateConversationProfileAsync(profileName);
+        if (!isBidiConfigured)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"[Warning] Profile '{profileName}' does not have 'use_bidi_streaming' enabled.");
+            Console.WriteLine("          Agent Assist suggestions and quota allocation require this toggle in Console > Telephony Settings.");
+            Console.ResetColor();
+        }
+        else
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine("[Session] Conversation Profile has Bidirectional Streaming enabled.");
+            Console.ResetColor();
+        }
+
+        // 2. Create conversation & participant
         Console.WriteLine("[Session] Resolving Dialogflow conversation and participant...");
         var conversation = await conversationManager.GetOrCreateConversationAsync(callId);
         var participant = await conversationManager.CreateParticipantAsync(callId, participantRole);
         string participantId = participant.Name.Split("/participants/").Last();
 
-        // 2. Initialize Bidi-SAC Session
+        // 3. Initialize Bidi-SAC Session
         await using var session = new DialogflowBidiStreamSession(
             participantsClient,
             callId,

@@ -3,7 +3,7 @@
 [![.NET 8](https://img.shields.io/badge/.NET-8.0-blue.svg)](https://dotnet.microsoft.com/download/dotnet/8.0)
 [![gRPC](https://img.shields.io/badge/gRPC-v2.67-green.svg)](https://grpc.io/)
 [![Google Cloud](https://img.shields.io/badge/Google%20Cloud-Agent%20Assist-orange.svg)](https://cloud.google.com/agent-assist)
-[![Tests](https://img.shields.io/badge/Tests-53%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-56%20Passed-brightgreen.svg)]()
 
 A high-performance, production-grade .NET 8 C# reference architecture and library for **Google Cloud Dialogflow v2beta1 Bidirectional Streaming Analyze Content (`BidiStreamingAnalyzeContent`)**, ported directly from battle-tested CCaaS voice integrations.
 
@@ -62,10 +62,13 @@ sequenceDiagram
 * **Production Impact:** Extreme socket thrashing, latency spikes, severed interim speech on subsequent sentences, broken Agent Assist contextual memory, and premature stream closure causing transcription to permanently freeze mid-call.
 * **Authoritative Solution:** Maintain a **single long-lived duplex stream** across speaker turns, pauses, and sentences. Turns are logical events inside the recognition stream, not stream boundaries.
 
-### 2. The 15-Minute Deadline & Boundary-Safe Rotation
-* **Constraint:** Google Cloud Dialogflow enforces a strict ~15-minute deadline per streaming gRPC call (`DEADLINE_EXCEEDED`).
+### 2. Stream Deadlines & Boundary-Safe Rotation
+* **Server Limit vs. Intermediate Network Constraints:**
+  * **Server-Side Deadline:** Google Cloud Dialogflow's `BidiStreamingAnalyzeContent` API backend enforces an intrinsic RPC timeout of **30 minutes (1,800 seconds)** (unlike the legacy 120-second `StreamingAnalyzeContent` limit).
+  * **Network & Proxy Safeguards:** Enterprise network paths (Cloud Run 5m default, AWS ALBs, Envoy/NGINX proxies, and corporate stateful NAT/firewalls) frequently terminate idle or long-lived TCP/gRPC streams after 10–15 minutes. Additionally, Google Front End (GFE) tasks periodically rebalance long-lived HTTP/2 connections.
+  * **Average Handling Time (AHT) Coverage:** Because >95% of contact center customer calls conclude within 3–7 minutes, an enterprise-standard **14.5-minute** rotation threshold allows virtually 100% of standard calls to complete on a single unbroken stream, while providing a proactive buffer before hitting network dropouts or backend timeouts.
 * **Anti-pattern:** Cutting the stream abruptly when a timer fires, truncating the customer or agent mid-word or mid-sentence.
-* **Authoritative Solution:** `DialogflowBidiStreamSession` tracks elapsed stream time and rotates **only at sentence boundaries** (`is_final == true`) once the threshold (~14.5 minutes) is crossed. A fallback safety cutoff at 14m 50s protects against edge-case deadlocks (e.g. caller put on hold for 15+ minutes).
+* **Authoritative Solution:** `DialogflowBidiStreamSession` tracks elapsed stream time and rotates **only at sentence boundaries** (`is_final == true`) once `RestartThreshold` (~14.5 minutes) is crossed. A fallback safety cutoff at `MaxStreamLifetime` (14m 50s) protects against edge-case deadlocks (e.g. caller put on hold for 15+ minutes). In environments verified to support 30-minute gRPC sockets end-to-end, `RestartThreshold` can be tuned up to 28.5 minutes.
 
 ### 3. The Audio Lookback & Clipping Problem
 * **Challenge:** During the milliseconds required to close stream $N$ and open stream $N+1$, the user may continue speaking. Audio sent during the cutover or immediately following the last final speech offset can be lost.
@@ -155,7 +158,7 @@ samples/dotnet-bidi-streaming/
 
 ## Comprehensive Test Suite
 
-The test suite contains **53 automated tests** structured to prove correctness across every enterprise edge case:
+The test suite contains **56 automated tests** structured to prove correctness across every enterprise edge case:
 
 ### Test Tiers & Key Coverage
 
@@ -174,7 +177,7 @@ The test suite contains **53 automated tests** structured to prove correctness a
   * Asserts that `PushAudio()` after teardown gracefully drops frames without throwing `ObjectDisposedException`.
   * Verifies idempotency of multiple `DisposeAsync()` and `StopAsync()` invocations.
 * **`DialogflowConversationManagerTests.cs`**:
-  * Tests 404 creation, 409 `AlreadyExists` race condition recovery, path generation for `"global"` vs regional locations, and conversation completion handling `FailedPrecondition`.
+  * Tests 404 creation, 409 `AlreadyExists` race condition recovery, path generation for `"global"` vs regional locations, `ConversationProfile` `use_bidi_streaming` validation, and conversation completion handling `FailedPrecondition`.
 * **`Five9VoiceServiceImplTests.cs`**:
   * Validates `StreamingConfig` protocol enforcement, 10-digit zero padding on numeric call IDs (`five9-0000009876`), and call leg role mapping (`Customer` $\to$ `EndUser`, `Agent` $\to$ `HumanAgent`).
 
@@ -203,10 +206,10 @@ The test suite contains **53 automated tests** structured to prove correctness a
 Tests can be executed locally with `dotnet test` or inside the containerized SDK via `make`:
 
 ```bash
-# Run all 53 unit, integration, and load tests
+# Run all 56 unit, integration, and load tests
 make test
 
-# Run unit tests only (44 tests)
+# Run unit tests only (47 tests)
 make test-unit
 
 # Run integration tests only (5 tests)
@@ -218,15 +221,59 @@ make test-load
 
 ---
 
+## Prerequisites: Conversation Profile Configuration (`use_bidi_streaming`)
+
+This library uses the bidirectional streaming API (`BidiStreamingAnalyzeContent`), which provides continuous streaming up to the 30-minute server limit. To ensure optimal performance and receive real-time Agent Assist suggestions, **Bidirectional Streaming must be enabled on your Conversation Profile**.
+
+> [!IMPORTANT]
+> **Why this configuration is required:**
+> 1. **Agent Assist Suggestion Delivery (CES / GenAI):** Downstream suggestion generators (Knowledge Assist, Smart Reply, Agent Coaching, Summarization) inspect `initial_conversation_profile.use_bidi_streaming()`. If this flag is `false` (the default), the backend expects legacy turn-taking streaming events and will fail to bind suggestions to the bidirectional response stream, resulting in empty or missing suggestions on the agent desktop.
+> 2. **Quota & Rate-Limiting Allocation:** Sessions without this flag can be routed to standard SAC concurrency quota pools instead of the dedicated `ConcurrentBidiStreamingSessionsPerProjectPerRegion`, risking premature `RESOURCE_EXHAUSTED` (429) errors.
+
+### 1. Enable via Google Cloud Console
+1. Navigate to the [Agent Assist Console](https://agentassist.cloud.google.com/) and select your project.
+2. Click **Conversation Profiles** and select your active profile.
+3. Scroll down to **Telephony Settings**.
+4. Enable the toggle for **Use Bidirectional Streaming API**.
+5. Click **Save**.
+
+### 2. Enable via API (REST / gRPC) or Terraform
+If you manage conversation profiles programmatically, ensure `useBidiStreaming: true` is set:
+```json
+{
+  "name": "projects/PROJECT_ID/locations/global/conversationProfiles/CONVERSATION_PROFILE_ID",
+  "useBidiStreaming": true,
+  "sttConfig": {
+    "useGeminiAsr": true,
+    "useLongFormModel": true
+  }
+}
+```
+
+### 3. Built-In Runtime Diagnostic Check in .NET
+The library includes a built-in diagnostic validation helper `ValidateConversationProfileAsync()` in `IDialogflowConversationManager`:
+```csharp
+// Inspects profile and logs a warning if use_bidi_streaming is not enabled
+bool isBidiConfigured = await conversationManager.ValidateConversationProfileAsync(profileName);
+if (!isBidiConfigured)
+{
+    logger.LogWarning("ConversationProfile '{ProfileName}' does not have 'use_bidi_streaming' enabled. Downstream suggestions will not emit.", profileName);
+}
+```
+
+---
+
 ## Running the CLI Audio Streamer (`CliStreamer`)
 
 A runnable console application is provided in `samples/CliStreamer` to allow partner engineers to stream audio to their own Google Cloud project using **Application Default Credentials (ADC)**.
 
 ### Prerequisites
 
+1. **GCP Authentication:**
 ```bash
 gcloud auth application-default login
 ```
+2. **Conversation Profile:** Ensure your conversation profile has `Use Bidirectional Streaming API` enabled (see section above). The CLI runner will automatically validate this upon startup.
 
 ### Run against your GCP Project
 
@@ -321,7 +368,8 @@ dotnet run --project samples/CliStreamer -- \
 If you are embedding the session directly into an existing CCaaS connector service:
 
 ```csharp
-// 1. Resolve conversation and participant
+// 1. Validate Conversation Profile and resolve conversation & participant
+await conversationManager.ValidateConversationProfileAsync(optionsSnapshot.Value.ConversationProfileName);
 var conversation = await conversationManager.GetOrCreateConversationAsync(callId);
 var participant = await conversationManager.CreateParticipantAsync(callId, Participant.Types.Role.HumanAgent);
 string participantId = participant.Name.Split("/participants/").Last();

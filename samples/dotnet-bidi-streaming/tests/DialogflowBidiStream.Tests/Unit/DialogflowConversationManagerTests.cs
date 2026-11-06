@@ -320,4 +320,62 @@ public class DialogflowConversationManagerTests
 
         Assert.Null(result);
     }
+
+    [Fact]
+    public async Task ValidateConversationProfileAsync_ReturnsTrue_WhenUseBidiStreamingIsTrue()
+    {
+        var manager = CreateManager();
+        var profile = new ConversationProfile
+        {
+            Name = "projects/test-project/conversationProfiles/cp-bidi",
+            UseBidiStreaming = true
+        };
+
+        _mockProfilesClient
+            .Setup(p => p.GetConversationProfileAsync(
+                It.Is<GetConversationProfileRequest>(r => r.Name == profile.Name),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(profile);
+
+        bool isValid = await manager.ValidateConversationProfileAsync(profile.Name);
+
+        Assert.True(isValid);
+    }
+
+    [Fact]
+    public async Task ValidateConversationProfileAsync_ReturnsFalse_WhenUseBidiStreamingIsFalse()
+    {
+        var manager = CreateManager();
+        var profile = new ConversationProfile
+        {
+            Name = "projects/test-project/conversationProfiles/cp-legacy",
+            UseBidiStreaming = false
+        };
+
+        _mockProfilesClient
+            .Setup(p => p.GetConversationProfileAsync(
+                It.Is<GetConversationProfileRequest>(r => r.Name == profile.Name),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(profile);
+
+        bool isValid = await manager.ValidateConversationProfileAsync(profile.Name);
+
+        Assert.False(isValid);
+    }
+
+    [Fact]
+    public async Task ValidateConversationProfileAsync_ReturnsFalse_WhenProfileCannotBeRetrieved()
+    {
+        var manager = CreateManager();
+
+        _mockProfilesClient
+            .Setup(p => p.GetConversationProfileAsync(
+                It.IsAny<GetConversationProfileRequest>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new RpcException(new Status(StatusCode.NotFound, "Profile not found")));
+
+        bool isValid = await manager.ValidateConversationProfileAsync("projects/test-project/conversationProfiles/nonexistent");
+
+        Assert.False(isValid);
+    }
 }
