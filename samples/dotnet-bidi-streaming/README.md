@@ -228,21 +228,44 @@ gcloud auth application-default login
 
 ### Run against your GCP Project
 
+Configure `.env` or pass variables on the command line:
+
 ```bash
-# Using Makefile
-PROJECT_ID="your-project-id" \
-CONVERSATION_PROFILE_NAME="projects/your-project-id/locations/global/conversationProfiles/your-profile" \
-# Default: Streams realistic customer service turn with live speech transcription
+# 1. Default: Streams realistic customer service turn with live speech transcription
 make stream-cli
 
-# Multi-Turn Simulation: Streams all 6 customer & agent turns with turn-taking pauses
+# 2. Multi-Turn Simulation: Streams all 6 customer & agent turns with turn-taking pauses
+# Proves b/573603541: duplex stream stays open across consecutive speaker turns
 make stream-cli ARGS="--conversation"
 
-# Stream custom audio file (supports raw .mulaw or 16-bit PCM .wav with auto-header stripping)
+# 3. Stream custom audio file (supports raw .mulaw or 16-bit PCM .wav with auto-header stripping)
 make stream-cli ARGS="--audio path/to/call.wav --rate 16000 --encoding Linear16"
+
+# 4. Stream as END_USER role instead of HUMAN_AGENT
+make stream-cli ARGS="--role END_USER"
+
+# Or invoke directly with the .NET 8 CLI
+dotnet run --project samples/CliStreamer -- \
+  --project "your-project-id" \
+  --profile "projects/your-project-id/locations/global/conversationProfiles/your-profile" \
+  --conversation
 ```
 
-### Live Output Example
+### CLI Command-Line Flags & Configuration
+
+| Flag | Environment Variable | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--project <ID>` | `PROJECT_ID` | *(Required)* | Google Cloud Project ID hosting Dialogflow / Agent Assist. |
+| `--profile <NAME>` | `CONVERSATION_PROFILE_NAME` | *(Required)* | Resource name: `projects/*/conversationProfiles/*` or `projects/*/locations/*/conversationProfiles/*`. |
+| `--location <LOC>` | `LOCATION_ID` | `global` | Dialogflow region (e.g. `global`, `us-central1`). |
+| `--conversation` | — | `false` | **Multi-Turn Mode**: Simulates full 6-turn customer service call verifying [b/573603541](https://b.corp.google.com/issues/573603541). |
+| `--audio <PATH>` | — | Bundled sample | Path to audio file. Supports raw `.mulaw` or 16-bit mono `.wav` (RIFF header stripped automatically). |
+| `--role <ROLE>` | — | `HUMAN_AGENT` | Participant role to simulate: `HUMAN_AGENT` or `END_USER`. |
+| `--rate <HERTZ>` | — | `8000` | Sample rate in Hertz: `8000` (standard telephony) or `16000` (wideband / HD voice). |
+| `--encoding <ENC>` | — | `Mulaw` | Audio encoding: `Mulaw` (G.711u) or `Linear16` (16-bit signed PCM). |
+| `--help`, `-h` | — | — | Displays usage summary and available options. |
+
+### Live Output Example (Single Turn)
 
 ```text
 ================================================================================
@@ -265,6 +288,27 @@ make stream-cli ARGS="--audio path/to/call.wav --rate 16000 --encoding Linear16"
 >>> [FINAL TRANSCRIPT] (Offset: 5465ms): "Hi, I'm calling to check on my delayed Google Store order GS-1048-A for my Pixel Watch 3."
 
 [Session] Closing stream and completing conversation...
+[Success] Dialogflow Bidi-SAC streaming session completed successfully.
+```
+
+### Live Output Example (Multi-Turn Simulation `--conversation`)
+
+```text
+[Session] Mode:            Multi-Turn Conversation Simulation (6 Turns)
+[Session] Verification:    b/573603541 turn-taking anti-pattern fix
+
+[Turn 1/6] 🗣️  CUSTOMER (42,500 bytes / 5.3s)
+[Live Speech ASR] Hi, I'm calling to check on my delayed Google Store order...
+>>> [FINAL TRANSCRIPT] (Offset: 5310ms): "Hi, I'm calling to check on my delayed Google Store order GS-1048-A for my Pixel Watch 3."
+[Turn-Taking Silence: 800ms natural pause (Stream stays active)]
+
+[Turn 2/6] 🗣️  AGENT (64,000 bytes / 8.0s)
+[Live Speech ASR] Thank you for contacting Google Store support! My name is Jordan...
+>>> [FINAL TRANSCRIPT] (Offset: 8000ms): "Thank you for contacting Google Store support! My name is Jordan. I would be happy to check order GS-1048-A for you..."
+[Turn-Taking Silence: 800ms natural pause (Stream stays active)]
+
+...
+[Streaming] All 6 conversational turns streamed in 45.3s over Stream #1 without rotation.
 [Success] Dialogflow Bidi-SAC streaming session completed successfully.
 ```
 
