@@ -158,7 +158,8 @@ public sealed class DialogflowBidiStreamSession : IAsyncDisposable
                         VoiceSessionConfig = new BidiStreamingAnalyzeContentRequest.Types.Config.Types.VoiceSessionConfig
                         {
                             InputAudioEncoding = _options.DefaultAudioEncoding,
-                            InputAudioSampleRateHertz = _options.DefaultSampleRateHertz
+                            InputAudioSampleRateHertz = _options.DefaultSampleRateHertz,
+                            UseGeminiAsr = true
                         }
                     }
                 };
@@ -220,7 +221,10 @@ public sealed class DialogflowBidiStreamSession : IAsyncDisposable
                 {
                     await foreach (var response in duplexCall.ResponseStream.ReadAllAsync(streamCts.Token))
                     {
-                        _logger.LogInformation("[{ConversationId}][{Role}] Received response: {Proto}", _conversationId, _participantRole, response.ToString());
+                        if (_options.EnableDebugLogging)
+                        {
+                            _logger.LogDebug("[{ConversationId}][{Role}] Received response: {Case}", _conversationId, _participantRole, response.ResponseCase);
+                        }
 
                         // Handle recognition results (Interim & Final Transcripts)
                         if (response.RecognitionResult != null)

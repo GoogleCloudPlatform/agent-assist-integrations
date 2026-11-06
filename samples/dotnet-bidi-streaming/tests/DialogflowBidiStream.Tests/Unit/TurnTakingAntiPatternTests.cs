@@ -119,7 +119,11 @@ public class TurnTakingAntiPatternTests
         });
 
         // Wait for all 4 final transcripts to be received
-        await Task.Delay(100);
+        var waitTimeout = DateTime.UtcNow.AddSeconds(3);
+        while (receivedFinalTranscripts.Count < 4 && DateTime.UtcNow < waitTimeout)
+        {
+            await Task.Delay(20);
+        }
 
         Assert.Equal(4, receivedFinalTranscripts.Count);
         Assert.Equal("Hello, I need help with my flight reservation.", receivedFinalTranscripts[0]);

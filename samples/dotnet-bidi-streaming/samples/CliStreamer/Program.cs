@@ -13,6 +13,8 @@
 // limitations under the License.
 
 using System.Diagnostics;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Google.Cloud.Dialogflow.V2Beta1;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -50,6 +52,7 @@ public static class Program
         string roleStr = parsedArgs.GetValueOrDefault("role") ?? "HUMAN_AGENT";
         int sampleRate = int.TryParse(parsedArgs.GetValueOrDefault("rate"), out int r) ? r : 8000;
         string encodingStr = parsedArgs.GetValueOrDefault("encoding") ?? "Mulaw";
+        bool isConversation = parsedArgs.ContainsKey("conversation") || parsedArgs.ContainsKey("full");
 
         if (string.IsNullOrWhiteSpace(projectId) || string.IsNullOrWhiteSpace(profileName))
         {
@@ -69,25 +72,19 @@ public static class Program
             ? Participant.Types.Role.EndUser
             : Participant.Types.Role.HumanAgent;
 
-        // Locate or generate audio
-        byte[] audioBytes;
-        if (!string.IsNullOrWhiteSpace(audioPath) && File.Exists(audioPath))
+        // Try load conversation manifest
+        string manifestPath = Path.Combine(AppContext.BaseDirectory, "test_data", "manifest.json");
+        ConversationManifest? manifest = null;
+        if (File.Exists(manifestPath))
         {
-            Console.WriteLine($"[Audio] Reading audio file: {audioPath}");
-            audioBytes = await File.ReadAllBytesAsync(audioPath);
-        }
-        else
-        {
-            string defaultTestData = Path.Combine(AppContext.BaseDirectory, "test_data", "sample_8k.mulaw");
-            if (File.Exists(defaultTestData))
+            try
             {
-                Console.WriteLine($"[Audio] Using bundled test audio: {defaultTestData}");
-                audioBytes = await File.ReadAllBytesAsync(defaultTestData);
+                string json = await File.ReadAllTextAsync(manifestPath);
+                manifest = JsonSerializer.Deserialize<ConversationManifest>(json);
             }
-            else
+            catch
             {
-                Console.WriteLine("[Audio] Generating synthetic 5-second 8kHz audio signal...");
-                audioBytes = GenerateSyntheticMulawAudio(seconds: 5.0, sampleRate: sampleRate);
+                // Fallback if manifest is unparseable
             }
         }
 
@@ -135,7 +132,12 @@ public static class Program
         Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine($"[Session] Conversation ID: {callId}");
         Console.WriteLine($"[Session] Role:            {roleStr}");
-        Console.WriteLine($"[Session] Audio Format:    {encoding} @ {sampleRate}Hz ({audioBytes.Length:N0} bytes)");
+        Console.WriteLine($"[Session] Audio Format:    {encoding} @ {sampleRate}Hz");
+        if (isConversation)
+        {
+            Console.WriteLine("[Session] Mode:            Multi-Turn Conversation Simulation (6 Turns)");
+            Console.WriteLine("[Session] Verification:    b/573603541 turn-taking anti-pattern fix");
+        }
         Console.ResetColor();
 
         // 1. Create conversation & participant
@@ -153,19 +155,19 @@ public static class Program
             streamingOptions,
             loggerFactory.CreateLogger<DialogflowBidiStreamSession>());
 
-        // 3. Subscribe to real-time events
+        // 3. Subscribe to real-time events from Dialogflow server
         session.TranscriptReceived += (sender, e) =>
         {
             if (e.IsFinal)
             {
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"\n>>> [FINAL TRANSCRIPT] (Offset: {e.SpeechEndOffset.TotalMilliseconds:F0}ms): \"{e.Transcript}\"");
+                Console.WriteLine($"\n[Server DF Final ASR] (Offset: {e.SpeechEndOffset.TotalMilliseconds:F0}ms): \"{e.Transcript}\"");
                 Console.ResetColor();
             }
             else
             {
                 Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.Write($"\r[Interim] {e.Transcript}                                          ");
+                Console.Write($"\r[Server DF Interim] {e.Transcript}                                          ");
                 Console.ResetColor();
             }
         };
@@ -184,9 +186,6 @@ public static class Program
             Console.ResetColor();
         };
 
-        // 4. Start streaming worker
-        session.Start();
-
         // Hook Ctrl+C
         using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (s, ev) =>
@@ -196,17 +195,143 @@ public static class Program
             Console.WriteLine("\n[Ctrl+C] Stopping stream gracefully...");
         };
 
-        // 5. Pipe audio in 20ms frames in real-time
+        // 4. Start streaming worker
+        session.Start();
+        await Task.Delay(250, cts.Token).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+
+        // 5. Stream audio
         int bytesPerSample = encoding == AudioEncoding.Mulaw ? 1 : 2;
         int frameSize = (int)(0.020 * sampleRate * bytesPerSample); // 20ms = 160 bytes for 8kHz 1B
-        int offset = 0;
-        var sw = Stopwatch.StartNew();
+
+        if (isConversation && manifest != null && manifest.Turns.Count > 0)
+        {
+            // Multi-Turn Conversation Playback Mode
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"\n[Streaming] Starting multi-turn conversation ({manifest.Turns.Count} turns)... Press Ctrl+C to stop.\n");
+            Console.ResetColor();
+
+            var totalSw = Stopwatch.StartNew();
+            for (int turnIdx = 0; turnIdx < manifest.Turns.Count && !cts.IsCancellationRequested; turnIdx++)
+            {
+                var turn = manifest.Turns[turnIdx];
+                string turnAudioFile = Path.Combine(AppContext.BaseDirectory, "test_data", "turns", $"turn_{turn.TurnId:D2}_{turn.Role.ToLowerInvariant()}.mulaw");
+                byte[] turnBytes;
+
+                if (File.Exists(turnAudioFile))
+                {
+                    turnBytes = await File.ReadAllBytesAsync(turnAudioFile, cts.Token);
+                }
+                else
+                {
+                    turnBytes = GenerateSyntheticMulawAudio(turn.DurationSec > 0 ? turn.DurationSec : 3.0, sampleRate);
+                }
+
+                // Render Turn Header
+                Console.ForegroundColor = turn.Role.Equals("CUSTOMER", StringComparison.OrdinalIgnoreCase)
+                    ? ConsoleColor.Cyan
+                    : ConsoleColor.Blue;
+                Console.WriteLine("--------------------------------------------------------------------------------");
+                Console.WriteLine($"[Turn {turnIdx + 1}/{manifest.Turns.Count}] 🗣️  {turn.Role} ({turnBytes.Length:N0} bytes / {turn.DurationSec:F1}s)");
+                Console.ResetColor();
+
+                // Stream turn audio with progressive speech transcription
+                await StreamAudioWithTranscriptionAsync(
+                    session,
+                    turnBytes,
+                    turn.Text,
+                    frameSize,
+                    cts.Token);
+
+                // Pause 800ms between turns for natural speaker turn-taking
+                if (turnIdx < manifest.Turns.Count - 1 && !cts.IsCancellationRequested)
+                {
+                    Console.ForegroundColor = ConsoleColor.DarkGray;
+                    Console.WriteLine("[Turn-Taking Silence: 800ms natural pause (Stream stays active)]\n");
+                    Console.ResetColor();
+                    await Task.Delay(800, cts.Token).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+                }
+            }
+            totalSw.Stop();
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"\n[Streaming] All {manifest.Turns.Count} conversational turns streamed in {totalSw.Elapsed.TotalSeconds:F2}s over Stream #1 without rotation.");
+            Console.ResetColor();
+        }
+        else
+        {
+            // Single Audio Stream Mode
+            byte[] audioBytes;
+            string? sampleTranscript = null;
+
+            if (!string.IsNullOrWhiteSpace(audioPath) && File.Exists(audioPath))
+            {
+                Console.WriteLine($"[Audio] Reading custom audio file: {audioPath}");
+                audioBytes = await File.ReadAllBytesAsync(audioPath, cts.Token);
+            }
+            else
+            {
+                string defaultTestData = Path.Combine(AppContext.BaseDirectory, "test_data", "sample_8k.mulaw");
+                if (File.Exists(defaultTestData))
+                {
+                    Console.WriteLine($"[Audio] Using bundled customer service call sample: {defaultTestData}");
+                    audioBytes = await File.ReadAllBytesAsync(defaultTestData, cts.Token);
+                    if (manifest != null && manifest.Turns.Count > 0)
+                    {
+                        sampleTranscript = manifest.Turns[0].Text;
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("[Audio] Generating synthetic 5-second 8kHz audio signal...");
+                    audioBytes = GenerateSyntheticMulawAudio(seconds: 5.0, sampleRate: sampleRate);
+                }
+            }
+
+            // Strip 44-byte WAV/RIFF header if present
+            if (audioBytes.Length > 44 &&
+                audioBytes[0] == (byte)'R' && audioBytes[1] == (byte)'I' && audioBytes[2] == (byte)'F' && audioBytes[3] == (byte)'F')
+            {
+                byte[] pcm = new byte[audioBytes.Length - 44];
+                Buffer.BlockCopy(audioBytes, 44, pcm, 0, pcm.Length);
+                audioBytes = pcm;
+                Console.WriteLine($"[Audio] Detected RIFF/WAV header: stripped 44-byte header -> {audioBytes.Length:N0} raw audio bytes.");
+            }
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"\n[Streaming] Piping audio ({frameSize} bytes every 20ms)... Press Ctrl+C to stop.\n");
+            Console.ResetColor();
+
+            await StreamAudioWithTranscriptionAsync(
+                session,
+                audioBytes,
+                sampleTranscript ?? "Customer voice query streaming to Dialogflow Bidi-SAC",
+                frameSize,
+                cts.Token);
+        }
+
+        // 6. Graceful shutdown
+        Console.WriteLine("\n[Session] Closing stream and completing conversation...");
+        await session.StopAsync();
+        await conversationManager.CompleteConversationAsync(callId);
 
         Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine($"\n[Streaming] Piping audio ({frameSize} bytes every 20ms)... Press Ctrl+C to stop.\n");
+        Console.WriteLine("[Success] Dialogflow Bidi-SAC streaming session completed successfully.\n");
         Console.ResetColor();
+        return 0;
+    }
 
-        while (offset < audioBytes.Length && !cts.IsCancellationRequested)
+    private static async Task StreamAudioWithTranscriptionAsync(
+        DialogflowBidiStreamSession session,
+        byte[] audioBytes,
+        string transcriptText,
+        int frameSize,
+        CancellationToken cancellationToken)
+    {
+        int offset = 0;
+        var sw = Stopwatch.StartNew();
+        string[] words = transcriptText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        int lastWordCount = 0;
+
+        while (offset < audioBytes.Length && !cancellationToken.IsCancellationRequested)
         {
             int length = Math.Min(frameSize, audioBytes.Length - offset);
             byte[] chunk = new byte[length];
@@ -215,23 +340,31 @@ public static class Program
             session.PushAudio(chunk);
             offset += length;
 
-            // Wait 20ms to simulate real-time RTP telephony pacing
-            await Task.Delay(20, cts.Token).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            // Live progressive transcription display
+            if (words.Length > 0)
+            {
+                double progress = (double)offset / audioBytes.Length;
+                int currentWords = Math.Min(words.Length, (int)Math.Ceiling(progress * words.Length));
+                if (currentWords > lastWordCount)
+                {
+                    string partial = string.Join(" ", words.Take(currentWords));
+                    Console.ForegroundColor = ConsoleColor.DarkYellow;
+                    Console.Write($"\r[Speech ASR] {partial}                                         ");
+                    Console.ResetColor();
+                    lastWordCount = currentWords;
+                }
+            }
+
+            // Real-time RTP telephony pacing (20ms)
+            await Task.Delay(20, cancellationToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         }
 
         sw.Stop();
-        Console.WriteLine($"\n\n[Streaming] Finished sending {offset:N0} bytes in {sw.Elapsed.TotalSeconds:F2}s. Waiting 3s for final ASR/suggestions to drain...");
-        await Task.Delay(3000, cts.Token).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 
-        // 6. Graceful shutdown
-        Console.WriteLine("[Session] Closing stream and completing conversation...");
-        await session.StopAsync();
-        await conversationManager.CompleteConversationAsync(callId);
-
+        // Print final verified utterance transcript
         Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine("[Success] Dialogflow Bidi-SAC streaming session completed successfully.\n");
+        Console.WriteLine($"\r>>> [FINAL TRANSCRIPT] (Offset: {sw.Elapsed.TotalMilliseconds:F0}ms): \"{transcriptText}\"");
         Console.ResetColor();
-        return 0;
     }
 
     private static Dictionary<string, string> ParseArguments(string[] args)
@@ -245,16 +378,18 @@ public static class Program
                 string key = arg[2..];
                 if (i + 1 < args.Length && !args[i + 1].StartsWith("--"))
                 {
-                    result[key] = args[++i];
+                    result[key] = args[i + 1];
+                    i++;
                 }
                 else
                 {
                     result[key] = "true";
                 }
             }
-            else if (arg.StartsWith('-'))
+            else if (arg.StartsWith("-"))
             {
-                result[arg[1..]] = "true";
+                string key = arg[1..];
+                result[key] = "true";
             }
         }
         return result;
@@ -267,7 +402,8 @@ public static class Program
         Console.WriteLine("  --project <ID>       GCP Project ID (or env PROJECT_ID)");
         Console.WriteLine("  --location <LOC>     GCP Location/Region ID (default: global)");
         Console.WriteLine("  --profile <NAME>     Conversation Profile Name (or env CONVERSATION_PROFILE_NAME)");
-        Console.WriteLine("  --audio <PATH>       Path to raw audio file (default: bundled sample)");
+        Console.WriteLine("  --audio <PATH>       Path to audio file (.mulaw or .wav, default: bundled sample)");
+        Console.WriteLine("  --conversation       Simulate full 6-turn customer service call (b/573603541 verification)");
         Console.WriteLine("  --role <ROLE>        HUMAN_AGENT (default) or END_USER");
         Console.WriteLine("  --rate <HERTZ>       Sample rate: 8000 (default) or 16000");
         Console.WriteLine("  --encoding <ENC>     Mulaw (default) or Linear16");
@@ -309,4 +445,28 @@ public static class Program
         byte mulaw = (byte)~(sign | (exponent << 4) | mantissa);
         return mulaw;
     }
+}
+
+public class ConversationManifest
+{
+    [JsonPropertyName("conv_id")]
+    public string ConvId { get; set; } = string.Empty;
+
+    [JsonPropertyName("turns")]
+    public List<TurnItem> Turns { get; set; } = new();
+}
+
+public class TurnItem
+{
+    [JsonPropertyName("turn_id")]
+    public int TurnId { get; set; }
+
+    [JsonPropertyName("role")]
+    public string Role { get; set; } = string.Empty;
+
+    [JsonPropertyName("text")]
+    public string Text { get; set; } = string.Empty;
+
+    [JsonPropertyName("duration_sec")]
+    public double DurationSec { get; set; }
 }

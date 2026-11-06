@@ -62,7 +62,7 @@ test-load: ## Run load and stress tests only
 	$(CONTAINER_CLI) run --rm -v dotnet-nuget-cache:/root/.nuget -v $(PWD):/workspace -w /workspace mcr.microsoft.com/dotnet/sdk:8.0 dotnet test tests/DialogflowBidiStream.Tests/DialogflowBidiStream.Tests.csproj --filter "Category=Load"
 
 stream-cli: ## Stream audio via CLI runner (requires ADC: gcloud auth application-default login)
-	$(CONTAINER_CLI) run --rm $(TTY_FLAG) -v $(HOME)/.config/gcloud:/root/.config/gcloud:ro -v dotnet-nuget-cache:/root/.nuget -v $(PWD):/workspace -w /workspace -e PROJECT_ID="$(PROJECT_ID)" -e LOCATION_ID="$(LOCATION_ID)" -e CONVERSATION_PROFILE_NAME="$(CONVERSATION_PROFILE_NAME)" mcr.microsoft.com/dotnet/sdk:8.0 dotnet run --project samples/CliStreamer -- --project "$(PROJECT_ID)" --location "$(LOCATION_ID)" --profile "$(CONVERSATION_PROFILE_NAME)"
+	$(CONTAINER_CLI) run --rm $(TTY_FLAG) -v $(HOME)/.config/gcloud:/root/.config/gcloud:ro -v dotnet-nuget-cache:/root/.nuget -v $(PWD):/workspace -w /workspace -e PROJECT_ID="$(PROJECT_ID)" -e LOCATION_ID="$(LOCATION_ID)" -e CONVERSATION_PROFILE_NAME="$(CONVERSATION_PROFILE_NAME)" mcr.microsoft.com/dotnet/sdk:8.0 dotnet run --project samples/CliStreamer -- --project "$(PROJECT_ID)" --location "$(LOCATION_ID)" --profile "$(CONVERSATION_PROFILE_NAME)" $(ARGS)
 
 clean: down ## Clean up containers and build artifacts
 	$(CONTAINER_CLI) image rm -f dotnet-dialogflow-test 2>/dev/null || true

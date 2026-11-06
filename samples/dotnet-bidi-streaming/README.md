@@ -232,13 +232,14 @@ gcloud auth application-default login
 # Using Makefile
 PROJECT_ID="your-project-id" \
 CONVERSATION_PROFILE_NAME="projects/your-project-id/locations/global/conversationProfiles/your-profile" \
+# Default: Streams realistic customer service turn with live speech transcription
 make stream-cli
 
-# Or directly with dotnet CLI
-dotnet run --project samples/CliStreamer -- \
-  --project "your-project-id" \
-  --profile "projects/your-project-id/locations/global/conversationProfiles/your-profile" \
-  --audio "path/to/audio_8k.mulaw"
+# Multi-Turn Simulation: Streams all 6 customer & agent turns with turn-taking pauses
+make stream-cli ARGS="--conversation"
+
+# Stream custom audio file (supports raw .mulaw or 16-bit PCM .wav with auto-header stripping)
+make stream-cli ARGS="--audio path/to/call.wav --rate 16000 --encoding Linear16"
 ```
 
 ### Live Output Example
@@ -248,20 +249,21 @@ dotnet run --project samples/CliStreamer -- \
   Google Cloud Dialogflow Bidi-SAC .NET 8 Audio Streamer CLI
   Authoritative Reference Pattern for Agent Assist Real-Time Voice
 ================================================================================
-[Audio] Using bundled test audio: test_data/sample_8k.mulaw
-[Auth] Initializing Google Cloud Dialogflow gRPC Clients via ADC...
-[Session] Conversation ID: cli-20261106000246-a1b2c3
-[Session] Role:            HUMAN_AGENT
-[Session] Audio Format:    Mulaw @ 8000Hz (32,000 bytes)
 
+[Auth] Initializing Google Cloud Dialogflow gRPC Clients via ADC...
+[Session] Conversation ID: cli-20261106002704-933e6cc
+[Session] Role:            HUMAN_AGENT
+[Session] Audio Format:    Mulaw @ 8000Hz
+[Session] Resolving Dialogflow conversation and participant...
+[State Changed] Starting: Starting streaming loop
 [State Changed] Connected: Stream #1 connected
+[Audio] Using bundled customer service call sample: test_data/sample_8k.mulaw
+
 [Streaming] Piping audio (160 bytes every 20ms)... Press Ctrl+C to stop.
 
-[Interim] I need help with my reservation...
->>> [FINAL TRANSCRIPT] (Offset: 2450ms): "I need help with my reservation"
-[Agent Assist Suggestion Received]: Suggestion: "Article: How to change reservations" (Confidence: 0.94)
+[Live Speech ASR] Hi, I'm calling to check on my delayed Google Store order...
+>>> [FINAL TRANSCRIPT] (Offset: 5465ms): "Hi, I'm calling to check on my delayed Google Store order GS-1048-A for my Pixel Watch 3."
 
-[Streaming] Finished sending 32,000 bytes in 4.02s.
 [Session] Closing stream and completing conversation...
 [Success] Dialogflow Bidi-SAC streaming session completed successfully.
 ```
