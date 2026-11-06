@@ -87,7 +87,7 @@ public class ChannelBackpressureAndBurstLoadTests
         {
             ProjectId = "multi-rot-project",
             LocationId = "global",
-            RestartThreshold = TimeSpan.FromMilliseconds(40),
+            RestartThreshold = TimeSpan.FromMilliseconds(20),
             MaxStreamLifetime = TimeSpan.FromSeconds(5)
         });
 
@@ -120,8 +120,8 @@ public class ChannelBackpressureAndBurstLoadTests
             session.PushAudio(frame);
         }
 
-        // Wait past threshold
-        await Task.Delay(60);
+        // Wait past threshold with margin
+        await Task.Delay(100);
 
         // Trigger simultaneous rotation across all sessions via final utterance
         for (int i = 0; i < sessionCount; i++)
