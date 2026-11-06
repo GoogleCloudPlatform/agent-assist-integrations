@@ -9,6 +9,8 @@ A high-performance, production-grade .NET 8 C# reference architecture and librar
 
 Designed as an authoritative reference pattern for **NICE CXone** (whose connector runs on modern .NET 8 on Linux using `grpc-dotnet`), **Five9**, **Genesys Cloud**, and other enterprise Contact Center as a Service (CCaaS) platforms integrating with Google Cloud Agent Assist.
 
+![Dialogflow .NET 8 Bidi-SAC Live Streaming Demo](dotnet-stream-test.gif)
+
 ---
 
 ## Architecture & Problem Overview
