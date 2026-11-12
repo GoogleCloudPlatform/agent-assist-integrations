@@ -60,7 +60,7 @@ POST_TIMEOUT = aiohttp.ClientTimeout(connect=10.0, sock_read=10.0)
 GET_TIMEOUT = aiohttp.ClientTimeout(connect=10.0, sock_read=60.0)
 
 # Transient backchannel GET failures (connection errors, connect timeouts,
-# credential refresh transport errors, 429/5xx) retry with exponential backoff
+# credential refresh errors, 429/5xx) retry with exponential backoff
 # (1s, 2s, 4s); frames received in between reset the retry budget. A GET that
 # ends without delivering a frame (idle timeout or an immediate empty 200) also
 # spends one retry so a misbehaving server cannot drive a tight reconnect loop.
@@ -171,18 +171,14 @@ def _utf16_chunk_end(buffer: str, start: int, size: int) -> int | None:
     """Returns the index just past `size` UTF-16 code units from `start`."""
     # The server counts chunk lengths in UTF-16 code units, so a character
     # above U+FFFF (such as an emoji) takes 2 units but 1 Python character.
-    # Returns None while the buffer does not yet hold the whole chunk; every
-    # character is at least one unit, so a short buffer needs no scan.
-    if len(buffer) - start < size:
+    # A chunk spans at most `size` characters; encoding that many measures it
+    # in the server's units, and None means it is still arriving. A prefix
+    # that splits a surrogate pair keeps the whole character (surrogatepass).
+    encoded = buffer[start:start + size].encode("utf-16-le", "surrogatepass")
+    if len(encoded) < 2 * size:
         return None
-    units = 0
-    end = start
-    while units < size:
-        if end >= len(buffer):
-            return None
-        units += 2 if ord(buffer[end]) > 0xFFFF else 1
-        end += 1
-    return end
+    chunk = encoded[:2 * size].decode("utf-16-le", "surrogatepass")
+    return start + len(chunk)
 
 
 def _extract_webchannel_chunks(buffer: str) -> tuple[list[str], str]:
@@ -226,7 +222,7 @@ def _refresh_credentials(credentials):
 def _error_message(error_payload: dict[str, Any]) -> str:
     error = error_payload["error"]
     if isinstance(error, dict):
-        return error.get("message", str(error))
+        return str(error.get("message") or error)
     return str(error)
 
 
@@ -504,7 +500,10 @@ class WebChannelClient:
                 # Idle backchannel: nothing arrived within the sock_read limit.
                 failure = "idle"
             except (aiohttp.ClientError, asyncio.TimeoutError,
-                    google_auth_exceptions.TransportError) as e:
+                    google_auth_exceptions.TransportError,
+                    google_auth_exceptions.RefreshError) as e:
+                # Compute Engine credentials (Cloud Run) report a failed
+                # refresh as RefreshError rather than TransportError.
                 failure = e
             except Exception as e:  # pylint: disable=broad-exception-caught
                 self._emit_error(str(e))

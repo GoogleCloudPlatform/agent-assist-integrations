@@ -280,6 +280,11 @@ class TestWebChannelDataTransforms(unittest.TestCase):
 
     def test_extract_webchannel_chunks_counts_utf16_code_units(self):
         wave_frame = f'[[1,["{WAVE}"]]]'  # 11 characters, 12 code units.
+        chunks, remaining = webchannel._extract_webchannel_chunks(
+            f"12\n{wave_frame}")
+        self.assertEqual(chunks, [wave_frame])
+        self.assertEqual(remaining, "")
+
         buffer = f'12\n{wave_frame}12\n[[2,["ok"]]]'
         chunks, remaining = webchannel._extract_webchannel_chunks(buffer)
         self.assertEqual(chunks, [wave_frame, '[[2,["ok"]]]'])
@@ -323,6 +328,14 @@ class TestWebChannelDataTransforms(unittest.TestCase):
                 "type": "error",
                 "aid": 1,
                 "payload": "bad request"
+            }])
+
+        null_message_chunk = '[[1, [{"error": {"message": null}}]]]'
+        self.assertEqual(
+            webchannel._decode_webchannel_payload(null_message_chunk), [{
+                "type": "error",
+                "aid": 1,
+                "payload": "{'message': None}"
             }])
 
         invalid_chunks = ["", "not a json"]
@@ -526,11 +539,12 @@ class TestWebChannelClient(unittest.TestCase):
         self.assertTrue(client.stopped)
 
     @mock.patch("webchannel.BACKCHANNEL_RETRY_BASE_SECONDS", 0)
-    def test_backchannel_retries_5xx_and_refresh_transport_errors(self):
+    def test_backchannel_retries_5xx_and_credential_refresh_errors(self):
         session = FakeSession(
             [_init_response(), _post_response()], [
                 FakeResponse(status=503, text="unavailable"),
-                google_auth_exceptions.TransportError("metadata server"),
+                google_auth_exceptions.TransportError("token endpoint"),
+                google_auth_exceptions.RefreshError("metadata server"),
                 _close_response(DATA_FRAME),
             ])
 
@@ -538,7 +552,7 @@ class TestWebChannelClient(unittest.TestCase):
 
         self.assertEqual(events["data"], [DATA_PAYLOAD])
         self.assertEqual(events["errors"], [])
-        self.assertEqual(len(session.get_urls), 3)
+        self.assertEqual(len(session.get_urls), 4)
         self.assertTrue(client.stopped)
 
     def test_backchannel_4xx_closes_stream(self):
