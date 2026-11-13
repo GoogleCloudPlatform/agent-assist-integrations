@@ -555,6 +555,19 @@ class TestRestAPI(unittest.TestCase):
         self.assertEqual(response.headers["Content-Type"],
                          "text/html; charset=utf-8")
 
+    def test_dialogflow_invalid_location(self):
+        """Rejects locations that would change the Dialogflow host."""
+        client = app.test_client()
+        with patch("dialogflow.get_dialogflow") as mock_get_dialogflow:
+            for location in ("evil.example%23", "evil.example%3f", "a@b"):
+                response = client.get(
+                    f"/v2beta1/projects/{_PROJECT_ID}/locations/{location}/"
+                    f"conversations/{self.conversation_id}",
+                    headers={"Authorization": self.valid_jwt},
+                )
+                self.assertEqual(response.status_code, 400, location)
+        mock_get_dialogflow.assert_not_called()
+
 
 class TestDialogflowModule(unittest.TestCase):
     """Unit tests for dialogflow.py helper functions and session handling."""
@@ -569,6 +582,18 @@ class TestDialogflowModule(unittest.TestCase):
         mock_session = MagicMock()
         with patch.object(dialogflow, "AUTHED_SESSION", mock_session):
             self.assertEqual(dialogflow._get_authed_session(), mock_session)
+
+    def test_get_target_url(self):
+        self.assertEqual(dialogflow.get_target_url("global", "v2/path"),
+                         "https://dialogflow.googleapis.com/v2/path")
+        self.assertEqual(
+            dialogflow.get_target_url("us-central1", "v2/path"),
+            "https://us-central1-dialogflow.googleapis.com/v2/path")
+
+    def test_get_target_url_rejects_host_injection(self):
+        for location in ("evil.example#", "evil.example/", "a@b", "", "US"):
+            with self.assertRaises(ValueError, msg=location):
+                dialogflow.get_target_url(location, "v2/path")
 
 
 class TestHttpStreamingCompanion(unittest.TestCase):
@@ -585,6 +610,9 @@ class TestHttpStreamingCompanion(unittest.TestCase):
         res_global = "projects/p1/conversations/c1/participants/p1"
         match_global = main.LOCATION_REGEX.search(res_global)
         self.assertIsNone(match_global)
+
+        res_injected = "projects/p1/locations/evil.example#/conversations/c1"
+        self.assertIsNone(main.LOCATION_REGEX.search(res_injected))
 
     @patch("main.socketio.emit")
     def test_handle_stream_request_missing_method(self, mock_emit):
