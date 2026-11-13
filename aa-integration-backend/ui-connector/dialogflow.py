@@ -14,6 +14,7 @@
 """Dialogflow client and session management for UI connector."""
 
 import logging
+import re
 
 import google.auth
 from google.auth.transport.requests import AuthorizedSession
@@ -21,6 +22,8 @@ from google.cloud import dialogflow_v2beta1 as dialogflow
 
 ROLES = ["HUMAN_AGENT", "AUTOMATED_AGENT", "END_USER"]
 LANGUAGE_CODE = "en-US"
+# Dialogflow location ids; anything else must not reach the target URL.
+LOCATION_ID_REGEX = re.compile(r"[a-z0-9-]+")
 
 # static variables for dialogflow client
 CONVERSATIONS_CLIENT = dialogflow.ConversationsClient()
@@ -46,6 +49,10 @@ def _get_authed_session():
 
 def get_target_url(location, path):
     """Returns target URL for Dialogflow API requests."""
+    # `location` is spliced into the host that receives the service account's
+    # bearer token, so anything but a plain location id is rejected.
+    if not LOCATION_ID_REGEX.fullmatch(location):
+        raise ValueError(f"Invalid Dialogflow location: {location!r}")
     if location == "global":
         return f"https://dialogflow.googleapis.com/{path}"
     return f"https://{location}-dialogflow.googleapis.com/{path}"
