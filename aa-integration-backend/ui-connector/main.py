@@ -41,6 +41,9 @@ socketio = SocketIO(app, cors_allowed_origins=config.CORS_ALLOWED_ORIGINS)
 load_jwt_secret_key()
 
 LOCATION_REGEX = re.compile(r"projects/[^/]+/locations/([a-z0-9-]+)(?:/|$)")
+# Decoded request paths that only name a Dialogflow resource: plain segments,
+# no `.` or `..`. Anything else could retarget the proxied request.
+RESOURCE_PATH_REGEX = re.compile(r"(?:/(?!\.{1,2}(?:/|$))[A-Za-z0-9_.:-]+)+")
 
 STREAMING_METHODS = {
     "streaming_reactive_companion_suggestions": {
@@ -159,7 +162,8 @@ def register_app_token():
 
 def call_dialogflow(version, project, location, tail):  # pylint: disable=unused-argument
     """Forwards valid request to dialogflow and return its response."""
-    if not dialogflow.LOCATION_ID_REGEX.fullmatch(location):
+    if not (dialogflow.LOCATION_ID_REGEX.fullmatch(location) and
+            RESOURCE_PATH_REGEX.fullmatch(request.path)):
         return make_response("Bad request", 400)
     logging.info("Called Dialogflow for request path: %s", request.full_path)
     if request.method == "GET":

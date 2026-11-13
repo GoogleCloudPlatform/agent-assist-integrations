@@ -568,6 +568,26 @@ class TestRestAPI(unittest.TestCase):
                 self.assertEqual(response.status_code, 400, location)
         mock_get_dialogflow.assert_not_called()
 
+    def test_dialogflow_invalid_path(self):
+        """Rejects a path that would retarget the proxied request."""
+        client = app.test_client()
+        with patch("dialogflow.get_dialogflow") as mock_get_dialogflow:
+            response = client.get(
+                f"/v2beta1/projects/{_PROJECT_ID}/locations/{_LOCATION}/"
+                "conversations/%2e%2e/%2e%2e/agent",
+                headers={"Authorization": self.valid_jwt},
+            )
+        self.assertEqual(response.status_code, 400)
+        mock_get_dialogflow.assert_not_called()
+
+    def test_resource_path_regex(self):
+        valid = ("/v2beta1/projects/example.com:p1/locations/global/"
+                 "conversations/c1/participants/p1:analyzeContent")
+        self.assertIsNotNone(main.RESOURCE_PATH_REGEX.fullmatch(valid))
+        for path in ("/v2/..", "/v2/../x", "/v2/./x", "/v2//x", "/v2/x/",
+                     "/v2/x#y", "/v2/x?y", "/v2/x%2e", "/v2/x\\y"):
+            self.assertIsNone(main.RESOURCE_PATH_REGEX.fullmatch(path), path)
+
 
 class TestDialogflowModule(unittest.TestCase):
     """Unit tests for dialogflow.py helper functions and session handling."""
