@@ -161,6 +161,7 @@ resource "google_cloud_run_v2_service" "ui_connector" {
       # Add to prevent violation: "max_instance_count: must be greater or equal than min_instance_count.""
       max_instance_count = 100
     }
+    max_instance_request_concurrency = 80
     vpc_access {
       network_interfaces {
         network    = "default"
@@ -211,6 +212,7 @@ resource "google_cloud_run_v2_service" "cloud_pubsub_interceptor" {
       # Add to prevent violation: "max_instance_count: must be greater or equal than min_instance_count.""
       max_instance_count = 100
     }
+    max_instance_request_concurrency = 80
     vpc_access {
       network_interfaces {
         network    = "default"
