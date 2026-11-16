@@ -17,6 +17,7 @@ import asyncio
 import codecs
 import json
 import logging
+import os
 import random
 import re
 import threading
@@ -75,6 +76,9 @@ MAX_CHUNK_UTF16_UNITS = 4 * 1024 * 1024
 WEBCHANNEL_SID_REGEX = re.compile(r'\[\s*"c"\s*,\s*"([^"]+)"')
 # Dialogflow location ids; anything else must not reach the endpoint URL.
 LOCATION_ID_REGEX = re.compile(r"[a-z0-9-]+")
+DEFAULT_WEBCHANNEL_GLOBAL_HOST = "global-dialogflow-webchannel.googleapis.com"
+DEFAULT_WEBCHANNEL_REGIONAL_HOST_TEMPLATE = (
+    "{location}-dialogflow-webchannel.googleapis.com")
 
 # Serializes credential refreshes, which run on executor threads, so streams
 # that share expired credentials trigger a single token request.
@@ -136,8 +140,15 @@ def get_streaming_rpc_url(channel_path: str, location: str) -> str:
     # bearer token, so anything but a plain location id is rejected.
     if not LOCATION_ID_REGEX.fullmatch(location):
         raise ValueError(f"Invalid Dialogflow location: {location!r}")
-    prefix = f"https://{location}-dialogflow-webchannel.googleapis.com/"
-    return f"{prefix}{channel_path}"
+    if location == "global":
+        host = (os.environ.get("DIALOGFLOW_WEBCHANNEL_GLOBAL_HOST") or
+                DEFAULT_WEBCHANNEL_GLOBAL_HOST)
+    else:
+        template = (
+            os.environ.get("DIALOGFLOW_WEBCHANNEL_REGIONAL_HOST_TEMPLATE") or
+            DEFAULT_WEBCHANNEL_REGIONAL_HOST_TEMPLATE)
+        host = template.format(location=location)
+    return f"https://{host}/{channel_path}"
 
 
 def _format_webchannel_message(requests, ofs=0, count=None):

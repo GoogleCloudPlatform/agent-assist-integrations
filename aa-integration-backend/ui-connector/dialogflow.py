@@ -14,6 +14,7 @@
 """Dialogflow client and session management for UI connector."""
 
 import logging
+import os
 import re
 
 import google.auth
@@ -24,6 +25,9 @@ ROLES = ["HUMAN_AGENT", "AUTOMATED_AGENT", "END_USER"]
 LANGUAGE_CODE = "en-US"
 # Dialogflow location ids; anything else must not reach the target URL.
 LOCATION_ID_REGEX = re.compile(r"[a-z0-9-]+")
+DEFAULT_DIALOGFLOW_GLOBAL_HOST = "dialogflow.googleapis.com"
+DEFAULT_DIALOGFLOW_REGIONAL_HOST_TEMPLATE = (
+    "{location}-dialogflow.googleapis.com")
 
 # static variables for dialogflow client
 CONVERSATIONS_CLIENT = dialogflow.ConversationsClient()
@@ -54,8 +58,13 @@ def get_target_url(location, path):
     if not LOCATION_ID_REGEX.fullmatch(location):
         raise ValueError(f"Invalid Dialogflow location: {location!r}")
     if location == "global":
-        return f"https://dialogflow.googleapis.com/{path}"
-    return f"https://{location}-dialogflow.googleapis.com/{path}"
+        host = (os.environ.get("DIALOGFLOW_GLOBAL_HOST") or
+                DEFAULT_DIALOGFLOW_GLOBAL_HOST)
+    else:
+        template = (os.environ.get("DIALOGFLOW_REGIONAL_HOST_TEMPLATE") or
+                    DEFAULT_DIALOGFLOW_REGIONAL_HOST_TEMPLATE)
+        host = template.format(location=location)
+    return f"https://{host}/{path}"
 
 
 def get_dialogflow(location, path):

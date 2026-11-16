@@ -610,6 +610,27 @@ class TestDialogflowModule(unittest.TestCase):
             dialogflow.get_target_url("us-central1", "v2/path"),
             "https://us-central1-dialogflow.googleapis.com/v2/path")
 
+    def test_get_target_url_host_overrides(self):
+        env = {
+            "DIALOGFLOW_GLOBAL_HOST":
+                "custom-dialogflow.example.com",
+            "DIALOGFLOW_REGIONAL_HOST_TEMPLATE":
+                "custom-{location}-dialogflow.example.com",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            self.assertEqual(dialogflow.get_target_url("global", "v2/path"),
+                             "https://custom-dialogflow.example.com/v2/path")
+            self.assertEqual(
+                dialogflow.get_target_url("us-central1", "v2/path"),
+                "https://custom-us-central1-dialogflow.example.com/v2/path")
+        empty_env = {
+            "DIALOGFLOW_GLOBAL_HOST": "",
+            "DIALOGFLOW_REGIONAL_HOST_TEMPLATE": "",
+        }
+        with patch.dict(os.environ, empty_env, clear=False):
+            self.assertEqual(dialogflow.get_target_url("global", "v2/path"),
+                             "https://dialogflow.googleapis.com/v2/path")
+
     def test_get_target_url_rejects_host_injection(self):
         for location in ("evil.example#", "evil.example/", "a@b", "", "US"):
             with self.assertRaises(ValueError, msg=location):
