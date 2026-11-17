@@ -286,10 +286,14 @@ def call_dialogflow_with_tail(version, project, location, tail):
 @token_required
 def set_conversation_name():
     """Sets a conversationIntegrationKey:conversationName pair in Redis."""
-    body = request.get_json(silent=True) or {}
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return make_response("Bad request", 400)
     conversation_integration_key = body.get("conversationIntegrationKey", "")
     conversation_name = body.get("conversationName", "")
-    if not (conversation_integration_key and conversation_name):
+    if not (isinstance(conversation_integration_key, str) and
+            isinstance(conversation_name, str) and
+            conversation_integration_key and conversation_name):
         return make_response("Bad request", 400)
 
     hashed_key = hashlib.sha256(

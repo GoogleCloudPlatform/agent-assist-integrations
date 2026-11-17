@@ -115,6 +115,8 @@ def generate_jwt(user_info=None):
 
 def check_app_auth(auth):
     """Validates application-level authentication (e.g. Twilio)."""
+    if not isinstance(auth, dict):
+        return False
     if config.APP_AUTH_OPTION == 'Twilio':
         response = requests.get(config.TWILIO_ACCOUNTS_API_URL,
                                 auth=(auth.get('accountSid'),
