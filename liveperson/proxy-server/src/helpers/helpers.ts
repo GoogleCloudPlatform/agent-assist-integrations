@@ -55,10 +55,16 @@ export const getHandler = async (req: Request, res: Response) => {
     const url = getTargetUrl(req.originalUrl);
     const response = await client.request({ url });
     res.status(response.status).json(response.data);
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const error = err as {
+      response?: { status?: number; data?: unknown };
+      message?: string;
+    };
     res
-      .status(err?.response?.status || 400)
-      .json(err?.response?.data || { message: err?.message || 'Bad request' });
+      .status(error?.response?.status || 400)
+      .json(
+        error?.response?.data || { message: error?.message || 'Bad request' }
+      );
   }
 };
 
@@ -73,10 +79,16 @@ export const postHandler = async (req: Request, res: Response) => {
       body: req.body,
     });
     res.status(response.status).json(response.data);
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const error = err as {
+      response?: { status?: number; data?: unknown };
+      message?: string;
+    };
     res
-      .status(err?.response?.status || 400)
-      .json(err?.response?.data || { message: err?.message || 'Bad request' });
+      .status(error?.response?.status || 400)
+      .json(
+        error?.response?.data || { message: error?.message || 'Bad request' }
+      );
   }
 };
 
@@ -91,9 +103,15 @@ export const patchHandler = async (req: Request, res: Response) => {
       body: req.body,
     });
     res.status(response.status).json(response.data);
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const error = err as {
+      response?: { status?: number; data?: unknown };
+      message?: string;
+    };
     res
-      .status(err?.response?.status || 400)
-      .json(err?.response?.data || { message: err?.message || 'Bad request' });
+      .status(error?.response?.status || 400)
+      .json(
+        error?.response?.data || { message: error?.message || 'Bad request' }
+      );
   }
 };

@@ -53,7 +53,8 @@ class VoiceServicer(VoiceServicer):
         except StopAsyncIteration:
             return
 
-        presented_token = getattr(request.streaming_config, "trust_token", "")
+        presented_token = getattr(
+            getattr(request, "streaming_config", None), "trust_token", "")
         if (not FIVE9_TRUST_TOKEN or not isinstance(presented_token, str) or
                 not presented_token or
                 not hmac.compare_digest(presented_token, FIVE9_TRUST_TOKEN)):

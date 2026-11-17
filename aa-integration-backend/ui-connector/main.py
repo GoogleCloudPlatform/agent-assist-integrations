@@ -469,6 +469,7 @@ def on_join(message):
     servers_key = get_conversation_servers_key(conversation_name)
     pipe = redis_client.pipeline()
     pipe.sadd(servers_key, SERVER_ID)
+    pipe.expire(owner_key, config.CONVERSATION_ROUTING_TTL_SECONDS)
     pipe.expire(servers_key, config.CONVERSATION_ROUTING_TTL_SECONDS)
     pipe.execute()
     logging.info("join-conversation for: %s", conversation_name)
@@ -503,7 +504,6 @@ def on_leave(message):
             aa_user,
             conversation_name,
         )
-        leave_room(conversation_name)
         return False, "not authorized for this conversation"
     leave_room(conversation_name)
     # Other sockets on this instance may still be in the conversation (e.g.
