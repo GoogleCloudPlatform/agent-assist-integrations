@@ -358,23 +358,6 @@ def del_conversation_name():
 # arbitrary Redis key clobber via join/leave.
 _CONVERSATION_NAME_RE = re.compile(
     r"^projects/[A-Za-z0-9_.:-]+/conversations/[A-Za-z0-9_-]+$")
-# Redis key prefix binding a conversation to the first-joining agent identity.
-_CONV_OWNER_PREFIX = "convowner:"
-# Per-connection map of Socket.IO sid -> authenticated gcp_agent_assist_user.
-_sid_user: dict[str, str] = {}
-# In-memory map of conversation_name -> owner identity.
-_conv_owners: dict[str, str] = {}
-
-
-def _get_conv_owner(conversation_name: str) -> str | None:
-    """Returns the owner of a conversation from Redis or local state."""
-    owner_key = _CONV_OWNER_PREFIX + conversation_name
-    raw_owner = redis_client.get(owner_key)
-    if isinstance(raw_owner, bytes):
-        return raw_owner.decode("utf-8")
-    if isinstance(raw_owner, str):
-        return raw_owner
-    return _conv_owners.get(conversation_name)
 
 
 @socketio.on("connect")
@@ -384,12 +367,9 @@ def connect(auth=None):
         auth = {}
     logging.info("Receives connection request with sid: %s.", request.sid)
     if isinstance(auth, dict) and "token" in auth:
-        is_valid, log_info, payload = check_jwt(auth["token"],
-                                                return_payload=True)
+        is_valid, log_info = check_jwt(auth["token"])
         logging.info(log_info)
         if is_valid:
-            _sid_user[request.sid] = (payload or {}).get(
-                "gcp_agent_assist_user") or ""
             return True
     socketio.emit("unauthenticated", to=request.sid)
     raise SocketConnectionRefusedError("authentication failed")
@@ -400,7 +380,6 @@ def disconnect(reason):
     """Handles SocketIO client disconnection."""
     logging.info("Client disconnected, reason: %s, request.sid: %s", reason,
                  request.sid)
-    _sid_user.pop(request.sid, None)
     stream_ids = SOCKET_SESSION_IDS_TO_STREAMS.pop(request.sid, set())
     for stream_id in stream_ids:
         client = ACTIVE_STREAMS.pop(stream_id, None)
@@ -435,45 +414,11 @@ def on_join(message):
         logging.warning("join-conversation rejected (bad name): %s",
                         conversation_name)
         return False, "invalid conversation name"
-    aa_user = _sid_user.get(request.sid)
-    if aa_user is None:
-        return False, "unauthenticated"
-    # Bind the conversation to the first-joining agent identity. A different
-    # authenticated user attempting to join the same conversation is rejected
-    # so they cannot receive events addressed to the owner's room.
-    owner_key = _CONV_OWNER_PREFIX + conversation_name
-    existing_owner = _get_conv_owner(conversation_name)
-    if existing_owner is not None and existing_owner != aa_user:
-        logging.warning(
-            "join-conversation rejected (not owner): sid=%s user=%s conv=%s",
-            request.sid,
-            aa_user,
-            conversation_name,
-        )
-        return False, "not authorized for this conversation"
-    if not redis_client.set(
-            owner_key,
-            aa_user,
-            nx=True,
-            ex=config.CONVERSATION_ROUTING_TTL_SECONDS,
-    ):
-        owner = _get_conv_owner(conversation_name)
-        if owner is None or owner != aa_user:
-            logging.warning(
-                "join-conversation rejected (not owner): "
-                "sid=%s user=%s conv=%s",
-                request.sid,
-                aa_user,
-                conversation_name,
-            )
-            return False, "not authorized for this conversation"
-    _conv_owners[conversation_name] = aa_user
     join_room(conversation_name)
     # Add this instance to the conversation's routing set and refresh its TTL.
     servers_key = get_conversation_servers_key(conversation_name)
     pipe = redis_client.pipeline()
     pipe.sadd(servers_key, SERVER_ID)
-    pipe.expire(owner_key, config.CONVERSATION_ROUTING_TTL_SECONDS)
     pipe.expire(servers_key, config.CONVERSATION_ROUTING_TTL_SECONDS)
     pipe.execute()
     logging.info("join-conversation for: %s", conversation_name)
@@ -492,20 +437,15 @@ def on_leave(message):
         logging.warning("leave-conversation rejected (bad name): %s",
                         conversation_name)
         return False, "invalid conversation name"
-    aa_user = _sid_user.get(request.sid)
-    owner_key = _CONV_OWNER_PREFIX + conversation_name
-    owner = _get_conv_owner(conversation_name)
     server = socketio.server
     current_member_sids = ({
         p[0] if isinstance(p, tuple) else p
         for p in server.manager.get_participants("/", conversation_name)
     } if server else set())
-    if (owner is None or aa_user is None or owner != aa_user or
-            (server and request.sid not in current_member_sids)):
+    if server and request.sid not in current_member_sids:
         logging.warning(
-            "leave-conversation rejected (not owner): sid=%s user=%s conv=%s",
+            "leave-conversation rejected (not in room): sid=%s conv=%s",
             request.sid,
-            aa_user,
             conversation_name,
         )
         return False, "not authorized for this conversation"
@@ -518,8 +458,6 @@ def on_leave(message):
     if not remaining_local_members:
         redis_client.srem(get_conversation_servers_key(conversation_name),
                           SERVER_ID)
-        redis_client.delete(owner_key)
-        _conv_owners.pop(conversation_name, None)
     logging.info("leave-conversation for: %s", conversation_name)
     return True, conversation_name
 

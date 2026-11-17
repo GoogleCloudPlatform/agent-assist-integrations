@@ -257,41 +257,41 @@ class TestSocketIO(unittest.TestCase):
         client.disconnect()
 
     @patch("main.redis_client.pipeline")
-    def test_join_and_leave_rejects_different_user_owner(
+    def test_leave_rejects_non_member_socket_and_allows_multi_agent_join(
             self, unused_mock_pipeline):
-        """Prevents a different user from joining or leaving an owned conversation."""
-        victim_jwt = main.generate_jwt(
-            {"gcp_agent_assist_user": "victim@example.com"})
-        attacker_jwt = main.generate_jwt(
-            {"gcp_agent_assist_user": "attacker@evil.example"})
-        conversation = get_conversation_name("victim_conv_secret")
-        conv_no_loc = get_conversation_name_without_location(
-            "victim_conv_secret")
+        """Prevents a non-member socket from leaving while allowing multi-agent join."""
+        agent1_jwt = main.generate_jwt(
+            {"gcp_agent_assist_user": "agent1@example.com"})
+        agent2_jwt = main.generate_jwt(
+            {"gcp_agent_assist_user": "agent2@example.com"})
+        conversation = get_conversation_name("shared_conv_001")
+        conv_no_loc = get_conversation_name_without_location("shared_conv_001")
 
-        victim_client = socketio.test_client(app, auth={"token": victim_jwt})
-        attacker_client = socketio.test_client(app,
-                                               auth={"token": attacker_jwt})
+        agent1_client = socketio.test_client(app, auth={"token": agent1_jwt})
+        agent2_client = socketio.test_client(app, auth={"token": agent2_jwt})
 
-        ack_v, data_v = victim_client.emit("join-conversation",
+        ack_1, data_1 = agent1_client.emit("join-conversation",
                                            conversation,
                                            callback=True)
-        self.assertTrue(ack_v)
-        self.assertEqual(data_v, conv_no_loc)
+        self.assertTrue(ack_1)
+        self.assertEqual(data_1, conv_no_loc)
 
-        ack_a, data_a = attacker_client.emit("join-conversation",
-                                             conversation,
-                                             callback=True)
-        self.assertFalse(ack_a)
-        self.assertEqual(data_a, "not authorized for this conversation")
+        # Agent 2 has not joined yet; attempting to leave should be rejected.
+        ack_leave_2, data_leave_2 = agent2_client.emit("leave-conversation",
+                                                       conversation,
+                                                       callback=True)
+        self.assertFalse(ack_leave_2)
+        self.assertEqual(data_leave_2, "not authorized for this conversation")
 
-        ack_leave_a, data_leave_a = attacker_client.emit("leave-conversation",
-                                                         conversation,
-                                                         callback=True)
-        self.assertFalse(ack_leave_a)
-        self.assertEqual(data_leave_a, "not authorized for this conversation")
+        # Separate agents are allowed to join the same conversation (WAI).
+        ack_2, data_2 = agent2_client.emit("join-conversation",
+                                           conversation,
+                                           callback=True)
+        self.assertTrue(ack_2)
+        self.assertEqual(data_2, conv_no_loc)
 
-        victim_client.disconnect()
-        attacker_client.disconnect()
+        agent1_client.disconnect()
+        agent2_client.disconnect()
 
     def test_redis_pubsub_handler(self):
         """Handles Redis Pub/Sub messages."""

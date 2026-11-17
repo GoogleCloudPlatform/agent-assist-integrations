@@ -66,14 +66,10 @@ def check_auth(token):
     return False
 
 
-def check_jwt(token, return_payload=False):
+def check_jwt(token):
     """Validates and decodes a JWT token."""
-
-    def _ret(ok, msg, payload=None):
-        return (ok, msg, payload) if return_payload else (ok, msg)
-
     if not isinstance(token, str) or not token:
-        return _ret(False, 'Failed to parse your token.')
+        return False, 'Failed to parse your token.'
     try:
         load_jwt_secret_key()
         if token.startswith('Bearer '):
@@ -81,18 +77,18 @@ def check_jwt(token, return_payload=False):
         # Decode the payload to fetch the stored details.
         data = jwt.decode(token, jwt_secret_key, algorithms=['HS256'])
         if 'gcp_agent_assist_project' not in data:
-            return _ret(False, 'The target project in your token is missing.')
+            return False, 'The target project in your token is missing.'
         if data['gcp_agent_assist_project'] != config.GCP_PROJECT_ID:
-            return _ret(False, 'The target project in your token is invalid.')
+            return False, 'The target project in your token is invalid.'
         if 'exp' not in data:
-            return _ret(False, 'The expiration time in your token is missing.')
+            return False, 'The expiration time in your token is missing.'
         if data['exp'] < datetime.now().timestamp():
-            return _ret(False, 'Your token has expired.')
-        return _ret(True, 'Your token is valid.', data)
+            return False, 'Your token has expired.'
+        return True, 'Your token is valid.'
     except ValueError as e:
-        return _ret(False, str(e))
+        return False, str(e)
     except (jwt.PyJWTError, KeyError, IndexError, TypeError):
-        return _ret(False, 'Failed to parse your token.')
+        return False, 'Failed to parse your token.'
 
 
 def generate_jwt(user_info=None):
