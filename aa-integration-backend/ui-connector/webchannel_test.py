@@ -17,6 +17,7 @@
 
 import asyncio
 import json
+import os
 import re
 import threading
 import time
@@ -205,6 +206,36 @@ class TestWebChannelUrlHelpers(unittest.TestCase):
             "https://us-central1-dialogflow-webchannel.googleapis.com/" +
             channel_path,
         )
+
+    def test_get_streaming_rpc_url_host_overrides(self):
+        channel_path = ("google.cloud.dialogflow.v2beta1.Participants/"
+                        "StreamingReactiveCompanionSuggestions/channel")
+        env = {
+            "DIALOGFLOW_WEBCHANNEL_GLOBAL_HOST":
+                "custom-webchannel.example.com",
+            "DIALOGFLOW_WEBCHANNEL_REGIONAL_HOST_TEMPLATE":
+                "custom-{location}-webchannel.example.com",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            self.assertEqual(
+                webchannel.get_streaming_rpc_url(channel_path, "global"),
+                "https://custom-webchannel.example.com/" + channel_path,
+            )
+            self.assertEqual(
+                webchannel.get_streaming_rpc_url(channel_path, "us-central1"),
+                "https://custom-us-central1-webchannel.example.com/" +
+                channel_path,
+            )
+        empty_env = {
+            "DIALOGFLOW_WEBCHANNEL_GLOBAL_HOST": "",
+            "DIALOGFLOW_WEBCHANNEL_REGIONAL_HOST_TEMPLATE": "",
+        }
+        with mock.patch.dict(os.environ, empty_env, clear=False):
+            self.assertEqual(
+                webchannel.get_streaming_rpc_url(channel_path, "global"),
+                "https://global-dialogflow-webchannel.googleapis.com/" +
+                channel_path,
+            )
 
     def test_get_streaming_rpc_url_rejects_host_injection(self):
         for location in ("evil.example#", "evil.example/", "a@b", "", "US"):
