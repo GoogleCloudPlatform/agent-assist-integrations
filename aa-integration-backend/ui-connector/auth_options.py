@@ -121,23 +121,36 @@ def check_genesyscloud_token(token):
     Reference: https://developer.genesys.cloud/devapps/api-explorer#get-api-v2-users-me
 
     """
-    # Prepare for GET /api/v2/authorization/roles request.
+    # Prepare for GET /api/v2/users/me request.
     request_headers = {"Authorization": "Bearer " + token}
     response = requests.get(
-        f"https://api.{config.GENESYS_CLOUD_REGION}/api/v2/users/me",
+        f"https://api.{config.GENESYS_CLOUD_REGION}/api/v2/users/me?expand=organization",
         headers=request_headers,
+        timeout=10,
     )
     # Check response.
     if response.status_code == 200:
         response_json = response.json()
-        logging.info("Verifying user {}.".format(response_json["id"]))
-        # Genesys cloud response does not have organization to check
-        return True
+        logging.info("Verifying user %s.", response_json.get("id"))
+        # Check the user's organization.
+        if not config.GENESYS_CLOUD_ORGANIZATION_ID:
+            logging.warning(
+                "GENESYS_CLOUD_ORGANIZATION_ID is not configured; rejecting token."
+            )
+            return False
+        user_org = (response_json.get("organization") or {}).get("id")
+        if user_org == config.GENESYS_CLOUD_ORGANIZATION_ID:
+            return True
+        else:
+            logging.warning(
+                "The organization of user %s is not allowed.",
+                response_json.get("id"),
+            )
     else:
         logging.warning(
-            "Failed to verify the access token, {0}, {1}.".format(
-                response.status_code, response.reason
-            )
+            "Failed to verify the access token, %s, %s.",
+            response.status_code,
+            response.reason,
         )
     return False
 

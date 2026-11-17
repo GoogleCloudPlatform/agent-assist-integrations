@@ -39,7 +39,8 @@ logging.basicConfig(filename=os.environ.get(
 # The path to a jwt secret key file. It is specified when mounting the secret key
 # stored in SecretManager to Cloud Run service as a volume.
 # Reference: https://cloud.google.com/run/docs/configuring/secrets#mounting-secrets.
-JWT_SECRET_KEY_PATH = '/secret/jwt_secret_key'
+JWT_SECRET_KEY_PATH = os.environ.get('JWT_SECRET_KEY_PATH',
+                                     '/secret/jwt_secret_key')
 
 # TODO replace '*' with a list of allowed origins to limit the access to your server.
 # Origin or list of origins that are allowed to connect to this server.
@@ -74,6 +75,7 @@ SALESFORCE_ORGANIZATION_ID = os.environ.get('SALESFORCE_ORGANIZATION_ID', 'YOUR_
 
 # Genesys Cloud configuration.
 GENESYS_CLOUD_REGION = os.environ.get('GENESYS_CLOUD_REGION', 'mypurecloud.com')
+GENESYS_CLOUD_ORGANIZATION_ID = os.environ.get('GENESYS_CLOUD_ORGANIZATION_ID')
 
 # Twilio configuration.
 TWILIO_FLEX_ENVIRONMENT = os.environ.get('TWILIO_FLEX_ENVIRONMENT', 'YOUR_DOMAIN.twil.io')

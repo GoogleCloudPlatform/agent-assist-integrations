@@ -15,13 +15,14 @@
 """ Module for receiving audio streaming from Audiohook Monitor and
 call Agent Assist backend
 """
+import hmac
 import json
 import logging
 from dataclasses import dataclass, field
 from threading import Thread
 
 import numpy as np
-from flask import Blueprint
+from flask import Blueprint, request
 from flask_sock import Sock
 from google.api_core.exceptions import NotFound
 from google.cloud import dialogflow_v2beta1 as dialogflow
@@ -205,6 +206,13 @@ def audiohook_connect(ws: Server):
     Args:
         ws (Server): Websocket server for exchange messages
     """
+    client_api_key = request.headers.get("X-API-KEY", "")
+    if not config.api_key or not hmac.compare_digest(
+            client_api_key, config.api_key):
+        logging.warning(
+            "Rejecting Audiohook connection: missing or invalid X-API-KEY")
+        ws.close(reason=1008, message="invalid api key")
+        return
     run_audiohook_connection(ws)
 
 

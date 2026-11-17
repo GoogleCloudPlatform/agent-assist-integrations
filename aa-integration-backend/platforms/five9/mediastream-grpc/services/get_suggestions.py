@@ -14,6 +14,7 @@
 
 """Service implementation for Five9 VoiceStream."""
 
+import hmac
 import logging
 import os
 import grpc
@@ -34,6 +35,7 @@ from google.cloud.dialogflow_v2beta1.types import AnalyzeContentResponse
 load_dotenv(".env")
 
 CONVERSATION_PROFILE_NAME = os.getenv("CONVERSATION_PROFILE_NAME", "")
+FIVE9_TRUST_TOKEN = os.getenv("FIVE9_TRUST_TOKEN", "")
 PROJECT_ID = os.getenv("PROJECT_ID", "")
 RESTART_TIMEOUT = int(os.getenv("RESTART_TIMEOUT", 60 * 15 - 10))
 RESTART_THRESHOLD = max(10, RESTART_TIMEOUT - 20)
@@ -46,7 +48,22 @@ class VoiceServicer(VoiceServicer):
         context: grpc.ServicerContext,
     ):
         """Streams audio to Dialogflow and returns suggestions."""
-        request = await request_iterator.__anext__()
+        try:
+            request = await request_iterator.__anext__()
+        except StopAsyncIteration:
+            return
+
+        presented_token = getattr(request.streaming_config, "trust_token", "")
+        if (not FIVE9_TRUST_TOKEN or not isinstance(presented_token, str) or
+                not presented_token or
+                not hmac.compare_digest(presented_token, FIVE9_TRUST_TOKEN)):
+            logging.warning(
+                "StreamingVoice rejected: invalid or missing trust_token")
+            await context.abort(
+                grpc.StatusCode.UNAUTHENTICATED,
+                "invalid or missing trust_token",
+            )
+            return
 
         try:
             streaming_config = request.streaming_config
