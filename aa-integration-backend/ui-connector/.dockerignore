@@ -1,0 +1,18 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local environment / secrets
+.env
+*.env
+.venv/
+
+# Caches and test files
+.pytest_cache/
+.coverage
+htmlcov/
+unit_test.py
+*_test.py
+test_*.py
+tests/

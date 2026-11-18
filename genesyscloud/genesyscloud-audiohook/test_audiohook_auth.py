@@ -14,13 +14,15 @@
 """Unit tests for Genesys AudioHook WebSocket /connect X-API-KEY authentication."""
 
 import os
+import secrets
 import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
 from flask import Flask
 
-os.environ.setdefault("API_KEY", "test-audiohook-api-key")
+_TEST_AUDIOHOOK_KEY = secrets.token_urlsafe(16)
+os.environ.setdefault("API_KEY", _TEST_AUDIOHOOK_KEY)
 os.environ.setdefault(
     "CONVERSATION_PROFILE_NAME",
     "projects/test-proj/locations/global/conversationProfiles/test-prof",
@@ -71,10 +73,25 @@ class TestAudiohookConnectAuth(unittest.TestCase):
         """Proceeds to run_audiohook_connection when X-API-KEY matches."""
         ws = MagicMock()
         with self.app.test_request_context(
-                "/connect", headers={"X-API-KEY": "test-audiohook-api-key"}):
+                "/connect",
+                headers={"X-API-KEY": audiohook_blueprint.config.api_key}):
             audiohook_blueprint.audiohook_connect(ws)
         ws.close.assert_not_called()
         mock_run.assert_called_once_with(ws)
+
+    def test_invalid_json_log_escapes_crlf(self):
+        """Ensures malformed WebSocket JSON frames escape CRLF in logs."""
+        ws = MagicMock()
+        ws.receive.side_effect = [
+            "not-json\r\nFAKE_LOG: injected",
+            '{"type": "close"}',
+        ]
+        with self.assertLogs(level="WARNING") as captured:
+            audiohook_blueprint.handle_audiohook_session(
+                ws, MagicMock(), MagicMock())
+        for line in captured.output:
+            self.assertNotIn("\r", line)
+            self.assertNotIn("\n", line)
 
 
 if __name__ == "__main__":

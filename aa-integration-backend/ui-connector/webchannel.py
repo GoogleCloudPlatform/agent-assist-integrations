@@ -17,8 +17,8 @@ import asyncio
 import codecs
 import json
 import logging
-import random
 import re
+import secrets
 import threading
 from typing import Any
 import urllib.parse
@@ -270,7 +270,7 @@ def _decode_webchannel_payload(chunk_text: str) -> list[dict[str, Any]]:
                 })
         return results
     except (TypeError, ValueError) as e:  # Not JSON, or not `[aid, body]`.
-        logging.exception("Failed to parse WebChannel response: %s", e)
+        logging.exception("Failed to parse WebChannel response: %s", repr(e))
         return [{"type": "error", "payload": f"Error parsing response: {e}"}]
 
 
@@ -328,7 +328,7 @@ class WebChannelClient:
         self.on_close_cb = callback
 
     def _emit_error(self, err_msg):
-        logging.error("WebChannel Error: %s", err_msg)
+        logging.error("WebChannel Error: %s", repr(err_msg))
         if self.on_error_cb:
             self.on_error_cb(err_msg)
 
@@ -356,13 +356,13 @@ class WebChannelClient:
         if self.stopped:
             return
         self.stopped = True
-        logging.info("WebChannel stream stopped (reason: %s)", reason)
+        logging.info("WebChannel stream stopped (reason: %s)", repr(reason))
         self._loop.call_soon_threadsafe(self._outbound.put_nowait, STOP_SIGNAL)
         if self.on_close_cb:
             try:
                 self.on_close_cb()
             except Exception as e:  # pylint: disable=broad-exception-caught
-                logging.exception("Error in on_close callback: %s", e)
+                logging.exception("Error in on_close callback: %s", repr(e))
 
     async def _ensure_valid_token(self) -> str:
         """Returns a bearer token, refreshing expired credentials off-loop."""
@@ -384,7 +384,7 @@ class WebChannelClient:
     async def _perform_init(self, session):
         """Runs the init handshake and returns (sid, gsessionid)."""
         token = await self._ensure_valid_token()
-        init_rid = random.randint(10000, 99999)
+        init_rid = secrets.SystemRandom().randint(10000, 99999)
         init_url = create_webchannel_init_url(self.endpoint_url, init_rid)
         async with session.post(
                 init_url,

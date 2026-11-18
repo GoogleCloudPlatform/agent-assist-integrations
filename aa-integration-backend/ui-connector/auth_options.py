@@ -30,21 +30,20 @@ def check_salesforce_token(token):
     # Check response.
     if user_info_resp.status_code == 200:
         user_info = user_info_resp.json()
-        logging.info("Verifying user {}.".format(user_info["user_id"]))
+        logging.info("Verifying user %s.", repr(user_info["user_id"]))
         # Check the user's organization.
         if user_info["organization_id"] == config.SALESFORCE_ORGANIZATION_ID:
             return True
         else:
             logging.warning(
-                "The organization of user {} is not allowed.".format(
-                    user_info["user_id"]
-                )
+                "The organization of user %s is not allowed.",
+                repr(user_info["user_id"]),
             )
     else:
         logging.warning(
-            "Failed to verify the access token, {0}, {1}.".format(
-                user_info_resp.status_code, user_info_resp.reason
-            )
+            "Failed to verify the access token, %s, %s.",
+            repr(user_info_resp.status_code),
+            repr(user_info_resp.reason),
         )
     return False
 
@@ -87,15 +86,14 @@ def check_salesforce_lwc_token(token):
             return True
         else:
             logging.warning(
-                "The Salesforce org of user {} is not allowed.".format(
-                    user_info["user_id"]
-                )
+                "The Salesforce org of user %s is not allowed.",
+                repr(user_info["user_id"]),
             )
     else:
         logging.warning(
-            "Failed to verify Salesforce access_token, {0}, {1}.".format(
-                user_info_resp.status_code, user_info_resp.reason
-            )
+            "Failed to verify Salesforce access_token, %s, %s.",
+            repr(user_info_resp.status_code),
+            repr(user_info_resp.reason),
         )
 
 
@@ -131,7 +129,7 @@ def check_genesyscloud_token(token):
     # Check response.
     if response.status_code == 200:
         response_json = response.json()
-        logging.info("Verifying user %s.", response_json.get("id"))
+        logging.info("Verifying user %s.", repr(response_json.get("id")))
         # Check the user's organization.
         if not config.GENESYS_CLOUD_ORGANIZATION_ID:
             logging.warning(
@@ -144,13 +142,13 @@ def check_genesyscloud_token(token):
         else:
             logging.warning(
                 "The organization of user %s is not allowed.",
-                response_json.get("id"),
+                repr(response_json.get("id")),
             )
     else:
         logging.warning(
             "Failed to verify the access token, %s, %s.",
-            response.status_code,
-            response.reason,
+            repr(response.status_code),
+            repr(response.reason),
         )
     return False
 
@@ -182,9 +180,9 @@ def check_twilio_token(token):
         return True
     else:
         logging.warning(
-            "Failed to verify the access token, {0}, {1}.".format(
-                response.status_code, response.reason
-            )
+            "Failed to verify the access token, %s, %s.",
+            repr(response.status_code),
+            repr(response.reason),
         )
 
 
@@ -208,5 +206,5 @@ def check_five9_token(token):
             logging.warning("Failed to verify the Five9 trust token.")
             return False
     except Exception as e:
-        logging.error(f"Error during token verification: {e}")
+        logging.error("Error during token verification: %s", repr(e))
         return False

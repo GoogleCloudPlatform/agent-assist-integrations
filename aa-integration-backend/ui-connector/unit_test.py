@@ -1094,6 +1094,32 @@ class TestHttpStreamingCompanion(unittest.TestCase):
             main.SOCKET_SESSION_IDS_TO_STREAMS.get("test-sid-2", set()),
         )
 
+    def test_server_id_uses_csprng_hex_prefix(self):
+        """Verifies SERVER_ID uses 16-char hex token from secrets.token_hex(8)."""
+        self.assertRegex(main.SERVER_ID, r"^[0-9a-f]{16}-\d+")
+
+    @patch("main.redis_client.set", return_value=True)
+    def test_crlf_log_injection_neutralized(self, unused_mock_set):
+        """Verifies CRLF sequences in untrusted inputs are escaped in logs."""
+        http_client = app.test_client()
+        token = main.generate_jwt()
+        malicious_key = "key\r\nFAKE_LOG: injected"
+        malicious_conv = "conv\r\nFAKE_LOG: injected2"
+        with self.assertLogs(level="INFO") as captured:
+            resp = http_client.post(
+                "/conversation-name",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "conversationIntegrationKey": malicious_key,
+                    "conversationName": malicious_conv,
+                },
+            )
+            self.assertEqual(resp.status_code, 200)
+        for line in captured.output:
+            self.assertNotIn("\r", line)
+            self.assertNotIn("\n", line)
+            self.assertIn("\\r\\nFAKE_LOG:", line)
+
 
 if __name__ == "__main__":
     unittest.main()

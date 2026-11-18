@@ -152,8 +152,9 @@ class DialogflowAPI:
             request=conversation_request)
 
         logging.info(
-            "Created conversation %s for project path %s", conversation.name,
-            project_path)
+            "Created conversation %s for project path %s",
+            repr(conversation.name),
+            repr(project_path))
 
         return conversation
 
@@ -184,7 +185,7 @@ class DialogflowAPI:
         participants_pagers = self.participants_client.list_participants(
             dialogflow.ListParticipantsRequest(parent=conversation_name))
         participant_list = list(participants_pagers.__iter__())
-        logging.debug("participant list %s, type ", participant_list)
+        logging.debug("participant list %s, type ", repr(participant_list))
         return participant_list
 
     def create_participant(
@@ -200,8 +201,8 @@ class DialogflowAPI:
         participant = self.participants_client.create_participant(
             parent=conversation_name, participant=participant)
         logging.debug("Creating new participant %s:%s",
-                      role,
-                      participant)
+                      repr(role),
+                      repr(participant))
 
         return participant
 

@@ -24,7 +24,7 @@ import requests
 import auth_options
 import config
 
-jwt_secret_key = ''  # To be loaded from config.JWT_SECRET_KEY_PATH
+jwt_secret_key = None  # Loaded from config.JWT_SECRET_KEY_PATH or env.
 
 
 def load_jwt_secret_key():
@@ -71,11 +71,11 @@ def check_jwt(token):
     if not isinstance(token, str) or not token:
         return False, 'Failed to parse your token.'
     try:
-        load_jwt_secret_key()
+        secret_key = load_jwt_secret_key()
         if token.startswith('Bearer '):
             token = token[7:].strip()
         # Decode the payload to fetch the stored details.
-        data = jwt.decode(token, jwt_secret_key, algorithms=['HS256'])
+        data = jwt.decode(token, secret_key, algorithms=['HS256'])
         if 'gcp_agent_assist_project' not in data:
             return False, 'The target project in your token is missing.'
         if data['gcp_agent_assist_project'] != config.GCP_PROJECT_ID:
@@ -93,7 +93,7 @@ def check_jwt(token):
 
 def generate_jwt(user_info=None):
     """Generates a signed JWT token for the authenticated user."""
-    load_jwt_secret_key()
+    secret_key = load_jwt_secret_key()
     gcp_agent_assist_user = ''
     if user_info:
         gcp_agent_assist_user = user_info.get('gcp_agent_assist_user')
@@ -106,7 +106,7 @@ def generate_jwt(user_info=None):
                 config.GCP_PROJECT_ID,
             'gcp_agent_assist_user':
                 gcp_agent_assist_user
-        }, jwt_secret_key, 'HS256')
+        }, secret_key, 'HS256')
 
 
 def check_app_auth(auth):

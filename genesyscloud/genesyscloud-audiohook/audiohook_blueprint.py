@@ -176,7 +176,7 @@ def process_ongoing_conversation_messages(
                 dialogflow_api.complete_conversation(
                     open_conversation_state.conversation_name)
             except Exception as e:
-                logging.error("Error completing conversation %s", e)
+                logging.error("Error completing conversation %s", repr(e))
             # wait for the two thread to finish then terminate
             logging.debug("Stop streaming threads for customers and agents")
             return True
@@ -185,8 +185,8 @@ def process_ongoing_conversation_messages(
             duration = message.get("DURATION")
             logging.info(
                 "Currently the audio stream has been paused from %s for about %s second",
-                start_time,
-                duration)
+                repr(start_time),
+                repr(duration))
     return False
 
 
@@ -269,11 +269,12 @@ def handle_audiohook_session(ws: Server, agent_stream: Stream,
                 json_message = json.loads(data)
             except ValueError as e:
                 logging.warning(
-                    "Not a valid JSON message %s, error details %s ", data, e)
+                    "Not a valid JSON message %s, error details %s ",
+                    repr(data), repr(e))
                 continue
             message_type = json_message.get("type")
             logging.info(
-                "Handle %s message %s", message_type, json_message)
+                "Handle %s message %s", repr(message_type), repr(json_message))
             conversation_id = json_message.get("parameters", {}).get(
                 "conversationId", DEFAULT_CONVERSATION_ID)
             audiohook.set_session_id(json_message.get("id", 0))
@@ -298,7 +299,8 @@ def handle_audiohook_session(ws: Server, agent_stream: Stream,
                         audiohook,
                     )
                     logging.debug(
-                        "open conversation message %s ", open_conversation_state)
+                        "open conversation message %s ",
+                        repr(open_conversation_state))
                     # Check if the redis client has join_room called from the
                     # agent assist backend. Before setting conversation_name in the redis client,
                     # we should not publish any messages to the redis client
