@@ -749,23 +749,6 @@ class TestRestAPI(unittest.TestCase):
             with self.assertRaises(ValueError):
                 auth.load_jwt_secret_key()
 
-    @patch("requests.get")
-    def test_genesyscloud_org_id_check(self, mock_get):
-        """Verifies check_genesyscloud_token enforces GENESYS_CLOUD_ORGANIZATION_ID."""
-        import auth_options
-        mock_resp = MagicMock(status_code=200)
-        mock_resp.json.return_value = {
-            "id": "user-1",
-            "organization": {"id": "org-allowed"},
-        }
-        mock_get.return_value = mock_resp
-        with patch.object(auth_options.config, "GENESYS_CLOUD_ORGANIZATION_ID", ""):
-            self.assertFalse(auth_options.check_genesyscloud_token("tok"))
-        with patch.object(auth_options.config, "GENESYS_CLOUD_ORGANIZATION_ID", "org-other"):
-            self.assertFalse(auth_options.check_genesyscloud_token("tok"))
-        with patch.object(auth_options.config, "GENESYS_CLOUD_ORGANIZATION_ID", "org-allowed"):
-            self.assertTrue(auth_options.check_genesyscloud_token("tok"))
-
     def test_socketio_join_leave_validation_and_multi_agent(self):
         """Rejects invalid conversation names and non-member leave while allowing multi-agent join."""
         c1 = socketio.test_client(app, auth={"token": self.valid_jwt})
@@ -841,6 +824,39 @@ class TestRestAPI(unittest.TestCase):
                      "/v2/x#y", "/v2/x?y", "/v2/x%2e", "/v2/x\\y"):
             self.assertIsNone(main.RESOURCE_PATH_REGEX.fullmatch(path), path)
 
+    @patch("auth_options.requests.get")
+    def test_check_genesyscloud_token_org_validation(self, mock_get):
+        """Validates Genesys Cloud token against configured organization ID."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "id": "user-123",
+            "organization": {
+                "id": "org-legit-111"
+            },
+        }
+        mock_get.return_value = mock_resp
+
+        # Unconfigured GENESYS_CLOUD_ORGANIZATION_ID warns and allows (backward-compatible)
+        with patch.object(main.config, "GENESYS_CLOUD_ORGANIZATION_ID", ""):
+            with self.assertLogs(level="WARNING") as captured:
+                self.assertTrue(
+                    auth.auth_options.check_genesyscloud_token("fake-token"))
+            self.assertTrue(
+                any("GENESYS_CLOUD_ORGANIZATION_ID is not configured" in msg
+                    for msg in captured.output))
+
+        # Matching organization succeeds
+        with patch.object(main.config, "GENESYS_CLOUD_ORGANIZATION_ID",
+                          "org-legit-111"):
+            self.assertTrue(
+                auth.auth_options.check_genesyscloud_token("fake-token"))
+
+        # Foreign organization fails closed when GENESYS_CLOUD_ORGANIZATION_ID is set
+        with patch.object(main.config, "GENESYS_CLOUD_ORGANIZATION_ID",
+                          "org-other-999"):
+            self.assertFalse(
+                auth.auth_options.check_genesyscloud_token("fake-token"))
 
 class TestDialogflowModule(unittest.TestCase):
     """Unit tests for dialogflow.py helper functions and session handling."""

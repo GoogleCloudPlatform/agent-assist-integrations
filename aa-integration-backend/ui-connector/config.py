@@ -56,7 +56,7 @@ JWT_TOKEN_LIFETIME = 60  # minutes
 # Supported values:
 #   1. 'SalesforceLWC': verify creds with the OAuth Client Credentials Flow. Required environment variables: SALESFORCE_DOMAIN, SALESFORCE_ORGANIZATION_ID.
 #   2. 'Salesforce': verify the auth token using Salesforce OpenID Connect. Required environment variable: SALESFORCE_ORGANIZATION_ID.
-#   3. 'GenesysCloud': verify the auth token using Genesys SDK UsersAPI.
+#   3. 'GenesysCloud': verify the auth token using Genesys SDK UsersAPI. Optional environment variable: GENESYS_CLOUD_ORGANIZATION_ID (enforces org match when set).
 #   4. 'Twilio': verify the auth token for Twilio. Required environment variable: TWILIO_FLEX_ENVIRONMENT.
 #   5. 'Skip': skip auth token verification, should not be used in production.
 AUTH_OPTION = os.environ.get('AUTH_OPTION', '')
