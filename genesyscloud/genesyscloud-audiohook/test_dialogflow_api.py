@@ -15,10 +15,11 @@
 import unittest
 from unittest.mock import patch, MagicMock
 import os
+import secrets
 import sys
 
 # Set required environment variables before audiohook_config is loaded
-os.environ['API_KEY'] = 'test'
+os.environ['API_KEY'] = secrets.token_urlsafe(8)
 os.environ['CONVERSATION_PROFILE_NAME'] = 'projects/fake-project/locations/global/conversationProfiles/fake-profile'
 os.environ['GCP_PROJECT_ID'] = 'fake-project'
 os.environ['UI_CONNECTOR'] = 'https://fake-ui-connector'

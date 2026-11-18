@@ -1,4 +1,4 @@
-# Copyright 2022 Google LLC
+# Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,59 +11,64 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Unit tests for the UI Connector SocketIO events and REST APIs."""
 
+# pylint: disable=wrong-import-position,protected-access,broad-exception-caught
+# pylint: disable=unspecified-encoding,line-too-long,missing-function-docstring,missing-class-docstring
+
+import gzip
+import json
 import os
 import secrets
 import sys
 import unittest
-import json
-import gzip
-from unittest.mock import patch, call, MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.append(os.path.dirname(os.path.realpath(__file__)))
-os.environ.setdefault('LOGGING_FILE', '/tmp/test.log')
-
-_SERVER_ID = 'fake_server_id'
-_PROJECT_ID = 'fake_project_id'
-_LOCATION = 'global'
+_SERVER_ID = "fake_server_id"
+_PROJECT_ID = "fake_project_id"
+_LOCATION = "global"
 _TEST_JWT_TOKEN_MATERIAL = secrets.token_urlsafe(24)
 
-os.environ['GCP_PROJECT_ID'] = _PROJECT_ID
-os.environ['JWT_SECRET_KEY'] = _TEST_JWT_TOKEN_MATERIAL
+os.environ.setdefault("GCP_PROJECT_ID", _PROJECT_ID)
+os.environ.setdefault("LOGGING_FILE", "/tmp/test.log")
+os.environ["JWT_SECRET_KEY"] = _TEST_JWT_TOKEN_MATERIAL
 
+# Mock redis library before importing main to prevent actual connections during unit tests
 mock_redis = MagicMock()
 mock_pubsub = MagicMock()
-mock_redis.pubsub.return_value = mock_pubsub
+mock_redis.StrictRedis.return_value.pubsub.return_value = mock_pubsub
+sys.modules["redis"] = mock_redis
 
-with patch('google.auth.default', return_value=(MagicMock(), _PROJECT_ID)), \
-     patch('google.cloud.dialogflow_v2beta1.ConversationsClient'), \
-     patch('google.cloud.dialogflow_v2beta1.ParticipantsClient'), \
-     patch('google.auth.transport.requests.AuthorizedSession'), \
-     patch('redis.StrictRedis', return_value=mock_redis):
-    import main
-    import auth
-    from main import socketio
-    from main import app
-    from main import dialogflow
-    from main import redis_pubsub_handler
+import google.auth
+
+google.auth.default = MagicMock(return_value=(MagicMock(), _PROJECT_ID))
+
+import auth
+import dialogflow
+import main
+from main import app, redis_pubsub_handler, socketio
+import webchannel  # pylint: disable=unused-import
 
 
 def get_conversation_profile_name(conversation_profile_id):
-    return 'projects/{0}/locations/{1}/conversationProfiles/{2}'.format(
-        _PROJECT_ID, _LOCATION, conversation_profile_id)
+    return ("projects/"
+            f"{_PROJECT_ID}/locations/{_LOCATION}/"
+            f"conversationProfiles/{conversation_profile_id}")
 
 
 def get_conversation_name(conversation_id):
-    return 'projects/{0}/locations/{1}/conversations/{2}'.format(
-        _PROJECT_ID, _LOCATION, conversation_id)
+    return ("projects/"
+            f"{_PROJECT_ID}/locations/{_LOCATION}/"
+            f"conversations/{conversation_id}")
 
 
 def get_conversation_name_without_location(conversation_id):
-    return 'projects/{0}/conversations/{1}'.format(
-        _PROJECT_ID, conversation_id)
+    return f"projects/{_PROJECT_ID}/conversations/{conversation_id}"
 
 
 class FakeRawHTTPResponse:
+
     def __init__(self, data):
         self.data = data
 
@@ -78,11 +83,11 @@ class TestSocketIO(unittest.TestCase):
     def tearDown(self):
         pass
 
-    @patch('main.redis_client.delete')
-    def test_connect(self, MockDelete):
+    @patch("main.redis_client.delete")
+    def test_connect(self, unused_mock_delete):
         """Establishes websocket connection with valid JWT."""
-        client1 = socketio.test_client(app, auth={'token': self.valid_jwt})
-        client2 = socketio.test_client(app, auth={'token': self.valid_jwt})
+        client1 = socketio.test_client(app, auth={"token": self.valid_jwt})
+        client2 = socketio.test_client(app, auth={"token": self.valid_jwt})
         self.assertTrue(client1.is_connected())
         self.assertTrue(client2.is_connected())
         self.assertNotEqual(client1.eio_sid, client2.eio_sid)
@@ -94,93 +99,183 @@ class TestSocketIO(unittest.TestCase):
 
     def test_connect_failure(self):
         """Tries to establish websocket connection without valid JWT."""
-        client = socketio.test_client(app, auth={'token': 'invalid_jwt'})
+        client = socketio.test_client(app, auth={"token": "invalid_jwt"})
         self.assertFalse(client.is_connected())
+
+    def test_connect_failure_does_not_broadcast(self):
+        """Refusing one client does not notify other connected clients."""
+        healthy_client = socketio.test_client(app,
+                                              auth={"token": self.valid_jwt})
+        healthy_client.get_received()
+        refused_client = socketio.test_client(app,
+                                              auth={"token": "invalid_jwt"})
+        self.assertFalse(refused_client.is_connected())
+        self.assertTrue(healthy_client.is_connected())
+        self.assertEqual(healthy_client.get_received(), [])
+        healthy_client.disconnect()
+
+    @patch("main.socketio.emit")
+    def test_connect_failure_scopes_emit(self, mock_emit):
+        """Scopes the unauthenticated emit to the refused client."""
+        with app.test_request_context():
+            main.request.sid = "test-sid"
+            with self.assertRaises(main.SocketConnectionRefusedError) as ctx:
+                main.connect({"token": "invalid_jwt"})
+        mock_emit.assert_called_once_with("unauthenticated", to="test-sid")
+        self.assertEqual(
+            ctx.exception.error_args,
+            {
+                "message": "authentication failed",
+            },
+        )
 
     def test_disconnect(self):
         """Disconnects websocket connection."""
-        client = socketio.test_client(app, auth={'token': self.valid_jwt})
+        client = socketio.test_client(app, auth={"token": self.valid_jwt})
         client.disconnect()
         self.assertFalse(client.is_connected())
 
-    @patch('main.redis_client.set')
-    @patch('main.redis_client.delete')
-    def test_join_conversation(self, MockDelete, MockSet):
+    @patch("main.redis_client.pipeline")
+    def test_join_conversation(self, mock_pipeline):
         """Joins socketio room specified by conversation name."""
-        conversation1 = get_conversation_name('conversation_001')
-        conversation2 = get_conversation_name('conversation_002')
-        conv1_without_location = get_conversation_name_without_location('conversation_001')
-        conv2_without_location = get_conversation_name_without_location('conversation_002')
-
+        conversation1 = get_conversation_name("conversation_001")
+        conversation2 = get_conversation_name("conversation_002")
+        conversation1_without_location = (
+            get_conversation_name_without_location("conversation_001"))
+        conversation2_without_location = (
+            get_conversation_name_without_location("conversation_002"))
+        servers_key1 = main.get_conversation_servers_key(
+            conversation1_without_location)
+        servers_key2 = main.get_conversation_servers_key(
+            conversation2_without_location)
+        mock_pipe = mock_pipeline.return_value
         # Sets client1 and client2 to join different rooms
-        client1 = socketio.test_client(app, auth={'token': self.valid_jwt})
-        client2 = socketio.test_client(app, auth={'token': self.valid_jwt})
+        client1 = socketio.test_client(app, auth={"token": self.valid_jwt})
+        client2 = socketio.test_client(app, auth={"token": self.valid_jwt})
         client1.get_received()
         client2.get_received()
-        ack1, data1 = client1.emit(
-            'join-conversation', conversation1, callback=True)
+        ack1, data1 = client1.emit("join-conversation",
+                                   conversation1,
+                                   callback=True)
         self.assertTrue(ack1)
-        self.assertEqual(data1, conv1_without_location)
-        self.assertEqual(MockSet.call_count, 1)
-        ack2, data2 = client2.emit(
-            'join-conversation', conversation2, callback=True)
+        self.assertEqual(data1, conversation1_without_location)
+        mock_pipe.sadd.assert_called_with(servers_key1, main.SERVER_ID)
+        mock_pipe.expire.assert_called_with(
+            servers_key1, main.config.CONVERSATION_ROUTING_TTL_SECONDS)
+        self.assertEqual(mock_pipe.execute.call_count, 1)
+        ack2, data2 = client2.emit("join-conversation",
+                                   conversation2,
+                                   callback=True)
         self.assertTrue(ack2)
-        self.assertEqual(data2, conv2_without_location)
-        self.assertEqual(MockSet.call_count, 2)
+        self.assertEqual(data2, conversation2_without_location)
+        mock_pipe.sadd.assert_called_with(servers_key2, main.SERVER_ID)
+        mock_pipe.expire.assert_called_with(
+            servers_key2, main.config.CONVERSATION_ROUTING_TTL_SECONDS)
+        self.assertEqual(mock_pipe.execute.call_count, 2)
         # Sends data to one room
-        data = {'data': 'fake_data'}
-        socketio.emit('conversation-lifecycle-event', data, to=conv1_without_location)
+        data = {"data": "fake_data"}
+        socketio.emit(
+            "conversation-lifecycle-event",
+            data,
+            to=conversation1_without_location,
+        )
         received = client1.get_received()
         self.assertEqual(len(received), 1)
-        self.assertEqual(received[0]['name'],
-                         'conversation-lifecycle-event')  # event name
-        self.assertEqual(received[0]['args'], [data])
+        self.assertEqual(received[0]["name"],
+                         "conversation-lifecycle-event")  # event name
+        self.assertEqual(received[0]["args"], [data])
         received = client2.get_received()
         self.assertEqual(len(received), 0)
         client1.disconnect()
-        MockDelete.assert_called_with(conv1_without_location)
         client2.disconnect()
-        MockDelete.assert_called_with(conv2_without_location)
+
+    @patch("main.redis_client")
+    def test_disconnect_does_not_touch_redis(self, mock_redis_client):
+        """Keeps conversation routing in Redis when a socket disconnects."""
+        client = socketio.test_client(app, auth={"token": self.valid_jwt})
+        client.emit("join-conversation",
+                    get_conversation_name("conversation_003"),
+                    callback=True)
+        mock_redis_client.reset_mock()
+        client.disconnect()
+        self.assertEqual(mock_redis_client.method_calls, [])
+
+    @patch("main.redis_client.srem")
+    @patch("main.redis_client.pipeline")
+    def test_leave_keeps_server_when_room_shared(self, unused_mock_pipeline,
+                                                 mock_srem):
+        """Removes this instance only after its last local socket leaves."""
+        conversation = get_conversation_name("conversation_004")
+        servers_key = main.get_conversation_servers_key(
+            get_conversation_name_without_location("conversation_004"))
+        client1 = socketio.test_client(app, auth={"token": self.valid_jwt})
+        client2 = socketio.test_client(app, auth={"token": self.valid_jwt})
+        client1.emit("join-conversation", conversation, callback=True)
+        client2.emit("join-conversation", conversation, callback=True)
+        client1.emit("leave-conversation", conversation, callback=True)
+        mock_srem.assert_not_called()
+        client2.emit("leave-conversation", conversation, callback=True)
+        mock_srem.assert_called_once_with(servers_key, main.SERVER_ID)
+        client1.disconnect()
+        client2.disconnect()
+
+    def test_get_conversation_servers_key(self):
+        """Builds the routing set key from a conversation name."""
+        self.assertEqual(
+            main.get_conversation_servers_key("projects/p/conversations/c"),
+            "projects/p/conversations/c:servers",
+        )
 
     def test_redis_pubsub_handler(self):
         """Handles Redis Pub/Sub messages."""
-        conversation1 = get_conversation_name('conversation_001')
-        conversation2 = get_conversation_name('conversation_002')
-        conv1_without_location = get_conversation_name_without_location('conversation_001')
+        conversation1 = get_conversation_name("conversation_001")
+        conversation2 = get_conversation_name("conversation_002")
+        conversation1_without_location = (
+            get_conversation_name_without_location("conversation_001"))
 
         dialogflow_event_sample1 = {
-            'conversation': conversation1,
-            'type': 'CONVERSATION_STARTED'
+            "conversation": conversation1,
+            "type": "CONVERSATION_STARTED",
         }
         redis_pubsub_pub_sample1 = {
-            'conversation_name': conv1_without_location,
-            'data': json.dumps(dialogflow_event_sample1),
-            'data_type': 'conversation-lifecycle-event',
-            'publish_time': '2021-12-09T20:05:37.275Z',
-            'message_id': '3502221325816966'
+            "conversation_name": conversation1_without_location,
+            "data": json.dumps(dialogflow_event_sample1),
+            "data_type": "conversation-lifecycle-event",
+            "publish_time": "2021-12-09T20:05:37.275Z",
+            "message_id": "3502221325816966",
         }
         redis_pubsub_sub_sample1 = {
-            'type': 'pmessage',
-            'pattern': bytes('{}*'.format(self.server_id), encoding='raw_unicode_escape'),
-            'channel': bytes('{0}:{1}'.format(self.server_id, conv1_without_location), encoding='raw_unicode_escape'),
-            'data': bytes(json.dumps(redis_pubsub_pub_sample1), encoding='raw_unicode_escape')
+            "type":
+                "pmessage",
+            "pattern":
+                bytes(f"{self.server_id}*", encoding="raw_unicode_escape"),
+            "channel":
+                bytes(
+                    f"{self.server_id}:{conversation1_without_location}",
+                    encoding="raw_unicode_escape",
+                ),
+            "data":
+                bytes(
+                    json.dumps(redis_pubsub_pub_sample1),
+                    encoding="raw_unicode_escape",
+                ),
         }
 
         # Sets client1 and client2 to join different rooms
-        client1 = socketio.test_client(app, auth={'token': self.valid_jwt})
-        client2 = socketio.test_client(app, auth={'token': self.valid_jwt})
+        client1 = socketio.test_client(app, auth={"token": self.valid_jwt})
+        client2 = socketio.test_client(app, auth={"token": self.valid_jwt})
         client1.get_received()
         client2.get_received()
-        client1.emit('join-conversation', conversation1)
-        client2.emit('join-conversation', conversation2)
+        client1.emit("join-conversation", conversation1)
+        client2.emit("join-conversation", conversation2)
         client1.get_received()
         client2.get_received()
         # Publish to redis pubsub chanel for conversation1
         redis_pubsub_handler(redis_pubsub_sub_sample1)
         received = client1.get_received()
         self.assertEqual(len(received), 1)
-        self.assertEqual(received[0]['name'], 'conversation-lifecycle-event')
-        self.assertEqual(received[0]['args'][0], redis_pubsub_pub_sample1)
+        self.assertEqual(received[0]["name"], "conversation-lifecycle-event")
+        self.assertEqual(received[0]["args"][0], redis_pubsub_pub_sample1)
         received = client2.get_received()
         self.assertEqual(len(received), 0)
 
@@ -190,132 +285,134 @@ class TestRestAPI(unittest.TestCase):
 
     @staticmethod
     def get_gzip_data(dict_data):
-        return gzip.compress(json.dumps(dict_data).encode('utf-8'))
+        return gzip.compress(json.dumps(dict_data).encode("utf-8"))
 
     @staticmethod
     def get_json_object(gzip_data):
-        return json.loads(gzip.decompress(gzip_data).decode('utf-8'))
+        return json.loads(gzip.decompress(gzip_data).decode("utf-8"))
 
     class FakeGetConversationResponse:
-        """Fake dialogflow response for
-            GET '/v2beta1/projects/<project_id>/locations/<location>/conversations/<conversation_id>'.
-        """
+        """Fake dialogflow response for GET conversations."""
 
-        def __init__(self, conversation_profile_name, conversation_name, header):
-            self.raw = FakeRawHTTPResponse(TestRestAPI.get_gzip_data({
-                'name': conversation_name,
-                'lifecycleState': 'COMPLETED',
-                'conversationProfile': conversation_profile_name,
-                'startTime': '2021-11-09T21:50:16.522090Z',
-                'endTime': '2021-11-10T21:51:02.317614Z',
-                'conversationStage': 'HUMAN_ASSIST_STAGE'
-            }))
+        def __init__(self, conversation_profile_name, conversation_name,
+                     header):
+            self.raw = FakeRawHTTPResponse(
+                TestRestAPI.get_gzip_data({
+                    "name": conversation_name,
+                    "lifecycleState": "COMPLETED",
+                    "conversationProfile": conversation_profile_name,
+                    "startTime": "2021-11-09T21:50:16.522090Z",
+                    "endTime": "2021-11-10T21:51:02.317614Z",
+                    "conversationStage": "HUMAN_ASSIST_STAGE",
+                }))
             self.status_code = 200
             self.headers = header
 
     class FakeCreateConversationResponse:
-        """Fake dialogflow response for
-            POST '/v2beta1/projects/<project_id>/locations/<location>/conversations'.
-        """
+        """Fake dialogflow response for POST conversations."""
 
-        def __init__(self, conversation_profile_name, conversation_name, header):
-            self.raw = FakeRawHTTPResponse(TestRestAPI.get_gzip_data({
-                'name': conversation_name,
-                'lifecycleState': 'IN_PROGRESS',
-                'conversationProfile': conversation_profile_name,
-                'startTime': '2021-12-09T20:05:36.638749Z',
-                'conversationStage': 'HUMAN_ASSIST_STAGE'
-            }))
+        def __init__(self, conversation_profile_name, conversation_name,
+                     header):
+            self.raw = FakeRawHTTPResponse(
+                TestRestAPI.get_gzip_data({
+                    "name": conversation_name,
+                    "lifecycleState": "IN_PROGRESS",
+                    "conversationProfile": conversation_profile_name,
+                    "startTime": "2021-12-09T20:05:36.638749Z",
+                    "conversationStage": "HUMAN_ASSIST_STAGE",
+                }))
             self.status_code = 200
             self.headers = header
 
     class FakeListAnswerRecordResponse:
-        """Fake dialogflow response for
-            GET '/locations/<location>/answerRecords'.
-        """
+        """Fake dialogflow response for GET answerRecords."""
 
         def __init__(self, answer_record, header):
-            self.raw = FakeRawHTTPResponse(TestRestAPI.get_gzip_data({
-                'answerRecords':
-                [
-                    answer_record,
-                    {
-                        'name': 'projects/{0}/locations/{1}/answerRecords/fake_answerrecord_002'.format(
-                            _PROJECT_ID, _LOCATION)
-                    }
-                ],
-                'nextPageToken': 'fake_next_page_token'
-            }))
+            self.raw = FakeRawHTTPResponse(
+                TestRestAPI.get_gzip_data({
+                    "answerRecords": [
+                        answer_record,
+                        {
+                            "name": ("projects/"
+                                     f"{_PROJECT_ID}/locations/{_LOCATION}/"
+                                     "answerRecords/fake_answerrecord_002")
+                        },
+                    ],
+                    "nextPageToken": "fake_next_page_token",
+                }))
             self.status_code = 200
             self.headers = header
 
     class FakeUpdateAnswerRecordResponse:
-        """Fake dialogflow response for
-            PATCH '/v2beta1/projects/<project_id>/locations/<location>/answerRecords/<answerrecord_id>?updateMask=answerFeedback'.
-        """
+        """Fake dialogflow response for PATCH answerRecords."""
 
         def __init__(self, answer_record):
             self.raw = FakeRawHTTPResponse(
                 TestRestAPI.get_gzip_data(answer_record))
             self.status_code = 200
             self.headers = {
-                'Content-Type': 'application/json; charset=UTF-8',
-                'Vary': 'Origin, X-Origin, Referer',
-                'Content-Encoding': 'gzip',
-                'Date': 'Fri, 10 Dec 2021 18:40:17 GMT',
-                'Server': 'ESF',
-                'Cache-Control': 'private',
-                'X-XSS-Protection': '0',
-                'X-Frame-Options': 'SAMEORIGIN',
-                'X-Content-Type-Options': 'nosniff',
-                'Alt-Svc': 'h3=":443"; ma=2592000,h3-29=":443"; ma=2592000,h3-Q050=":443"; ma=2592000,h3-Q046=":443"; ma=2592000,h3-Q043=":443"; ma=2592000,quic=":443"; ma=2592000; v="46,43"',
-                'Transfer-Encoding': 'chunked'
+                "Content-Type": "application/json; charset=UTF-8",
+                "Vary": "Origin, X-Origin, Referer",
+                "Content-Encoding": "gzip",
+                "Date": "Fri, 10 Dec 2021 18:40:17 GMT",
+                "Server": "ESF",
+                "Cache-Control": "private",
+                "X-XSS-Protection": "0",
+                "X-Frame-Options": "SAMEORIGIN",
+                "X-Content-Type-Options": "nosniff",
+                "Alt-Svc":
+                    ('h3=":443"; ma=2592000,h3-29=":443"; ma=2592000,'
+                     'h3-Q050=":443"; ma=2592000,h3-Q046=":443"; ma=2592000,'
+                     'h3-Q043=":443"; ma=2592000,quic=":443"; ma=2592000; '
+                     'v="46,43"'),
+                "Transfer-Encoding": "chunked",
             }
 
     class FakeCompleteConversationResponse:
-        """Fake dialogflow response for
-            POST '/v2beta1/projects/<project_id>/locations/<location>/conversations/<conversation_id>:complete'.
-        """
+        """Fake dialogflow response for POST complete conversation."""
 
-        def __init__(self, conversation_profile_name, conversation_name, header):
-            self.raw = FakeRawHTTPResponse(TestRestAPI.get_gzip_data({
-                'name': conversation_name,
-                'lifecycleState': 'COMPLETED',
-                'conversationProfile': conversation_profile_name,
-                'startTime': '2021-12-10T20:46:29.127983Z',
-                'endTime': '2021-12-10T20:46:29.715573Z',
-                'conversationStage': 'HUMAN_ASSIST_STAGE'
-            }))
+        def __init__(self, conversation_profile_name, conversation_name,
+                     header):
+            self.raw = FakeRawHTTPResponse(
+                TestRestAPI.get_gzip_data({
+                    "name": conversation_name,
+                    "lifecycleState": "COMPLETED",
+                    "conversationProfile": conversation_profile_name,
+                    "startTime": "2021-12-10T20:46:29.127983Z",
+                    "endTime": "2021-12-10T20:46:29.715573Z",
+                    "conversationStage": "HUMAN_ASSIST_STAGE",
+                }))
             self.status_code = 200
             self.headers = header
 
     def setUp(self):
         self.valid_jwt = main.generate_jwt()
         self.answer_record = {
-            'name': 'projects/{0}/locations/{1}/answerRecords/fake_answerrecord_001'.format(
-                _PROJECT_ID, _LOCATION),
-            'answerFeedback': {
-                'correctnessLevel': 'PARTIALLY_CORRECT',
-                'clicked': True,
-                'displayed': True,
-                'clickTime': '2021-12-09T20:13:36.638749Z',
-                'displayTime': '2021-12-09T20:07:36.638749Z'
-            }
+            "name": ("projects/"
+                     f"{_PROJECT_ID}/locations/{_LOCATION}/"
+                     "answerRecords/fake_answerrecord_001"),
+            "answerFeedback": {
+                "correctnessLevel": "PARTIALLY_CORRECT",
+                "clicked": True,
+                "displayed": True,
+                "clickTime": "2021-12-09T20:13:36.638749Z",
+                "displayTime": "2021-12-09T20:07:36.638749Z",
+            },
         }
         self.header = {
-            'Content-Type': 'application/json; charset=UTF-8',
-            'Vary': 'Origin, X-Origin, Referer',
-            'Content-Encoding': 'gzip',
-            'Date': 'Thu, 09 Dec 2021 20:05:37 GMT',
-            'Server': 'ESF',
-            'Cache-Control': 'private',
-            'X-XSS-Protection': '0',
-            'X-Frame-Options': 'SAMEORIGIN',
-            'X-Content-Type-Options': 'nosniff',
-            'Transfer-Encoding': 'chunked'
+            "Content-Type": "application/json; charset=UTF-8",
+            "Vary": "Origin, X-Origin, Referer",
+            "Content-Encoding": "gzip",
+            "Date": "Thu, 09 Dec 2021 20:05:37 GMT",
+            "Server": "ESF",
+            "Cache-Control": "private",
+            "X-XSS-Protection": "0",
+            "X-Frame-Options": "SAMEORIGIN",
+            "X-Content-Type-Options": "nosniff",
+            "Transfer-Encoding": "chunked",
         }
-        self.conversation_profile_id = 'fake_conversation_profile_id'
-        self.conversation_id = 'fake_conversation_id'
+        self.conversation_profile_id = "fake_conversation_profile_id"
+        self.conversation_id = "fake_conversation_id"
         self.conversation_profile_name = get_conversation_profile_name(
             self.conversation_profile_id)
         self.conversation_name = get_conversation_name(self.conversation_id)
@@ -323,196 +420,221 @@ class TestRestAPI(unittest.TestCase):
     def tearDown(self):
         pass
 
-    @patch('google.oauth2.id_token.verify_oauth2_token')
-    @patch('jwt.decode')
+    @patch("google.oauth2.id_token.verify_oauth2_token")
+    @patch("jwt.decode")
     def test_check_jwt_valid_oidc(self, mock_jwt_decode, mock_verify):
-        import auth
-        # Mock jwt.decode for the unverified_claims
         mock_jwt_decode.return_value = {"aud": "fake_audience"}
-        
         mock_verify.return_value = {
             "iss": "https://accounts.google.com",
-            "email": f"fake-sa@{auth.config.GCP_PROJECT_ID}.iam.gserviceaccount.com"
+            "email": f"fake-sa@{auth.config.GCP_PROJECT_ID}.iam.gserviceaccount.com",
         }
-        
         is_valid, msg = auth.check_jwt("Bearer fake_oidc_token")
         self.assertTrue(is_valid)
-        self.assertEqual(msg, 'Your Google ID token is valid.')
+        self.assertEqual(msg, "Your Google ID token is valid.")
 
-    @patch('google.oauth2.id_token.verify_oauth2_token')
-    @patch('jwt.decode')
+    @patch("google.oauth2.id_token.verify_oauth2_token")
+    @patch("jwt.decode")
     def test_check_jwt_oidc_unauthorized_email(self, mock_jwt_decode, mock_verify):
-        import auth
         mock_jwt_decode.return_value = {"aud": "fake_audience"}
         mock_verify.return_value = {
             "iss": "https://accounts.google.com",
-            "email": "unauthorized-sa@other-project.iam.gserviceaccount.com"
+            "email": "unauthorized-sa@other-project.iam.gserviceaccount.com",
         }
-        
-        # When OIDC check fails email validation, it falls back to standard JWT parsing (which fails)
-        is_valid, msg = auth.check_jwt("Bearer fake_oidc_token")
+        is_valid, _ = auth.check_jwt("Bearer fake_oidc_token")
         self.assertFalse(is_valid)
 
-    @patch('google.oauth2.id_token.verify_oauth2_token')
-    @patch('jwt.decode')
+    @patch("google.oauth2.id_token.verify_oauth2_token")
+    @patch("jwt.decode")
     def test_check_jwt_oidc_wrong_issuer(self, mock_jwt_decode, mock_verify):
-        import auth
         mock_jwt_decode.return_value = {"aud": "fake_audience"}
         mock_verify.return_value = {
             "iss": "https://untrusted-issuer.com",
-            "email": f"fake-sa@{auth.config.GCP_PROJECT_ID}.iam.gserviceaccount.com"
+            "email": f"fake-sa@{auth.config.GCP_PROJECT_ID}.iam.gserviceaccount.com",
         }
-        
-        is_valid, msg = auth.check_jwt("Bearer fake_oidc_token")
+        is_valid, _ = auth.check_jwt("Bearer fake_oidc_token")
         self.assertFalse(is_valid)
 
-    @patch('google.oauth2.id_token.verify_oauth2_token')
-    @patch('jwt.decode')
+    @patch("google.oauth2.id_token.verify_oauth2_token")
+    @patch("jwt.decode")
     def test_auth_options_check_google_oidc_token_success(self, mock_jwt_decode, mock_verify):
         import auth_options
         mock_jwt_decode.return_value = {"aud": "fake_audience"}
         mock_verify.return_value = {
             "iss": "https://accounts.google.com",
-            "email": f"fake-sa@{auth_options.config.GCP_PROJECT_ID}.iam.gserviceaccount.com"
+            "email": f"fake-sa@{auth_options.config.GCP_PROJECT_ID}.iam.gserviceaccount.com",
         }
         is_valid, msg = auth_options.check_google_oidc_token("Bearer fake_oidc_token")
         self.assertTrue(is_valid)
-        self.assertEqual(msg, 'Your Google ID token is valid.')
+        self.assertEqual(msg, "Your Google ID token is valid.")
 
-    def test_register_JWT_auth_unset(self):
+    def test_register_jwt_auth_unset(self):
         client = app.test_client()
-        response = client.post(
-            '/register', headers={'Authorization': 'fake-auth'})
-        self.assertEqual(response.status_code, 401,
-                         'Please customize authentication rules before deploying your service.')
+        response = client.post("/register",
+                               headers={"Authorization": "fake-auth"})
+        self.assertEqual(
+            response.status_code,
+            401,
+            "Please customize authentication rules before deploying your"
+            " service.",
+        )
 
     def test_dialogflow_get_conversation(self):
         """Gets information about a conversation with valid JWT."""
         client = app.test_client()
         get_conversation_response = self.FakeGetConversationResponse(
             self.conversation_profile_name, self.conversation_name, self.header)
-        with patch('dialogflow.get_dialogflow', return_value=(get_conversation_response)):
+        with patch(
+                "dialogflow.get_dialogflow",
+                return_value=(get_conversation_response),
+        ):
             response = client.get(
-                '/v2beta1/projects/{0}/locations/{1}/conversations/{2}'.format(
-                    _PROJECT_ID, _LOCATION, self.conversation_id),
-                headers={'Authorization': self.valid_jwt})
+                "/v2beta1/projects/"
+                f"{_PROJECT_ID}/locations/{_LOCATION}/"
+                f"conversations/{self.conversation_id}",
+                headers={"Authorization": self.valid_jwt},
+            )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.headers['Content-Type'], 'application/json; charset=UTF-8')
+        self.assertEqual(response.headers["Content-Type"],
+                         "application/json; charset=UTF-8")
         json_data = self.get_json_object(response.data)
-        self.assertEqual(self.conversation_name, json_data['name'])
+        self.assertEqual(self.conversation_name, json_data["name"])
 
     def test_dialogflow_get_failure(self):
         """Tries to get information about a conversation without valid JWT."""
         client = app.test_client()
         get_conversation_response = self.FakeGetConversationResponse(
             self.conversation_profile_name, self.conversation_name, self.header)
-        with patch('dialogflow.get_dialogflow', return_value=(get_conversation_response)):
-            response = client.get(
-                '/v2beta1/projects/{0}/locations/{1}/conversations/{2}'.format(_PROJECT_ID, _LOCATION, self.conversation_id))
-        self.assertEqual(response.get_json(), {'message': 'Token is missing.'})
+        with patch(
+                "dialogflow.get_dialogflow",
+                return_value=(get_conversation_response),
+        ):
+            response = client.get("/v2beta1/projects/"
+                                  f"{_PROJECT_ID}/locations/{_LOCATION}/"
+                                  f"conversations/{self.conversation_id}")
+        self.assertEqual(response.get_json(), {"message": "Token is missing."})
         self.assertEqual(response.status_code, 401)
-        self.assertEqual(response.headers['Content-Type'], 'application/json')
+        self.assertEqual(response.headers["Content-Type"], "application/json")
 
     def test_dialogflow_create_conversation(self):
         """Creates a conversation with valid JWT."""
         client = app.test_client()
         create_conversation_response = self.FakeCreateConversationResponse(
             self.conversation_profile_name, self.conversation_name, self.header)
-        with patch('dialogflow.post_dialogflow', return_value=(create_conversation_response)):
+        with patch(
+                "dialogflow.post_dialogflow",
+                return_value=(create_conversation_response),
+        ):
             response = client.post(
-                '/v2beta1/projects/{0}/locations/{1}/conversations'.format(
-                    _PROJECT_ID, _LOCATION),
-                json={'conversation_profile': self.conversation_profile_name},
-                headers={'Authorization': self.valid_jwt})
+                "/v2beta1/projects/"
+                f"{_PROJECT_ID}/locations/{_LOCATION}/conversations",
+                json={"conversation_profile": self.conversation_profile_name},
+                headers={"Authorization": self.valid_jwt},
+            )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.headers['Content-Type'], 'application/json; charset=UTF-8')
+        self.assertEqual(response.headers["Content-Type"],
+                         "application/json; charset=UTF-8")
         json_data = self.get_json_object(response.data)
-        self.assertIn('name', json_data)
-        self.assertEqual(json_data['lifecycleState'], 'IN_PROGRESS')
-        self.assertEqual(
-            json_data['conversationProfile'], self.conversation_profile_name)
-        self.assertIn('startTime', json_data)
-        self.assertIn('conversationStage', json_data)
+        self.assertIn("name", json_data)
+        self.assertEqual(json_data["lifecycleState"], "IN_PROGRESS")
+        self.assertEqual(json_data["conversationProfile"],
+                         self.conversation_profile_name)
+        self.assertIn("startTime", json_data)
+        self.assertIn("conversationStage", json_data)
 
     def test_dialogflow_list_participants(self):
         """Lists participants with valid JWT."""
         client = app.test_client()
         list_participants_response = self.FakeListAnswerRecordResponse(
             self.answer_record, self.header)
-        with patch('dialogflow.get_dialogflow', return_value=(list_participants_response)):
+        with patch("dialogflow.get_dialogflow", return_value=list_participants_response):
             response = client.get(
-                '/v2beta1/projects/{0}/locations/{1}/conversations/{2}/participants'.format(
-                    _PROJECT_ID, _LOCATION, self.conversation_id),
-                headers={'Authorization': self.valid_jwt})
+                f"/v2beta1/projects/{_PROJECT_ID}/locations/{_LOCATION}/conversations/{self.conversation_id}/participants",
+                headers={"Authorization": self.valid_jwt},
+            )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            response.headers['Content-Type'], 'application/json; charset=UTF-8')
+            response.headers["Content-Type"], "application/json; charset=UTF-8")
 
     def test_dialogflow_update_answerrecord(self):
         """Updates an answer record with valid JWT."""
         client = app.test_client()
         update_answer_record_response = self.FakeUpdateAnswerRecordResponse(
             self.answer_record)
-        with patch('dialogflow.patch_dialogflow', return_value=(update_answer_record_response)):
+        with patch(
+                "dialogflow.patch_dialogflow",
+                return_value=(update_answer_record_response),
+        ):
             response = client.patch(
-                '/v2beta1/projects/{0}/locations/{1}/answerRecords/fake_answerrecord_001?updateMask=answerFeedback'.format(
-                    _PROJECT_ID, _LOCATION),
+                "/v2beta1/projects/"
+                f"{_PROJECT_ID}/locations/{_LOCATION}/answerRecords/"
+                "fake_answerrecord_001?updateMask=answerFeedback",
                 json=self.answer_record,
-                headers={'Authorization': self.valid_jwt})
+                headers={"Authorization": self.valid_jwt},
+            )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.headers['Content-Type'], 'application/json; charset=UTF-8')
-        self.assertEqual(self.get_json_object(
-            response.data), self.answer_record)
+        self.assertEqual(response.headers["Content-Type"],
+                         "application/json; charset=UTF-8")
+        self.assertEqual(self.get_json_object(response.data),
+                         self.answer_record)
 
     def test_dialogflow_complete_conversation(self):
         """Completes a conversation with valid JWT."""
         client = app.test_client()
         complete_conversation_response = self.FakeCompleteConversationResponse(
             self.conversation_profile_name, self.conversation_name, self.header)
-        with patch('dialogflow.post_dialogflow', return_value=(complete_conversation_response)):
+        with patch(
+                "dialogflow.post_dialogflow",
+                return_value=(complete_conversation_response),
+        ):
             response = client.post(
-                '/v2beta1/projects/{0}/locations/{1}/conversations/{2}:complete'.format(
-                    _PROJECT_ID, _LOCATION, self.conversation_id),
-                headers={'Authorization': self.valid_jwt})
+                "/v2beta1/projects/"
+                f"{_PROJECT_ID}/locations/{_LOCATION}/"
+                f"conversations/{self.conversation_id}:complete",
+                headers={"Authorization": self.valid_jwt},
+            )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.headers['Content-Type'], 'application/json; charset=UTF-8')
+        self.assertEqual(response.headers["Content-Type"],
+                         "application/json; charset=UTF-8")
         json_data = self.get_json_object(response.data)
-        self.assertEqual(json_data['name'], self.conversation_name)
-        self.assertEqual(json_data['lifecycleState'], 'COMPLETED')
-        self.assertEqual(
-            json_data['conversationProfile'], self.conversation_profile_name)
-        self.assertIn('startTime', json_data)
-        self.assertIn('endTime', json_data)
-        self.assertIn('conversationStage', json_data)
+        self.assertEqual(json_data["name"], self.conversation_name)
+        self.assertEqual(json_data["lifecycleState"], "COMPLETED")
+        self.assertEqual(json_data["conversationProfile"],
+                         self.conversation_profile_name)
+        self.assertIn("startTime", json_data)
+        self.assertIn("endTime", json_data)
+        self.assertIn("conversationStage", json_data)
 
     def test_dialogflow_unavailable(self):
         """Tries to send unavailable Dialogflow requests."""
         client = app.test_client()
         response = client.delete(
-            '/v2beta1/projects/{0}/locations/{1}/conversationProfiles/{2}'.format(
-                _PROJECT_ID, _LOCATION, self.conversation_profile_id))
-        self.assertEqual(response.status_code, 405)
+            f"/v2beta1/projects/{_PROJECT_ID}/locations/{_LOCATION}/invalidPath"
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertIn(b"Not Found", response.data)
+        self.assertEqual(response.headers["Content-Type"],
+                         "text/html; charset=utf-8")
+        method_resp = client.delete(
+            f"/v2beta1/projects/{_PROJECT_ID}/locations/{_LOCATION}/conversationProfiles/{self.conversation_profile_id}"
+        )
+        self.assertEqual(method_resp.status_code, 405)
 
-    @patch('main.redis_client.set', return_value=True)
+    @patch("main.redis_client.set", return_value=True)
     def test_set_conversation_name_success(self, mock_redis_set):
         """Sets conversationIntegrationKey mapping successfully."""
         client = app.test_client()
         response = client.post(
-            '/conversation-name',
+            "/conversation-name",
             json={
-                'conversationIntegrationKey': 'genesys-conv-123',
-                'conversationName': self.conversation_name
+                "conversationIntegrationKey": "genesys-conv-123",
+                "conversationName": self.conversation_name,
             },
-            headers={'Authorization': self.valid_jwt}
+            headers={"Authorization": self.valid_jwt},
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.get_json(),
-            {'genesys-conv-123': self.conversation_name}
+            {"genesys-conv-123": self.conversation_name},
         )
         mock_redis_set.assert_called_once()
 
@@ -520,24 +642,27 @@ class TestRestAPI(unittest.TestCase):
         """Rejects set conversation name request when missing fields."""
         client = app.test_client()
         response = client.post(
-            '/conversation-name',
-            json={'conversationIntegrationKey': ''},
-            headers={'Authorization': self.valid_jwt}
+            "/conversation-name",
+            json={"conversationIntegrationKey": ""},
+            headers={"Authorization": self.valid_jwt},
         )
         self.assertEqual(response.status_code, 400)
 
-    @patch('main.redis_client.get', return_value=b'projects/fake_project_id/locations/global/conversations/fake_conversation_id')
+    @patch(
+        "main.redis_client.get",
+        return_value=b"projects/fake_project_id/locations/global/conversations/fake_conversation_id",
+    )
     def test_get_conversation_name_success(self, mock_redis_get):
         """Gets conversationName by conversationIntegrationKey."""
         client = app.test_client()
         response = client.get(
-            '/conversation-name?conversationIntegrationKey=genesys-conv-123',
-            headers={'Authorization': self.valid_jwt}
+            "/conversation-name?conversationIntegrationKey=genesys-conv-123",
+            headers={"Authorization": self.valid_jwt},
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.get_json(),
-            {'conversationName': self.conversation_name}
+            {"conversationName": self.conversation_name},
         )
         mock_redis_get.assert_called_once()
 
@@ -545,29 +670,29 @@ class TestRestAPI(unittest.TestCase):
         """Rejects get conversation name when query param is missing."""
         client = app.test_client()
         response = client.get(
-            '/conversation-name',
-            headers={'Authorization': self.valid_jwt}
+            "/conversation-name",
+            headers={"Authorization": self.valid_jwt},
         )
         self.assertEqual(response.status_code, 400)
 
-    @patch('main.redis_client.delete', return_value=1)
+    @patch("main.redis_client.delete", return_value=1)
     def test_del_conversation_name_success(self, mock_redis_del):
         """Deletes conversationName by conversationIntegrationKey."""
         client = app.test_client()
         response = client.delete(
-            '/conversation-name?conversationIntegrationKey=genesys-conv-123',
-            headers={'Authorization': self.valid_jwt}
+            "/conversation-name?conversationIntegrationKey=genesys-conv-123",
+            headers={"Authorization": self.valid_jwt},
         )
         self.assertEqual(response.status_code, 200)
         mock_redis_del.assert_called_once()
 
-    @patch('main.redis_client.delete', return_value=0)
-    def test_del_conversation_name_not_found(self, mock_redis_del):
+    @patch("main.redis_client.delete", return_value=0)
+    def test_del_conversation_name_not_found(self, unused_mock_redis_del):
         """Returns 404 when deleting a non-existent conversationIntegrationKey."""
         client = app.test_client()
         response = client.delete(
-            '/conversation-name?conversationIntegrationKey=genesys-conv-123',
-            headers={'Authorization': self.valid_jwt}
+            "/conversation-name?conversationIntegrationKey=genesys-conv-123",
+            headers={"Authorization": self.valid_jwt},
         )
         self.assertEqual(response.status_code, 404)
 
@@ -575,131 +700,348 @@ class TestRestAPI(unittest.TestCase):
         """Rejects delete conversation name when query param is missing."""
         client = app.test_client()
         response = client.delete(
-            '/conversation-name',
-            headers={'Authorization': self.valid_jwt}
+            "/conversation-name",
+            headers={"Authorization": self.valid_jwt},
         )
         self.assertEqual(response.status_code, 400)
 
-    @patch('main.redis_client.set', return_value=False)
-    def test_set_conversation_name_redis_failure(self, mock_redis_set):
+    @patch("main.redis_client.set", return_value=False)
+    def test_set_conversation_name_redis_failure(self, unused_mock_redis_set):
         """Returns 400 if redis set operation fails."""
         client = app.test_client()
         response = client.post(
-            '/conversation-name',
+            "/conversation-name",
             json={
-                'conversationIntegrationKey': 'genesys-conv-123',
-                'conversationName': self.conversation_name
+                "conversationIntegrationKey": "genesys-conv-123",
+                "conversationName": self.conversation_name,
             },
-            headers={'Authorization': self.valid_jwt}
+            headers={"Authorization": self.valid_jwt},
         )
         self.assertEqual(response.status_code, 400)
 
-    @patch('main.redis_client.get', return_value=None)
-    def test_get_conversation_name_empty_redis(self, mock_redis_get):
+    @patch("main.redis_client.get", return_value=None)
+    def test_get_conversation_name_empty_redis(self, unused_mock_redis_get):
         """Returns empty string for conversationName when key does not exist in Redis."""
         client = app.test_client()
         response = client.get(
-            '/conversation-name?conversationIntegrationKey=nonexistent-key',
-            headers={'Authorization': self.valid_jwt}
+            "/conversation-name?conversationIntegrationKey=nonexistent-key",
+            headers={"Authorization": self.valid_jwt},
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json(), {'conversationName': ''})
+        self.assertEqual(response.get_json(), {"conversationName": ""})
 
     def test_check_jwt_malformed_token(self):
         """Fails gracefully when parsing completely malformed token."""
-        import auth
         is_valid, msg = auth.check_jwt("Bearer not.a.valid.jwt")
         self.assertFalse(is_valid)
-        self.assertEqual(msg, 'Failed to parse your token.')
+        self.assertEqual(msg, "Failed to parse your token.")
 
     def test_check_jwt_without_bearer_prefix(self):
         """Handles tokens passed without Bearer prefix."""
-        import auth
-        is_valid, msg = auth.check_jwt("malformed_raw_token")
+        is_valid, _ = auth.check_jwt("malformed_raw_token")
         self.assertFalse(is_valid)
 
     def test_load_jwt_secret_key_raises_when_unconfigured(self):
         """Fails closed when JWT secret is not configured in file or env."""
-        with patch.object(auth, 'jwt_secret_key', None), \
-             patch('os.path.exists', return_value=False), \
+        with patch.object(auth, "jwt_secret_key", None), \
+             patch("os.path.exists", return_value=False), \
              patch.dict(os.environ, {}, clear=True):
             with self.assertRaises(ValueError):
                 auth.load_jwt_secret_key()
 
-    def test_dialogflow_invalid_location_and_unsafe_path(self):
-        """Rejects SSRF host injection in location and dot-segments in path."""
-        client = app.test_client()
-        with patch('dialogflow.get_dialogflow') as mock_get:
-            for bad_loc in ('evil.example%23', 'evil.example%3f', 'a@b'):
-                resp = client.get(
-                    f'/v2beta1/projects/{_PROJECT_ID}/locations/{bad_loc}/conversations/c1',
-                    headers={'Authorization': self.valid_jwt})
-                self.assertEqual(resp.status_code, 400)
-            resp_path = client.get(
-                f'/v2beta1/projects/{_PROJECT_ID}/locations/global/conversations/..%2fsecret',
-                headers={'Authorization': self.valid_jwt})
-            self.assertEqual(resp_path.status_code, 400)
-            mock_get.assert_not_called()
-
-    @patch('requests.get')
+    @patch("requests.get")
     def test_genesyscloud_org_id_check(self, mock_get):
         """Verifies check_genesyscloud_token enforces GENESYS_CLOUD_ORGANIZATION_ID."""
         import auth_options
         mock_resp = MagicMock(status_code=200)
         mock_resp.json.return_value = {
-            'id': 'user-1',
-            'organization': {'id': 'org-allowed'},
+            "id": "user-1",
+            "organization": {"id": "org-allowed"},
         }
         mock_get.return_value = mock_resp
-        with patch.object(auth_options.config, 'GENESYS_CLOUD_ORGANIZATION_ID', ''):
-            self.assertFalse(auth_options.check_genesyscloud_token('tok'))
-        with patch.object(auth_options.config, 'GENESYS_CLOUD_ORGANIZATION_ID', 'org-other'):
-            self.assertFalse(auth_options.check_genesyscloud_token('tok'))
-        with patch.object(auth_options.config, 'GENESYS_CLOUD_ORGANIZATION_ID', 'org-allowed'):
-            self.assertTrue(auth_options.check_genesyscloud_token('tok'))
+        with patch.object(auth_options.config, "GENESYS_CLOUD_ORGANIZATION_ID", ""):
+            self.assertFalse(auth_options.check_genesyscloud_token("tok"))
+        with patch.object(auth_options.config, "GENESYS_CLOUD_ORGANIZATION_ID", "org-other"):
+            self.assertFalse(auth_options.check_genesyscloud_token("tok"))
+        with patch.object(auth_options.config, "GENESYS_CLOUD_ORGANIZATION_ID", "org-allowed"):
+            self.assertTrue(auth_options.check_genesyscloud_token("tok"))
 
     def test_socketio_join_leave_validation_and_multi_agent(self):
         """Rejects invalid conversation names and non-member leave while allowing multi-agent join."""
-        c1 = socketio.test_client(app, auth={'token': self.valid_jwt})
-        c2 = socketio.test_client(app, auth={'token': self.valid_jwt})
-        ack_bad, msg_bad = c1.emit('join-conversation', 'invalid/key:servers', callback=True)
+        c1 = socketio.test_client(app, auth={"token": self.valid_jwt})
+        c2 = socketio.test_client(app, auth={"token": self.valid_jwt})
+        ack_bad, msg_bad = c1.emit("join-conversation", "invalid/key:servers", callback=True)
         self.assertFalse(ack_bad)
-        self.assertEqual(msg_bad, 'invalid conversation name')
+        self.assertEqual(msg_bad, "invalid conversation name")
 
-        conv = get_conversation_name('conv_shared_1')
-        ack_1, _ = c1.emit('join-conversation', conv, callback=True)
+        conv = get_conversation_name("conv_shared_1")
+        ack_1, _ = c1.emit("join-conversation", conv, callback=True)
         self.assertTrue(ack_1)
-        ack_leave_2, msg_leave_2 = c2.emit('leave-conversation', conv, callback=True)
+        ack_leave_2, msg_leave_2 = c2.emit("leave-conversation", conv, callback=True)
         self.assertFalse(ack_leave_2)
-        self.assertEqual(msg_leave_2, 'not authorized for this conversation')
-        ack_2, _ = c2.emit('join-conversation', conv, callback=True)
+        self.assertEqual(msg_leave_2, "not authorized for this conversation")
+        ack_2, _ = c2.emit("join-conversation", conv, callback=True)
         self.assertTrue(ack_2)
         c1.disconnect()
         c2.disconnect()
 
     def test_server_id_uses_csprng_hex_prefix(self):
         """Verifies SERVER_ID uses 16-char hex token from secrets.token_hex(8)."""
-        self.assertRegex(main.SERVER_ID, r'^[0-9a-f]{16}-\d+')
+        self.assertRegex(main.SERVER_ID, r"^[0-9a-f]{16}-\d+")
 
-    @patch('main.redis_client.set', return_value=True)
+    @patch("main.redis_client.set", return_value=True)
     def test_crlf_log_injection_neutralized(self, unused_mock_set):
         """Verifies CRLF sequences in untrusted inputs are escaped in logs."""
         client = app.test_client()
-        with self.assertLogs(level='INFO') as captured:
+        with self.assertLogs(level="INFO") as captured:
             resp = client.post(
-                '/conversation-name',
-                headers={'Authorization': self.valid_jwt},
+                "/conversation-name",
+                headers={"Authorization": self.valid_jwt},
                 json={
-                    'conversationIntegrationKey': 'key\r\nFAKE_LOG: injected',
-                    'conversationName': 'conv\r\nFAKE_LOG: injected2',
+                    "conversationIntegrationKey": "key\r\nFAKE_LOG: injected",
+                    "conversationName": "conv\r\nFAKE_LOG: injected2",
                 },
             )
             self.assertEqual(resp.status_code, 200)
         for line in captured.output:
-            self.assertNotIn('\r', line)
-            self.assertNotIn('\n', line)
-            self.assertIn('\\r\\nFAKE_LOG:', line)
+            self.assertNotIn("\r", line)
+            self.assertNotIn("\n", line)
+            self.assertIn("\\r\\nFAKE_LOG:", line)
+
+    def test_dialogflow_invalid_location(self):
+        """Rejects locations that would change the Dialogflow host."""
+        client = app.test_client()
+        with patch("dialogflow.get_dialogflow") as mock_get_dialogflow:
+            for location in ("evil.example%23", "evil.example%3f", "a@b"):
+                response = client.get(
+                    f"/v2beta1/projects/{_PROJECT_ID}/locations/{location}/"
+                    f"conversations/{self.conversation_id}",
+                    headers={"Authorization": self.valid_jwt},
+                )
+                self.assertEqual(response.status_code, 400, location)
+        mock_get_dialogflow.assert_not_called()
+
+    def test_dialogflow_invalid_path(self):
+        """Rejects a path that would retarget the proxied request."""
+        client = app.test_client()
+        with patch("dialogflow.get_dialogflow") as mock_get_dialogflow:
+            response = client.get(
+                f"/v2beta1/projects/{_PROJECT_ID}/locations/{_LOCATION}/"
+                "conversations/%2e%2e/%2e%2e/agent",
+                headers={"Authorization": self.valid_jwt},
+            )
+        self.assertEqual(response.status_code, 400)
+        mock_get_dialogflow.assert_not_called()
+
+    def test_resource_path_regex(self):
+        valid = ("/v2beta1/projects/example.com:p1/locations/global/"
+                 "conversations/c1/participants/p1:analyzeContent")
+        self.assertIsNotNone(main.RESOURCE_PATH_REGEX.fullmatch(valid))
+        for path in ("/v2/..", "/v2/../x", "/v2/./x", "/v2//x", "/v2/x/",
+                     "/v2/x#y", "/v2/x?y", "/v2/x%2e", "/v2/x\\y"):
+            self.assertIsNone(main.RESOURCE_PATH_REGEX.fullmatch(path), path)
 
 
-if __name__ == '__main__':
+class TestDialogflowModule(unittest.TestCase):
+    """Unit tests for dialogflow.py helper functions and session handling."""
+
+    def test_get_authed_session_raises_when_none(self):
+        with patch.object(dialogflow, "AUTHED_SESSION", None):
+            with self.assertRaises(RuntimeError) as ctx:
+                dialogflow._get_authed_session()
+            self.assertIn("No credentials available", str(ctx.exception))
+
+    def test_get_authed_session_returns_session(self):
+        mock_session = MagicMock()
+        with patch.object(dialogflow, "AUTHED_SESSION", mock_session):
+            self.assertEqual(dialogflow._get_authed_session(), mock_session)
+
+    def test_get_target_url(self):
+        self.assertEqual(dialogflow.get_target_url("global", "v2/path"),
+                         "https://dialogflow.googleapis.com/v2/path")
+        self.assertEqual(
+            dialogflow.get_target_url("us-central1", "v2/path"),
+            "https://us-central1-dialogflow.googleapis.com/v2/path")
+
+    def test_get_target_url_host_overrides(self):
+        env = {
+            "DIALOGFLOW_GLOBAL_HOST":
+                "custom-dialogflow.example.com",
+            "DIALOGFLOW_REGIONAL_HOST_TEMPLATE":
+                "custom-{location}-dialogflow.example.com",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            self.assertEqual(dialogflow.get_target_url("global", "v2/path"),
+                             "https://custom-dialogflow.example.com/v2/path")
+            self.assertEqual(
+                dialogflow.get_target_url("us-central1", "v2/path"),
+                "https://custom-us-central1-dialogflow.example.com/v2/path")
+        empty_env = {
+            "DIALOGFLOW_GLOBAL_HOST": "",
+            "DIALOGFLOW_REGIONAL_HOST_TEMPLATE": "",
+        }
+        with patch.dict(os.environ, empty_env, clear=False):
+            self.assertEqual(dialogflow.get_target_url("global", "v2/path"),
+                             "https://dialogflow.googleapis.com/v2/path")
+
+    def test_get_target_url_rejects_host_injection(self):
+        for location in ("evil.example#", "evil.example/", "a@b", "", "US"):
+            with self.assertRaises(ValueError, msg=location):
+                dialogflow.get_target_url(location, "v2/path")
+
+
+class TestHttpStreamingCompanion(unittest.TestCase):
+    """Unit tests for SocketIO streaming RPC proxy handlers in main.py."""
+
+    def test_location_regex(self):
+        res = (
+            "projects/p1/locations/us-central1/conversations/c1/participants/p1"
+        )
+        match = main.LOCATION_REGEX.search(res)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.group(1), "us-central1")
+
+        res_global = "projects/p1/conversations/c1/participants/p1"
+        match_global = main.LOCATION_REGEX.search(res_global)
+        self.assertIsNone(match_global)
+
+        res_injected = "projects/p1/locations/evil.example#/conversations/c1"
+        self.assertIsNone(main.LOCATION_REGEX.search(res_injected))
+
+    @patch("main.socketio.emit")
+    def test_handle_stream_request_missing_method(self, mock_emit):
+        with app.test_request_context():
+            main.request.sid = "test-sid"
+            main.handle_stream_request({"streamId": "s-missing", "payload": {}})
+            mock_emit.assert_called_with(
+                "stream-error",
+                {
+                    "streamId": "s-missing",
+                    "payload": {
+                        "error": {
+                            "message": ('Missing required "method" parameter in'
+                                        " initial stream-request."),
+                            "code": 13,
+                        }
+                    },
+                },
+                to="test-sid",
+            )
+
+    @patch("main.socketio.emit")
+    def test_handle_stream_request_unknown_method(self, mock_emit):
+        with app.test_request_context():
+            main.request.sid = "test-sid"
+            main.handle_stream_request({
+                "streamId": "s-unknown",
+                "method": "invalid_method"
+            })
+            mock_emit.assert_called_with(
+                "stream-error",
+                {
+                    "streamId": "s-unknown",
+                    "payload": {
+                        "error": {
+                            "message":
+                                ("Unknown streaming method: invalid_method"),
+                            "code": 13,
+                        }
+                    },
+                },
+                to="test-sid",
+            )
+
+    @patch("main.socketio.emit")
+    def test_handle_stream_request_missing_location(self, mock_emit):
+        with app.test_request_context():
+            main.request.sid = "test-sid"
+            main.handle_stream_request({
+                "streamId": "s-no-loc",
+                "method": "streaming_reactive_companion_suggestions",
+                "payload": {
+                    "participant": "invalid/resource/path"
+                },
+            })
+            mock_emit.assert_called_with(
+                "stream-error",
+                {
+                    "streamId": "s-no-loc",
+                    "payload": {
+                        "error": {
+                            "message":
+                                ("Could not extract location from participant: "
+                                 '"invalid/resource/path".'),
+                            "code": 13,
+                        }
+                    },
+                },
+                to="test-sid",
+            )
+
+    @patch("webchannel.WebChannelClient")
+    def test_handle_stream_request_new_stream_success(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        with app.test_request_context():
+            main.request.sid = "test-sid-1"
+            main.handle_stream_request({
+                "streamId": "s-success",
+                "method": "streaming_reactive_companion_suggestions",
+                "payload": {
+                    "participant":
+                        ("projects/p1/locations/us-central1/conversations/c1/"
+                         "participants/p1")
+                },
+            })
+            mock_client.connect.assert_called_once()
+            mock_client.send.assert_called_once()
+            self.assertIn("s-success", main.ACTIVE_STREAMS)
+            self.assertIn("s-success",
+                          main.SOCKET_SESSION_IDS_TO_STREAMS["test-sid-1"])
+
+    @patch("webchannel.WebChannelClient")
+    def test_handle_stream_request_already_active_forwards_payload(
+            self, mock_client_cls):
+        mock_client = MagicMock()
+        main.ACTIVE_STREAMS["s-active"] = mock_client
+        with app.test_request_context():
+            main.request.sid = "test-sid-1"
+            main.handle_stream_request({
+                "streamId": "s-active",
+                "payload": {
+                    "text": "hello"
+                },
+            })
+            mock_client_cls.assert_not_called()
+            mock_client.send.assert_called_once_with({"text": "hello"})
+
+    def test_handle_end_stream_cleans_resources(self):
+        mock_client = MagicMock()
+        main.ACTIVE_STREAMS["test-s1"] = mock_client
+        main.SOCKET_SESSION_IDS_TO_STREAMS.setdefault("test-sid",
+                                                      set()).add("test-s1")
+
+        with app.test_request_context():
+            main.request.sid = "test-sid"
+            main.handle_end_stream({"streamId": "test-s1"})
+
+        mock_client.close.assert_called_once()
+        self.assertNotIn("test-s1", main.ACTIVE_STREAMS)
+        self.assertNotIn(
+            "test-s1",
+            main.SOCKET_SESSION_IDS_TO_STREAMS.get("test-sid", set()))
+
+    def test_stream_on_close_cleans_resources(self):
+        main.ACTIVE_STREAMS["test-s2"] = MagicMock()
+        main.SOCKET_SESSION_IDS_TO_STREAMS.setdefault("test-sid-2",
+                                                      set()).add("test-s2")
+        main._cleanup_stream("test-sid-2", "test-s2")
+        self.assertNotIn("test-s2", main.ACTIVE_STREAMS)
+        self.assertNotIn(
+            "test-s2",
+            main.SOCKET_SESSION_IDS_TO_STREAMS.get("test-sid-2", set()),
+        )
+
+
+if __name__ == "__main__":
     unittest.main()

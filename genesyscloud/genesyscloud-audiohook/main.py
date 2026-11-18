@@ -20,5 +20,12 @@ app = Flask(__name__)
 app.register_blueprint(audiohook_bp)
 
 
+@app.route('/healthz')
+def healthz():
+    """Liveness probe endpoint. Served by the gunicorn worker, so it fails
+    when the worker can no longer accept connections."""
+    return 'ok', 200
+
+
 if __name__ == '__main__':
     app.run()
