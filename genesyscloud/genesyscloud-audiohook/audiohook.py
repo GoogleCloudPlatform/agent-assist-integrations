@@ -57,7 +57,7 @@ class AudioHook:
                 }
             ],
         }
-        logging.debug("Get opened message %s", opened_message)
+        logging.debug("Get opened message %s", repr(opened_message))
 
         return opened_message
 
@@ -67,7 +67,7 @@ class AudioHook:
         """
         resume_message = self.create_message_by_type(
             message_type="resume")
-        logging.debug("send resume messages to the client %s", resume_message)
+        logging.debug("send resume messages to the client %s", repr(resume_message))
         return resume_message
 
     def create_close_message(self):
@@ -84,7 +84,7 @@ class AudioHook:
         """
         pong_message = self.create_message_by_type(
             message_type="pong")
-        logging.debug("send pong messages to the client %s", pong_message)
+        logging.debug("send pong messages to the client %s", repr(pong_message))
         return pong_message
 
     def set_session_id(self, session_id: str):

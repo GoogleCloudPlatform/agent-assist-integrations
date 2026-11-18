@@ -19,8 +19,13 @@ import { GoogleAuth } from 'google-auth-library';
 
 /** Gets the target location from a URL path. */
 function getTargetLocation(path: string) {
+  const [pathname] = path.split('?');
   const [, location] =
-    path.match(/\/projects\/[^/]+\/locations\/([^/]+)/) || [];
+    pathname.match(/\/projects\/[^/]+\/locations\/([^/]+)/) || [];
+
+  if (location && !/^[a-z0-9-]+$/.test(location)) {
+    throw new Error('invalid location');
+  }
 
   return location || 'global';
 }
@@ -50,8 +55,16 @@ export const getHandler = async (req: Request, res: Response) => {
     const url = getTargetUrl(req.originalUrl);
     const response = await client.request({ url });
     res.status(response.status).json(response.data);
-  } catch (err) {
-    res.status(err.response.status).json(err.response.data);
+  } catch (err: unknown) {
+    const error = err as {
+      response?: { status?: number; data?: unknown };
+      message?: string;
+    };
+    res
+      .status(error?.response?.status || 400)
+      .json(
+        error?.response?.data || { message: error?.message || 'Bad request' }
+      );
   }
 };
 
@@ -66,8 +79,16 @@ export const postHandler = async (req: Request, res: Response) => {
       body: req.body,
     });
     res.status(response.status).json(response.data);
-  } catch (err) {
-    res.status(err.response.status).json(err.response.data);
+  } catch (err: unknown) {
+    const error = err as {
+      response?: { status?: number; data?: unknown };
+      message?: string;
+    };
+    res
+      .status(error?.response?.status || 400)
+      .json(
+        error?.response?.data || { message: error?.message || 'Bad request' }
+      );
   }
 };
 
@@ -82,7 +103,15 @@ export const patchHandler = async (req: Request, res: Response) => {
       body: req.body,
     });
     res.status(response.status).json(response.data);
-  } catch (err) {
-    res.status(err.response.status).json(err.response.data);
+  } catch (err: unknown) {
+    const error = err as {
+      response?: { status?: number; data?: unknown };
+      message?: string;
+    };
+    res
+      .status(error?.response?.status || 400)
+      .json(
+        error?.response?.data || { message: error?.message || 'Bad request' }
+      );
   }
 };

@@ -11,15 +11,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Unit tests for Five9 gRPC retry and reconnection behavior."""
 
 import os
 import sys
 import unittest
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from google.api_core.exceptions import InternalServerError
 
 # Ensure server & proto modules can be imported
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../proto")))
+sys.path.append(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "../proto")))
 
 # Mock google.auth.default before importing get_suggestions
 mock_creds = MagicMock()
@@ -29,9 +33,18 @@ with patch("google.auth.default", return_value=(mock_creds, "project_id")):
 
 
 class TestReconnect(unittest.IsolatedAsyncioTestCase):
+    """Unit tests for reconnection and retry behavior."""
+
     def setUp(self):
         self.servicer = get_suggestions.VoiceServicer()
+        self.token_patcher = patch(
+            "services.get_suggestions.FIVE9_TRUST_TOKEN", "test-trust-token")
+        self.token_patcher.start()
 
+    def tearDown(self):
+        self.token_patcher.stop()
+
+    @patch("services.get_suggestions.conversation_profile_management")
     @patch("services.get_suggestions.conversation_management")
     @patch("services.get_suggestions.participant_management")
     @patch("services.get_suggestions.call_stream.CallStream")
@@ -40,7 +53,9 @@ class TestReconnect(unittest.IsolatedAsyncioTestCase):
         mock_call_stream,
         mock_participant_management,
         mock_conversation_management,
+        unused_mock_conversation_profile_management,
     ):
+        """Tests that stream retries when 500 error is encountered."""
         # Setup the mock stream
         mock_stream_instance = MagicMock()
         mock_stream_instance.closed = False
@@ -52,51 +67,43 @@ class TestReconnect(unittest.IsolatedAsyncioTestCase):
         # Initialize restart_counter
         mock_stream_instance.restart_counter = 0
 
-        mock_call_stream.return_value.__enter__.return_value = mock_stream_instance
+        mock_call_stream.return_value.__enter__.return_value = (
+            mock_stream_instance)
 
-        mock_conversation_management.get_conversation = AsyncMock(return_value=None)
+        mock_conversation_management.get_conversation = AsyncMock(
+            return_value=None)
         mock_conversation_management.create_conversation = AsyncMock()
         mock_conversation_management.complete_conversation = AsyncMock()
 
         mock_participant = MagicMock()
         mock_participant.name = "projects/p/conversations/c/participants/123"
         mock_participant_management.create_participant = AsyncMock(
-            return_value=mock_participant
-        )
+            return_value=mock_participant)
 
         # DEFINE SIDE EFFECT FOR analyze_content_audio_stream
         # First call: Raises 500 Exception
-        # Second call: Returns success generator, then sets closed=True to end loop
+        # Second call: Returns success generator, then sets closed=True
         async def success_generator():
             yield MagicMock()  # Yield one good response
 
-        async def analyze_side_effect(*args, **kwargs):
-            # Access the side effect call count via the mock to decide what to do
-            call_count = (
-                mock_participant_management.analyze_content_audio_stream.call_count
-            )
+        async def analyze_side_effect(*unused_args, **unused_kwargs):
+            # Access call count via mock to decide what to do
+            call_count = (mock_participant_management.
+                          analyze_content_audio_stream.call_count)
             if call_count == 1:
-                raise Exception("500 Internal error encountered")
-            else:
-                # Second call - success
-                # Set terminate/closed eventually to break loop after this
-                # But here we just return the generator.
-                # The loop checks stream.closed. We can set it here or rely on the generator yielding.
-                # Let's return a generator, and set closed=True when we are done?
-                # Actually, in the real code, analyze_content_audio_stream returns, then we yield responses.
-                # If we return a generator, the code iterates it.
-                mock_stream_instance.closed = (
-                    True  # End the loop after this successful call
-                )
-                return success_generator()
+                raise InternalServerError("Internal error encountered")
+
+            # Second call: return successful response stream and close stream
+            mock_stream_instance.closed = True
+            return success_generator()
 
         mock_participant_management.analyze_content_audio_stream.side_effect = (
-            analyze_side_effect
-        )
+            analyze_side_effect)
 
         # Request iterator
         mock_config = MagicMock()
         mock_config.streaming_config.vcc_call_id = "12345"
+        mock_config.streaming_config.trust_token = "test-trust-token"
         mock_config.streaming_config.voice_config.sample_rate_hertz = 16000
         mock_config.streaming_config.call_leg = 1
 
@@ -107,20 +114,19 @@ class TestReconnect(unittest.IsolatedAsyncioTestCase):
 
         # Run the method
         responses = [
-            res
-            async for res in self.servicer.StreamingVoice(request_iterator(), context)
+            res async for res in self.servicer.StreamingVoice(
+                request_iterator(), context)
         ]
 
         # Assertions
-        # 1. We expect analyze_content_audio_stream to be called TWICE (one fail, one retry)
-        # If the code breaks on 500, this will fail (called once).
+        # 1. We expect analyze_content_audio_stream to be called TWICE
         self.assertEqual(
             mock_participant_management.analyze_content_audio_stream.call_count,
             2,
             "Should retry on 500 error",
         )
 
-        # 2. Verify we got responses (at least the handshake + one success response)
+        # 2. Verify we got responses
         self.assertGreaterEqual(len(responses), 1)
 
 

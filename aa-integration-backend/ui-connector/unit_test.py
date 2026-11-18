@@ -16,8 +16,13 @@
 # pylint: disable=wrong-import-position,protected-access,broad-exception-caught
 # pylint: disable=unspecified-encoding,line-too-long,missing-function-docstring,missing-class-docstring
 
+import base64
+from datetime import datetime, timezone, timedelta
 import gzip
+import hashlib
+import hmac
 import json
+import jwt
 import os
 import sys
 import unittest
@@ -26,9 +31,10 @@ from unittest.mock import MagicMock, patch
 os.environ.setdefault("GCP_PROJECT_ID", "fake_project_id")
 os.environ.setdefault("LOGGING_FILE", "/tmp/test.log")
 os.environ.setdefault("JWT_SECRET_KEY_PATH", "/tmp/jwt_secret_key")
+os.environ.setdefault("JWT_SECRET_KEY", "fake_jwt_secret_key_32_bytes_len!")
 try:
     with open("/tmp/jwt_secret_key", "w", encoding="utf-8") as _f:
-        _f.write("fake_jwt_secret_key")
+        _f.write("fake_jwt_secret_key_32_bytes_len!")
 except Exception:
     pass
 
@@ -42,6 +48,7 @@ import google.auth
 
 google.auth.default = MagicMock(return_value=(MagicMock(), "fake_project_id"))
 
+import auth
 import dialogflow
 import main
 from main import app, redis_pubsub_handler, socketio
@@ -101,6 +108,11 @@ class TestSocketIO(unittest.TestCase):
     def test_connect_failure(self):
         """Tries to establish websocket connection without valid JWT."""
         client = socketio.test_client(app, auth={"token": "invalid_jwt"})
+        self.assertFalse(client.is_connected())
+
+    def test_connect_failure_none_token(self):
+        """Refuses websocket connection when auth token is None."""
+        client = socketio.test_client(app, auth={"token": None})
         self.assertFalse(client.is_connected())
 
     def test_connect_failure_does_not_broadcast(self):
@@ -226,6 +238,60 @@ class TestSocketIO(unittest.TestCase):
             main.get_conversation_servers_key("projects/p/conversations/c"),
             "projects/p/conversations/c:servers",
         )
+
+    def test_join_and_leave_rejects_invalid_conversation_name(self):
+        """Rejects malformed conversation resource names in join and leave."""
+        client = socketio.test_client(app, auth={"token": self.valid_jwt})
+        for bad_name in ("not-a-resource", "projects/p/conversations/bad/extra",
+                         123):
+            ack_join, msg_join = client.emit("join-conversation",
+                                             bad_name,
+                                             callback=True)
+            self.assertFalse(ack_join)
+            self.assertEqual(msg_join, "invalid conversation name")
+            ack_leave, msg_leave = client.emit("leave-conversation",
+                                               bad_name,
+                                               callback=True)
+            self.assertFalse(ack_leave)
+            self.assertEqual(msg_leave, "invalid conversation name")
+        client.disconnect()
+
+    @patch("main.redis_client.pipeline")
+    def test_leave_rejects_non_member_socket_and_allows_multi_agent_join(
+            self, unused_mock_pipeline):
+        """Prevents a non-member socket from leaving while allowing multi-agent join."""
+        agent1_jwt = main.generate_jwt(
+            {"gcp_agent_assist_user": "agent1@example.com"})
+        agent2_jwt = main.generate_jwt(
+            {"gcp_agent_assist_user": "agent2@example.com"})
+        conversation = get_conversation_name("shared_conv_001")
+        conv_no_loc = get_conversation_name_without_location("shared_conv_001")
+
+        agent1_client = socketio.test_client(app, auth={"token": agent1_jwt})
+        agent2_client = socketio.test_client(app, auth={"token": agent2_jwt})
+
+        ack_1, data_1 = agent1_client.emit("join-conversation",
+                                           conversation,
+                                           callback=True)
+        self.assertTrue(ack_1)
+        self.assertEqual(data_1, conv_no_loc)
+
+        # Agent 2 has not joined yet; attempting to leave should be rejected.
+        ack_leave_2, data_leave_2 = agent2_client.emit("leave-conversation",
+                                                       conversation,
+                                                       callback=True)
+        self.assertFalse(ack_leave_2)
+        self.assertEqual(data_leave_2, "not authorized for this conversation")
+
+        # Separate agents are allowed to join the same conversation (WAI).
+        ack_2, data_2 = agent2_client.emit("join-conversation",
+                                           conversation,
+                                           callback=True)
+        self.assertTrue(ack_2)
+        self.assertEqual(data_2, conv_no_loc)
+
+        agent1_client.disconnect()
+        agent2_client.disconnect()
 
     def test_redis_pubsub_handler(self):
         """Handles Redis Pub/Sub messages."""
@@ -555,6 +621,236 @@ class TestRestAPI(unittest.TestCase):
         self.assertEqual(response.headers["Content-Type"],
                          "text/html; charset=utf-8")
 
+    @patch("main.redis_client.set", return_value=True)
+    def test_set_conversation_name_success(self, mock_redis_set):
+        """Sets conversationIntegrationKey mapping successfully."""
+        client = app.test_client()
+        response = client.post(
+            "/conversation-name",
+            json={
+                "conversationIntegrationKey": "genesys-conv-123",
+                "conversationName": self.conversation_name,
+            },
+            headers={"Authorization": self.valid_jwt},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json(),
+            {"genesys-conv-123": self.conversation_name},
+        )
+        mock_redis_set.assert_called_once()
+
+    def test_set_conversation_name_bad_request(self):
+        """Rejects set conversation name request when missing fields."""
+        client = app.test_client()
+        response = client.post(
+            "/conversation-name",
+            json={"conversationIntegrationKey": ""},
+            headers={"Authorization": self.valid_jwt},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @patch(
+        "main.redis_client.get",
+        return_value=
+        b"projects/fake_project_id/locations/global/conversations/fake_conversation_id",
+    )
+    def test_get_conversation_name_success(self, mock_redis_get):
+        """Gets conversationName by conversationIntegrationKey."""
+        client = app.test_client()
+        response = client.get(
+            "/conversation-name?conversationIntegrationKey=genesys-conv-123",
+            headers={"Authorization": self.valid_jwt},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json(),
+            {"conversationName": self.conversation_name},
+        )
+        mock_redis_get.assert_called_once()
+
+    def test_get_conversation_name_missing_param(self):
+        """Rejects get conversation name when query param is missing."""
+        client = app.test_client()
+        response = client.get(
+            "/conversation-name",
+            headers={"Authorization": self.valid_jwt},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @patch("main.redis_client.delete", return_value=1)
+    def test_del_conversation_name_success(self, mock_redis_del):
+        """Deletes conversationName by conversationIntegrationKey."""
+        client = app.test_client()
+        response = client.delete(
+            "/conversation-name?conversationIntegrationKey=genesys-conv-123",
+            headers={"Authorization": self.valid_jwt},
+        )
+        self.assertEqual(response.status_code, 200)
+        mock_redis_del.assert_called_once()
+
+    @patch("main.redis_client.delete", return_value=0)
+    def test_del_conversation_name_not_found(self, unused_mock_redis_del):
+        """Returns 404 when deleting a non-existent conversationIntegrationKey."""
+        client = app.test_client()
+        response = client.delete(
+            "/conversation-name?conversationIntegrationKey=genesys-conv-123",
+            headers={"Authorization": self.valid_jwt},
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_del_conversation_name_missing_param(self):
+        """Rejects delete conversation name when query param is missing."""
+        client = app.test_client()
+        response = client.delete(
+            "/conversation-name",
+            headers={"Authorization": self.valid_jwt},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @patch("main.redis_client.set", return_value=False)
+    def test_set_conversation_name_redis_failure(self, unused_mock_redis_set):
+        """Returns 400 if redis set operation fails."""
+        client = app.test_client()
+        response = client.post(
+            "/conversation-name",
+            json={
+                "conversationIntegrationKey": "genesys-conv-123",
+                "conversationName": self.conversation_name,
+            },
+            headers={"Authorization": self.valid_jwt},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @patch("main.redis_client.get", return_value=None)
+    def test_get_conversation_name_empty_redis(self, unused_mock_redis_get):
+        """Returns empty string for conversationName when key does not exist in Redis."""
+        client = app.test_client()
+        response = client.get(
+            "/conversation-name?conversationIntegrationKey=nonexistent-key",
+            headers={"Authorization": self.valid_jwt},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), {"conversationName": ""})
+
+    def test_check_jwt_malformed_token(self):
+        """Fails gracefully when parsing completely malformed token."""
+        is_valid, msg = auth.check_jwt("Bearer not.a.valid.jwt")
+        self.assertFalse(is_valid)
+        self.assertEqual(msg, "Failed to parse your token.")
+
+    def test_check_jwt_bearer_with_whitespace(self):
+        """Handles Bearer tokens with extra whitespace padding."""
+        is_valid, msg = auth.check_jwt(f"Bearer    {self.valid_jwt}")
+        self.assertTrue(is_valid)
+        self.assertEqual(msg, "Your token is valid.")
+
+    def test_check_jwt_valid_without_bearer_prefix(self):
+        """Validates legitimate tokens passed without Bearer prefix."""
+        is_valid, msg = auth.check_jwt(self.valid_jwt)
+        self.assertTrue(is_valid)
+        self.assertEqual(msg, "Your token is valid.")
+
+    def test_check_jwt_malformed_without_bearer_prefix(self):
+        """Fails gracefully when malformed token is passed without Bearer prefix."""
+        is_valid, unused_msg = auth.check_jwt("malformed_raw_token")
+        self.assertFalse(is_valid)
+
+    def test_check_jwt_none_token(self):
+        """Handles None token safely without raising AttributeError."""
+        is_valid, msg = auth.check_jwt(None)
+        self.assertFalse(is_valid)
+        self.assertEqual(msg, "Failed to parse your token.")
+
+    def test_check_jwt_empty_token(self):
+        """Handles empty token string safely."""
+        is_valid, msg = auth.check_jwt("")
+        self.assertFalse(is_valid)
+        self.assertEqual(msg, "Failed to parse your token.")
+
+    @patch.object(auth, "jwt_secret_key", "")
+    @patch(
+        "auth.load_jwt_secret_key",
+        side_effect=ValueError("Server JWT secret key is not configured."),
+    )
+    def test_check_jwt_empty_secret_fails(self, unused_mock_load):
+        """Rejects JWT validation when server secret is empty."""
+        is_valid, msg = auth.check_jwt(self.valid_jwt)
+        self.assertFalse(is_valid)
+        self.assertEqual(msg, "Server JWT secret key is not configured.")
+
+    @patch.object(auth, "jwt_secret_key", "")
+    @patch(
+        "auth.load_jwt_secret_key",
+        side_effect=ValueError("Server JWT secret key is not configured."),
+    )
+    def test_generate_jwt_empty_secret_raises(self, unused_mock_load):
+        """Raises ValueError when generating JWT with empty secret."""
+        with self.assertRaises(ValueError) as ctx:
+            auth.generate_jwt()
+        self.assertIn("Server JWT secret key is not configured",
+                      str(ctx.exception))
+
+    def test_load_jwt_secret_key_raises_when_unconfigured(self):
+        """Raises ValueError when secret key cannot be loaded from file or env."""
+        with patch.object(auth, "jwt_secret_key", ""):
+            with patch("os.path.exists", return_value=False):
+                with patch.dict(os.environ, {}, clear=True):
+                    with self.assertRaises(ValueError) as ctx:
+                        auth.load_jwt_secret_key()
+                    self.assertIn("Server JWT secret key is not configured",
+                                  str(ctx.exception))
+
+    def test_forged_jwt_fails_verification(self):
+        """Rejects forged tokens signed with wrong secret."""
+        forged = jwt.encode(
+            {
+                "exp": datetime.now(timezone.utc) + timedelta(minutes=60),
+                "gcp_agent_assist_project": _PROJECT_ID,
+                "gcp_agent_assist_user": "attacker",
+            },
+            "unauthorized_secret_key_32_chars_long!!",
+            algorithm="HS256",
+        )
+        is_valid, msg = auth.check_jwt(forged)
+        self.assertFalse(is_valid)
+        self.assertEqual(msg, "Failed to parse your token.")
+
+    def test_empty_key_signed_jwt_rejected(self):
+        """Rejects forged token signed with empty HMAC secret."""
+        header = base64.urlsafe_b64encode(
+            json.dumps({
+                "alg": "HS256",
+                "typ": "JWT"
+            }).encode("utf-8")).rstrip(b"=").decode("utf-8")
+        payload = base64.urlsafe_b64encode(
+            json.dumps({
+                "exp": 2534023000,
+                "gcp_agent_assist_project": _PROJECT_ID,
+            }).encode("utf-8")).rstrip(b"=").decode("utf-8")
+        msg = f"{header}.{payload}".encode("utf-8")
+        sig = base64.urlsafe_b64encode(
+            hmac.new(b"", msg,
+                     hashlib.sha256).digest()).rstrip(b"=").decode("utf-8")
+        raw_token = f"{header}.{payload}.{sig}"
+        is_valid, msg = auth.check_jwt(raw_token)
+        self.assertFalse(is_valid)
+        self.assertEqual(msg, "Failed to parse your token.")
+
+    def test_load_jwt_secret_key_empty_file_falls_back(self):
+        """Falls back safely if secret key file exists but contains only whitespace or is empty."""
+        with patch.object(auth, "jwt_secret_key", ""):
+            with patch("os.path.exists", return_value=True):
+                with patch("builtins.open",
+                           unittest.mock.mock_open(read_data="   \n")):
+                    with patch.dict(
+                            os.environ,
+                        {"JWT_SECRET_KEY": "env-fallback-secret-key-32bytes!"},
+                    ):
+                        key = auth.load_jwt_secret_key()
+                        self.assertEqual(key,
+                                         "env-fallback-secret-key-32bytes!")
+
     def test_dialogflow_invalid_location(self):
         """Rejects locations that would change the Dialogflow host."""
         client = app.test_client()
@@ -587,6 +883,40 @@ class TestRestAPI(unittest.TestCase):
         for path in ("/v2/..", "/v2/../x", "/v2/./x", "/v2//x", "/v2/x/",
                      "/v2/x#y", "/v2/x?y", "/v2/x%2e", "/v2/x\\y"):
             self.assertIsNone(main.RESOURCE_PATH_REGEX.fullmatch(path), path)
+
+    @patch("auth_options.requests.get")
+    def test_check_genesyscloud_token_org_validation(self, mock_get):
+        """Validates Genesys Cloud token against configured organization ID."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "id": "user-123",
+            "organization": {
+                "id": "org-legit-111"
+            },
+        }
+        mock_get.return_value = mock_resp
+
+        # Unconfigured GENESYS_CLOUD_ORGANIZATION_ID warns and allows (backward-compatible)
+        with patch.object(main.config, "GENESYS_CLOUD_ORGANIZATION_ID", ""):
+            with self.assertLogs(level="WARNING") as captured:
+                self.assertTrue(
+                    auth.auth_options.check_genesyscloud_token("fake-token"))
+            self.assertTrue(
+                any("GENESYS_CLOUD_ORGANIZATION_ID is not configured" in msg
+                    for msg in captured.output))
+
+        # Matching organization succeeds
+        with patch.object(main.config, "GENESYS_CLOUD_ORGANIZATION_ID",
+                          "org-legit-111"):
+            self.assertTrue(
+                auth.auth_options.check_genesyscloud_token("fake-token"))
+
+        # Foreign organization fails closed when GENESYS_CLOUD_ORGANIZATION_ID is set
+        with patch.object(main.config, "GENESYS_CLOUD_ORGANIZATION_ID",
+                          "org-other-999"):
+            self.assertFalse(
+                auth.auth_options.check_genesyscloud_token("fake-token"))
 
 
 class TestDialogflowModule(unittest.TestCase):
@@ -788,6 +1118,32 @@ class TestHttpStreamingCompanion(unittest.TestCase):
             "test-s2",
             main.SOCKET_SESSION_IDS_TO_STREAMS.get("test-sid-2", set()),
         )
+
+    def test_server_id_uses_csprng_hex_prefix(self):
+        """Verifies SERVER_ID uses 16-char hex token from secrets.token_hex(8)."""
+        self.assertRegex(main.SERVER_ID, r"^[0-9a-f]{16}-\d+")
+
+    @patch("main.redis_client.set", return_value=True)
+    def test_crlf_log_injection_neutralized(self, unused_mock_set):
+        """Verifies CRLF sequences in untrusted inputs are escaped in logs."""
+        http_client = app.test_client()
+        token = main.generate_jwt()
+        malicious_key = "key\r\nFAKE_LOG: injected"
+        malicious_conv = "conv\r\nFAKE_LOG: injected2"
+        with self.assertLogs(level="INFO") as captured:
+            resp = http_client.post(
+                "/conversation-name",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "conversationIntegrationKey": malicious_key,
+                    "conversationName": malicious_conv,
+                },
+            )
+            self.assertEqual(resp.status_code, 200)
+        for line in captured.output:
+            self.assertNotIn("\r", line)
+            self.assertNotIn("\n", line)
+            self.assertIn("\\r\\nFAKE_LOG:", line)
 
 
 if __name__ == "__main__":
