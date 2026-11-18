@@ -44,10 +44,22 @@ import audiohook_blueprint  # pylint: disable=wrong-import-position
 
 
 class TestAudiohookConnectAuth(unittest.TestCase):
-    """Tests X-API-KEY enforcement on /connect."""
+    """Tests fail-closed API_KEY and RFC 9421 signature enforcement on /connect."""
 
     def setUp(self):
         self.app = Flask(__name__)
+
+    @patch("audiohook_blueprint.run_audiohook_connection")
+    def test_connect_rejects_when_unconfigured(self, mock_run):
+        """Closes WebSocket with 1008 when neither API_KEY nor CLIENT_SECRET is set."""
+        ws = MagicMock()
+        with patch.object(audiohook_blueprint.config, "api_key", None), \
+             patch.object(audiohook_blueprint.config, "client_secret", None), \
+             self.app.test_request_context("/connect"):
+            audiohook_blueprint.audiohook_connect(ws)
+        ws.close.assert_called_once()
+        self.assertEqual(ws.close.call_args.kwargs.get("reason"), 1008)
+        mock_run.assert_not_called()
 
     @patch("audiohook_blueprint.run_audiohook_connection")
     def test_connect_rejects_missing_api_key(self, mock_run):
@@ -55,7 +67,8 @@ class TestAudiohookConnectAuth(unittest.TestCase):
         ws = MagicMock()
         with self.app.test_request_context("/connect"):
             audiohook_blueprint.audiohook_connect(ws)
-        ws.close.assert_called_once_with(reason=1008, message="invalid api key")
+        ws.close.assert_called_once()
+        self.assertEqual(ws.close.call_args.kwargs.get("reason"), 1008)
         mock_run.assert_not_called()
 
     @patch("audiohook_blueprint.run_audiohook_connection")
@@ -65,7 +78,8 @@ class TestAudiohookConnectAuth(unittest.TestCase):
         with self.app.test_request_context(
                 "/connect", headers={"X-API-KEY": "wrong-key"}):
             audiohook_blueprint.audiohook_connect(ws)
-        ws.close.assert_called_once_with(reason=1008, message="invalid api key")
+        ws.close.assert_called_once()
+        self.assertEqual(ws.close.call_args.kwargs.get("reason"), 1008)
         mock_run.assert_not_called()
 
     @patch("audiohook_blueprint.run_audiohook_connection")

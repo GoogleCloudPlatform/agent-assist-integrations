@@ -15,7 +15,6 @@
 """ Module for receiving audio streaming from Audiohook Monitor and
 call Agent Assist backend
 """
-import hmac
 import json
 import logging
 from dataclasses import dataclass, field
@@ -31,6 +30,7 @@ from simple_websocket import ConnectionClosed, Server
 from audio_stream import Stream
 from audiohook import DEFAULT_CONVERSATION_ID, AudioHook
 from audiohook_config import config
+from auth import verify_signature
 from dialogflow_api import (DialogflowAPI, await_redis, create_conversation_name,
                             find_participant_by_role, location_id, project)
 
@@ -206,13 +206,46 @@ def audiohook_connect(ws: Server):
     Args:
         ws (Server): Websocket server for exchange messages
     """
-    client_api_key = request.headers.get("X-API-KEY", "")
-    if not config.api_key or not hmac.compare_digest(
-            client_api_key, config.api_key):
+    if not config.api_key and not config.client_secret:
         logging.warning(
-            "Rejecting Audiohook connection: missing or invalid X-API-KEY")
-        ws.close(reason=1008, message="invalid api key")
+            "Rejecting AudioHook connection: neither API_KEY nor CLIENT_SECRET is configured"
+        )
+        try:
+            ws.close(
+                reason=1008,
+                message="Policy Violation: AudioHook authentication is not configured",
+            )
+        except Exception:  # pylint: disable=broad-except
+            ws.close()
         return
+
+    raw_uri = request.environ.get("RAW_URI") or request.environ.get(
+        "REQUEST_URI")
+    if raw_uri:
+        request_target = raw_uri
+    elif request.query_string:
+        request_target = (
+            f"{request.path}?{request.query_string.decode('utf-8')}")
+    else:
+        request_target = request.path
+
+    is_valid, err_msg = verify_signature(
+        headers=dict(request.headers),
+        method=request.method,
+        path=request.path,
+        request_target=request_target,
+        client_secret=config.client_secret,
+        expected_api_key=config.api_key,
+    )
+    if not is_valid:
+        logging.warning("Unauthorized AudioHook connection rejected: %s",
+                        repr(err_msg))
+        try:
+            ws.close(reason=1008, message=f"Policy Violation: {err_msg}")
+        except Exception:  # pylint: disable=broad-except
+            ws.close()
+        return
+
     run_audiohook_connection(ws)
 
 
