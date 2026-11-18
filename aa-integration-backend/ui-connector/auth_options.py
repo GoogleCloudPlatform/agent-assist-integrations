@@ -130,12 +130,12 @@ def check_genesyscloud_token(token):
     if response.status_code == 200:
         response_json = response.json()
         logging.info("Verifying user %s.", repr(response_json.get("id")))
-        # Check the user's organization.
+        # Check the user's organization when configured (progressive enhancement).
         if not config.GENESYS_CLOUD_ORGANIZATION_ID:
             logging.warning(
-                "GENESYS_CLOUD_ORGANIZATION_ID is not configured; rejecting token."
+                "GENESYS_CLOUD_ORGANIZATION_ID is not configured; skipping Genesys Cloud organization check."
             )
-            return False
+            return True
         user_org = (response_json.get("organization") or {}).get("id")
         if user_org == config.GENESYS_CLOUD_ORGANIZATION_ID:
             return True

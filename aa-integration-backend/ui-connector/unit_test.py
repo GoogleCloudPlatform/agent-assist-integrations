@@ -897,10 +897,14 @@ class TestRestAPI(unittest.TestCase):
         }
         mock_get.return_value = mock_resp
 
-        # Unconfigured GENESYS_CLOUD_ORGANIZATION_ID fails closed
-        with patch.object(main.config, "GENESYS_CLOUD_ORGANIZATION_ID", None):
-            self.assertFalse(
-                auth.auth_options.check_genesyscloud_token("fake-token"))
+        # Unconfigured GENESYS_CLOUD_ORGANIZATION_ID warns and allows (backward-compatible)
+        with patch.object(main.config, "GENESYS_CLOUD_ORGANIZATION_ID", ""):
+            with self.assertLogs(level="WARNING") as captured:
+                self.assertTrue(
+                    auth.auth_options.check_genesyscloud_token("fake-token"))
+            self.assertTrue(
+                any("GENESYS_CLOUD_ORGANIZATION_ID is not configured" in msg
+                    for msg in captured.output))
 
         # Matching organization succeeds
         with patch.object(main.config, "GENESYS_CLOUD_ORGANIZATION_ID",
@@ -908,7 +912,7 @@ class TestRestAPI(unittest.TestCase):
             self.assertTrue(
                 auth.auth_options.check_genesyscloud_token("fake-token"))
 
-        # Foreign organization fails closed
+        # Foreign organization fails closed when GENESYS_CLOUD_ORGANIZATION_ID is set
         with patch.object(main.config, "GENESYS_CLOUD_ORGANIZATION_ID",
                           "org-other-999"):
             self.assertFalse(
