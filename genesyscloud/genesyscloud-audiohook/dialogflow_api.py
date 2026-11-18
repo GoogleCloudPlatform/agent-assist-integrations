@@ -82,13 +82,51 @@ def create_conversation_name(conversation_id: str, location_id: str, project: st
     return f"projects/{project}/locations/{location_id}/conversations/{conversation_id}"
 
 
+def store_conversation_mapping(integration_key: str, conversation_name: str):
+    """Stores the conversationIntegrationKey:conversationName mapping via UI Connector."""
+    if not integration_key or not conversation_name:
+        logging.warning("Cannot store mapping with empty key or conversation name.")
+        return
+    import requests
+    try:
+        url = f"{config.ui_connector_endpoint}/conversation-name"
+        payload = {
+            "conversationIntegrationKey": integration_key,
+            "conversationName": conversation_name
+        }
+        
+        # Authenticate using a Google OIDC token (Cloud Run to Cloud Run)
+        headers = {"Content-Type": "application/json"}
+        try:
+            import google.auth.transport.requests
+            import google.oauth2.id_token
+            req = google.auth.transport.requests.Request()
+            token = google.oauth2.id_token.fetch_id_token(req, config.ui_connector_endpoint)
+            headers["Authorization"] = f"Bearer {token}"
+        except Exception as e:
+            logging.warning("Failed to fetch Google ID token: %s", repr(e))
+            
+        response = requests.post(url, json=payload, headers=headers, timeout=5)
+        response.raise_for_status()
+        logging.info(
+            "Stored mapping in UI connector: %s -> %s",
+            repr(integration_key),
+            repr(conversation_name),
+        )
+    except Exception as e:
+        logging.error(
+            "Failed to store conversation name mapping via UI connector: %s",
+            repr(e),
+        )
+
+
 def find_participant_by_role(role: dialogflow.Participant.Role, participants_list: list[dialogflow.Participant]) -> dialogflow.Participant | None:
 
     for participant in participants_list:
         if participant.role == role:
 
             logging.debug("the active participant is %s:%s ",
-                          participant.role, participant.name)
+                          repr(participant.role), repr(participant.name))
             return participant
 
     return None
@@ -123,7 +161,7 @@ class DialogflowAPI:
         """Load conversation profile
         """
         logging.debug("Getting conversation profile for %s ",
-                      conversation_profile_name)
+                      repr(conversation_profile_name))
         return self.conversation_profiles_client.get_conversation_profile(
             request=dialogflow.GetConversationProfileRequest(
                 name=conversation_profile_name
@@ -131,31 +169,76 @@ class DialogflowAPI:
         )
 
     def create_conversation(
-            self,
-            conversation_profile: dialogflow.ConversationProfile,
-            conversation_id: str,
+        self,
+        conversation_profile_name: str,
+        conversation_id: str,
+        labels: dict | None = None,
     ) -> dialogflow.Conversation:
-        """Create conversation using conversation_id
+        """Create conversation using conversation_id, a dynamically resolved
+        conversation profile resource name, and optional labels.
         """
+        if hasattr(conversation_profile_name, "name"):
+            conversation_profile_name = conversation_profile_name.name
         conversation = dialogflow.Conversation(
-            conversation_profile=conversation_profile.name
+            conversation_profile=conversation_profile_name
         )
+        # Guard for google-cloud-dialogflow==2.47.0 where Conversation proto omits labels
+        if labels:
+            try:
+                conversation.labels = labels
+            except (AttributeError, KeyError, TypeError, ValueError):
+                logging.debug(
+                    "Conversation proto has no 'labels' field; skipping labels %s",
+                    repr(labels),
+                )
         project_path = self.conversations_client.common_location_path(
-            project, location_id)
+            project, location_id
+        )
         conversation_request = dialogflow.CreateConversationRequest(
             parent=project_path,
             conversation=conversation,
             conversation_id=conversation_id,
         )
-
         conversation = self.conversations_client.create_conversation(
-            request=conversation_request)
-
+            request=conversation_request
+        )
         logging.info(
-            "Created conversation %s for project path %s", conversation.name,
-            project_path)
-
+            "Created conversation %s (profile %s) with labels %s for project path %s",
+            repr(conversation.name),
+            repr(conversation_profile_name),
+            repr(labels),
+            repr(project_path),
+        )
         return conversation
+
+    def analyze_text_content(self, participant_name: str, text: str):
+        """Injects a synthetic text turn (Message #0) into the conversation transcript
+        via unary AnalyzeContent(text_input=...).
+        """
+        text_input = dialogflow.TextInput(
+            text=text, language_code=config.language_code
+        )
+        request = dialogflow.AnalyzeContentRequest(
+            participant=participant_name,
+            text_input=text_input,
+        )
+        return self.participants_client.analyze_content(request=request)
+
+    def ingest_context_references(
+        self, conversation_name: str, context_references: dict
+    ):
+        """Ingest context references for a conversation via ConversationsClient."""
+        try:
+            request = dialogflow.IngestContextReferencesRequest(
+                conversation=conversation_name,
+                context_references=context_references,
+            )
+            return self.conversations_client.ingest_context_references(
+                request=request
+            )
+        except Exception as e:
+            logging.error("Failed to ingest context references: %s", repr(e))
+            return None
 
     def get_conversation(
             self, conversation_name: str) -> dialogflow.Conversation:
@@ -184,7 +267,7 @@ class DialogflowAPI:
         participants_pagers = self.participants_client.list_participants(
             dialogflow.ListParticipantsRequest(parent=conversation_name))
         participant_list = list(participants_pagers.__iter__())
-        logging.debug("participant list %s, type ", participant_list)
+        logging.debug("participant list %s, type ", repr(participant_list))
         return participant_list
 
     def create_participant(
@@ -200,8 +283,8 @@ class DialogflowAPI:
         participant = self.participants_client.create_participant(
             parent=conversation_name, participant=participant)
         logging.debug("Creating new participant %s:%s",
-                      role,
-                      participant)
+                      repr(role),
+                      repr(participant))
 
         return participant
 
@@ -214,7 +297,7 @@ class DialogflowAPI:
         analyze content API endpoint
         """
         logging.debug("Call streaming analyze content %s, %s",
-                      audio_stream.closed, audio_stream.is_final)
+                      repr(audio_stream.closed), repr(audio_stream.is_final))
         backoff_seconds = STREAMING_RETRY_INITIAL_BACKOFF_SECONDS
         while not audio_stream.terminate:
             if audio_stream.closed:
@@ -233,7 +316,7 @@ class DialogflowAPI:
                 # would silently stop transcription for the rest of the call.
                 logging.exception(
                     "Unexpected error calling streaming analyze content for %s",
-                    participant.role.name)
+                    repr(participant.role.name))
                 succeeded = False
             if succeeded:
                 backoff_seconds = STREAMING_RETRY_INITIAL_BACKOFF_SECONDS
@@ -257,22 +340,22 @@ class DialogflowAPI:
             away, False if it failed and should be retried with backoff.
         """
         try:
-            logging.debug("call streaming analyze content for %s", participant)
+            logging.debug("call streaming analyze content for %s", repr(participant))
             responses = self.participants_client.streaming_analyze_content(
                 requests=self.generator_streaming_analyze_content_request(
                     audio_config, participant, audio_stream))
 
             for response in responses:
                 audio_stream.speech_end_offset = response.recognition_result.speech_end_offset.seconds * 1000
-                logging.debug(response)
+                logging.debug("%s", repr(response))
                 if not response.recognition_result:
                     continue
                 if response.recognition_result.is_final:
                     audio_stream.is_final = True
                     logging.debug(
                         "Final transcript for %s: %s, and is final offset",
-                        participant.role.name,
-                        response.recognition_result.transcript,
+                        repr(participant.role.name),
+                        repr(response.recognition_result.transcript),
                     )
                     offset = response.recognition_result.speech_end_offset
                     audio_stream.is_final_offset = int(
@@ -282,13 +365,13 @@ class DialogflowAPI:
                 if response.recognition_result:
                     logging.debug(
                         "Role %s: Interim response recognition result transcript: %s, time %s",
-                        participant.role.name,
-                        response.recognition_result.transcript,
-                        response.recognition_result.speech_end_offset)
+                        repr(participant.role.name),
+                        repr(response.recognition_result.transcript),
+                        repr(response.recognition_result.speech_end_offset))
 
         except OutOfRange as e:
             logging.warning(
-                "The single audio stream exceeded maximum duration restrictions %s ", e)
+                "The single audio stream exceeded maximum duration restrictions %s ", repr(e))
             # return to restart the stream.
             return True
         except FailedPrecondition as e:
@@ -296,11 +379,11 @@ class DialogflowAPI:
             # by the next "resumed" message, which may never come. Let the
             # caller retry with backoff instead.
             logging.warning(
-                "Failed the precondition check for StreamingAnalyzeContent %s ", e)
+                "Failed the precondition check for StreamingAnalyzeContent %s ", repr(e))
             return False
         except ResourceExhausted as e:
             logging.warning(
-                "Exceed quota for calling streaming analyze content %s ", e)
+                "Exceed quota for calling streaming analyze content %s ", repr(e))
             return False
         return True
 
@@ -310,7 +393,7 @@ class DialogflowAPI:
         self.conversations_client.complete_conversation(
             name=conversation_name
         )
-        logging.debug("Call complete conversation for %s", conversation_name)
+        logging.debug("Call complete conversation for %s", repr(conversation_name))
 
     def generator_streaming_analyze_content_request(
             self,
@@ -352,7 +435,7 @@ class DialogflowAPI:
 
         logging.info(
             "Participant: %s, streaming analyze content request, end streaming yield an empty request ",
-            participant.name)
+            repr(participant.name))
         yield dialogflow.StreamingAnalyzeContentRequest(
             enable_debugging_info=enable_debugging_info,
         )
@@ -365,15 +448,17 @@ def await_redis(conversation_name: str) -> bool:
     """
     conversation_name = determine_conversation_name_without_location(
         conversation_name)
+    servers_key = f"{conversation_name}:servers"
     # give the user bit time to accept the call and wait for the Agent Assist Backend
     # to create the redis memory store
     counter = AWAIT_REDIS_COUNTER
 
     def _check_exists():
         try:
-            return redis_client.exists(conversation_name) != 0
+            return (redis_client.exists(servers_key) != 0 or
+                    redis_client.exists(conversation_name) != 0)
         except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
-            logging.warning("Redis connection error in await_redis: %s", e)
+            logging.warning("Redis connection error in await_redis: %s", repr(e))
             return False
 
     redis_exists = _check_exists()
@@ -382,7 +467,7 @@ def await_redis(conversation_name: str) -> bool:
         redis_exists = _check_exists()
         counter = counter - 1
     logging.debug("return to send resume message redis client exist %s and final counter %s ",
-                  redis_exists, counter)
+                  repr(redis_exists), repr(counter))
     return redis_exists
 
 

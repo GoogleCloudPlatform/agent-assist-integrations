@@ -83,6 +83,7 @@ async def generate_requests(
             ),
             vcc_call_id=call_id,
             call_leg=role,
+            trust_token=os.getenv("FIVE9_TRUST_TOKEN", ""),
         )
         yield voice_pb2.StreamingVoiceRequest(streaming_config=config)
 

@@ -19,8 +19,8 @@ import hashlib
 import json
 import logging
 import os
-import random
 import re
+import secrets
 import time
 from typing import Any, NotRequired, TypedDict
 
@@ -59,7 +59,7 @@ SOCKET_SESSION_IDS_TO_STREAMS = {}
 
 def redis_pubsub_handler(message):
     """Handles messages from Redis Pub/Sub."""
-    logging.info("Redis Pub/Sub Received data: %s", message)
+    logging.info("Redis Pub/Sub Received data: %s", repr(message))
     msg_object = json.loads(message["data"])
     socketio.emit(
         msg_object["data_type"],
@@ -68,23 +68,24 @@ def redis_pubsub_handler(message):
     )
     logging.info(
         "Redis Subscribe: %s,%s,%s,%s; conversation_name: %s, data_type: %s.",
-        message["type"],
-        message["pattern"],
-        message["channel"],
-        message["data"],
-        msg_object["conversation_name"],
-        msg_object["data_type"],
+        repr(message["type"]),
+        repr(message["pattern"]),
+        repr(message["channel"]),
+        repr(message["data"]),
+        repr(msg_object["conversation_name"]),
+        repr(msg_object["data_type"]),
     )
 
 
 def psubscribe_exception_handler(ex, pubsub, unused_thread):  # pylint: disable=unused-argument
     """Handles exceptions in Redis pubsub listener thread."""
-    logging.exception("An error occurred while getting pubsub messages: %s", ex)
+    logging.exception("An error occurred while getting pubsub messages: %s",
+                      repr(ex))
     time.sleep(2)
 
 
-SERVER_ID = f"{random.uniform(0, 322321)}-{datetime.now().timestamp()}"
-logging.info("--------- SERVER_ID: %s ---------", SERVER_ID)
+SERVER_ID = f"{secrets.token_hex(8)}-{datetime.now().timestamp()}"
+logging.info("--------- SERVER_ID: %s ---------", repr(SERVER_ID))
 redis_client = redis.StrictRedis(
     host=config.REDIS_HOST,
     port=config.REDIS_PORT,
@@ -165,14 +166,15 @@ def call_dialogflow(version, project, location, tail):  # pylint: disable=unused
     if not (dialogflow.LOCATION_ID_REGEX.fullmatch(location) and
             RESOURCE_PATH_REGEX.fullmatch(request.path)):
         return make_response("Bad request", 400)
-    logging.info("Called Dialogflow for request path: %s", request.full_path)
+    logging.info("Called Dialogflow for request path: %s",
+                 repr(request.full_path))
     if request.method == "GET":
         response = dialogflow.get_dialogflow(location, request.full_path)
         logging.info(
             "get_dialogflow response: %s, %s, %s",
-            gzip.decompress(response.raw.data),
-            response.status_code,
-            response.headers,
+            repr(gzip.decompress(response.raw.data)),
+            repr(response.status_code),
+            repr(response.headers),
         )
         return response.raw.data, response.status_code, response.headers.items()
     if request.method == "POST":
@@ -184,18 +186,18 @@ def call_dialogflow(version, project, location, tail):  # pylint: disable=unused
                                                   request.get_json())
         logging.info(
             "post_dialogflow response: %s, %s, %s",
-            response.raw.data,
-            response.status_code,
-            response.headers,
+            repr(response.raw.data),
+            repr(response.status_code),
+            repr(response.headers),
         )
         return response.raw.data, response.status_code, response.headers.items()
     response = dialogflow.patch_dialogflow(location, request.full_path,
                                            request.get_json())
     logging.info(
         "patch_dialogflow response: %s, %s, %s",
-        response.raw.data,
-        response.status_code,
-        response.headers,
+        repr(response.raw.data),
+        repr(response.status_code),
+        repr(response.headers),
     )
     return response.raw.data, response.status_code, response.headers.items()
 
@@ -286,18 +288,25 @@ def call_dialogflow_with_tail(version, project, location, tail):
 @token_required
 def set_conversation_name():
     """Sets a conversationIntegrationKey:conversationName pair in Redis."""
-    conversation_integration_key = request.json.get(
-        "conversationIntegrationKey", "")
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return make_response("Bad request", 400)
+    conversation_integration_key = body.get("conversationIntegrationKey", "")
+    conversation_name = body.get("conversationName", "")
+    if not (isinstance(conversation_integration_key, str) and
+            isinstance(conversation_name, str) and
+            conversation_integration_key and conversation_name):
+        return make_response("Bad request", 400)
+
     hashed_key = hashlib.sha256(
         conversation_integration_key.encode("utf-8")).hexdigest()
-    conversation_name = request.json.get("conversationName", "")
     logging.info(
         "/conversation-name - redis: SET %s %s",
-        conversation_integration_key,
-        conversation_name,
+        repr(conversation_integration_key),
+        repr(conversation_name),
     )
-    result = redis_client.set(hashed_key, conversation_name)
-    if not (conversation_integration_key and conversation_name and result):
+    result = redis_client.set(hashed_key, conversation_name, ex=86400)
+    if not result:
         return make_response("Bad request", 400)
     return jsonify({conversation_integration_key: conversation_name})
 
@@ -306,18 +315,19 @@ def set_conversation_name():
 @token_required
 def get_conversation_name():
     """Gets a DialogFlow conversation name from Redis."""
-    conversation_integration_key = str(
-        request.args.get("conversationIntegrationKey"))
+    conversation_integration_key = request.args.get(
+        "conversationIntegrationKey")
+    if not conversation_integration_key:
+        return make_response("Bad request", 400)
+
     hashed_key = hashlib.sha256(
         conversation_integration_key.encode("utf-8")).hexdigest()
     conversation_name = redis_client.get(hashed_key)
     logging.info(
         "/conversation-name - redis: GET %s -> %s",
-        conversation_integration_key,
-        conversation_name,
+        repr(conversation_integration_key),
+        repr(conversation_name),
     )
-    if not conversation_integration_key:
-        return make_response("Bad request", 400)
     return jsonify({
         "conversationName": (str(conversation_name, encoding="utf-8")
                              if conversation_name else "")
@@ -328,21 +338,28 @@ def get_conversation_name():
 @token_required
 def del_conversation_name():
     """Deletes a DialogFlow conversation name from Redis."""
-    conversation_integration_key = str(
-        request.args.get("conversationIntegrationKey"))
+    conversation_integration_key = request.args.get(
+        "conversationIntegrationKey")
+    if not conversation_integration_key:
+        return make_response("Bad request", 400)
+
     hashed_key = hashlib.sha256(
         conversation_integration_key.encode("utf-8")).hexdigest()
     result = redis_client.delete(hashed_key)
     logging.info(
         "/conversation-name - redis: DEL %s, result %s",
-        conversation_integration_key,
-        result,
+        repr(conversation_integration_key),
+        repr(result),
     )
-    if conversation_integration_key == "None":
-        return make_response("Bad request", 400)
     if not result:
         return make_response("Not found", 404)
     return make_response("Success", 200)
+
+
+# Strict conversation resource-name shape (post location-strip). Prevents
+# arbitrary Redis key clobber via join/leave.
+_CONVERSATION_NAME_RE = re.compile(
+    r"^projects/[A-Za-z0-9_.:-]+/conversations/[A-Za-z0-9_-]+$")
 
 
 @socketio.on("connect")
@@ -350,10 +367,11 @@ def connect(auth=None):
     """Handles SocketIO client connection and authentication."""
     if auth is None:
         auth = {}
-    logging.info("Receives connection request with sid: %s.", request.sid)
+    logging.info("Receives connection request with sid: %s.",
+                 repr(request.sid))
     if isinstance(auth, dict) and "token" in auth:
         is_valid, log_info = check_jwt(auth["token"])
-        logging.info(log_info)
+        logging.info("%s", repr(log_info))
         if is_valid:
             return True
     socketio.emit("unauthenticated", to=request.sid)
@@ -363,8 +381,8 @@ def connect(auth=None):
 @socketio.on("disconnect")
 def disconnect(reason):
     """Handles SocketIO client disconnection."""
-    logging.info("Client disconnected, reason: %s, request.sid: %s", reason,
-                 request.sid)
+    logging.info("Client disconnected, reason: %s, request.sid: %s",
+                 repr(reason), repr(request.sid))
     stream_ids = SOCKET_SESSION_IDS_TO_STREAMS.pop(request.sid, set())
     for stream_id in stream_ids:
         client = ACTIVE_STREAMS.pop(stream_id, None)
@@ -390,9 +408,15 @@ def server_error(e):
 @socketio.on("join-conversation")
 def on_join(message):
     """Joins a room specified by its conversation name."""
-    logging.info("Received event: join-conversation: %s", message)
+    logging.info("Received event: join-conversation: %s", repr(message))
+    if not isinstance(message, str):
+        return False, "invalid conversation name"
     # Remove location id from the conversation name.
     conversation_name = get_conversation_name_without_location(message)
+    if not _CONVERSATION_NAME_RE.match(conversation_name):
+        logging.warning("join-conversation rejected (bad name): %s",
+                        repr(conversation_name))
+        return False, "invalid conversation name"
     join_room(conversation_name)
     # Add this instance to the conversation's routing set and refresh its TTL.
     servers_key = get_conversation_servers_key(conversation_name)
@@ -400,27 +424,44 @@ def on_join(message):
     pipe.sadd(servers_key, SERVER_ID)
     pipe.expire(servers_key, config.CONVERSATION_ROUTING_TTL_SECONDS)
     pipe.execute()
-    logging.info("join-conversation for: %s", conversation_name)
+    logging.info("join-conversation for: %s", repr(conversation_name))
     return True, conversation_name
 
 
 @socketio.on("leave-conversation")
 def on_leave(message):
     """Leaves a room specified by its conversation name."""
-    logging.info("Received event: leave-conversation: %s", message)
+    logging.info("Received event: leave-conversation: %s", repr(message))
+    if not isinstance(message, str):
+        return False, "invalid conversation name"
     # Remove location id from the conversation name.
     conversation_name = get_conversation_name_without_location(message)
+    if not _CONVERSATION_NAME_RE.match(conversation_name):
+        logging.warning("leave-conversation rejected (bad name): %s",
+                        repr(conversation_name))
+        return False, "invalid conversation name"
+    server = socketio.server
+    current_member_sids = ({
+        p[0] if isinstance(p, tuple) else p
+        for p in server.manager.get_participants("/", conversation_name)
+    } if server else set())
+    if server and request.sid not in current_member_sids:
+        logging.warning(
+            "leave-conversation rejected (not in room): sid=%s conv=%s",
+            repr(request.sid),
+            repr(conversation_name),
+        )
+        return False, "not authorized for this conversation"
     leave_room(conversation_name)
     # Other sockets on this instance may still be in the conversation (e.g.
     # during a transfer), so only remove this instance once none remain.
-    server = socketio.server
-    remaining_local_members = (
-        list(server.manager.get_participants("/", conversation_name))
-        if server else [])
+    remaining_local_members = (list(
+        server.manager.get_participants("/", conversation_name))
+                               if server else [])
     if not remaining_local_members:
         redis_client.srem(get_conversation_servers_key(conversation_name),
                           SERVER_ID)
-    logging.info("leave-conversation for: %s", conversation_name)
+    logging.info("leave-conversation for: %s", repr(conversation_name))
     return True, conversation_name
 
 
@@ -534,8 +575,8 @@ def handle_stream_request(data: StreamRequestData):
 
     logging.info(
         "stream-request received for %s with method %s",
-        stream_id,
-        method_name,
+        repr(stream_id),
+        repr(method_name),
     )
     web_channel.connect()
 
@@ -555,7 +596,8 @@ def handle_end_stream(data):
 @socketio.on_error_default
 def default_error_handler(e):
     """Handles SocketIO event errors."""
-    logging.exception("error from %s event: %s", request.event["message"], e)
+    logging.exception("error from %s event: %s",
+                      repr(request.event["message"]), repr(e))
 
 
 if __name__ == "__main__":

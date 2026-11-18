@@ -46,6 +46,13 @@ def root():
 @app.route("/agent-assist-ui-modules/", methods=["GET"])
 def agent_assist_ui_modules():
     """Agent Assist UI Modules page."""
+    provided_key = (request.headers.get("x-api-key") or
+                    request.args.get("api_key") or
+                    request.args.get("x-api-key"))
+    if not provided_key or not hmac.compare_digest(provided_key, FIVE9_API_KEY):
+        logging.warning("Unauthorized request: Invalid or missing API Key")
+        return jsonify({"error": "Unauthorized"}), 401
+
     conversation_profile = os.getenv("CONVERSATION_PROFILE_NAME", "")
     features = os.getenv("FEATURES", "")
     ui_connector_url = os.getenv("UI_CONNECTOR_URL", "")
@@ -88,7 +95,7 @@ def cti_event_destination():
     """CTI event validation and event reception endpoint."""
 
     provided_key = request.headers.get("x-api-key")
-    if provided_key and not hmac.compare_digest(provided_key, FIVE9_API_KEY):
+    if not provided_key or not hmac.compare_digest(provided_key, FIVE9_API_KEY):
         logging.warning("Unauthorized request: Invalid or missing API Key")
         return jsonify({"error": "Unauthorized"}), 401
 

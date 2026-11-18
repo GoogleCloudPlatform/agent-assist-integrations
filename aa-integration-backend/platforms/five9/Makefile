@@ -101,7 +101,7 @@ test-grpc-reachable: ## Test gRPC reachability (Use LOCAL=true for localhost)
 	fi; \
 	echo "Target Host: $${HOST}"; \
 	grpcurl $$FLAGS $${HOST} list; \
-	grpcurl $$FLAGS -d '{"streaming_config": {"vcc_call_id": "$(shell date +%s)", "voice_config": {"sample_rate_hertz": 16000}, "call_leg": 1}}' $${HOST} five9.voicestream.Voice/StreamingVoice; \
+	grpcurl $$FLAGS -d '{"streaming_config": {"vcc_call_id": "$(shell date +%s)", "voice_config": {"sample_rate_hertz": 16000}, "call_leg": 1, "trust_token": "$(FIVE9_TRUST_TOKEN)"}}' $${HOST} five9.voicestream.Voice/StreamingVoice; \
 	echo "\n(Hint: Use LOCAL=true to test against local containers)"; \
 
 test-http-reachable: ## Test HTTP reachability (Use LOCAL=true for localhost)

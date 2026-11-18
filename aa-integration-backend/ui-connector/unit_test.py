@@ -19,18 +19,20 @@
 import gzip
 import json
 import os
+import secrets
 import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
-os.environ.setdefault("GCP_PROJECT_ID", "fake_project_id")
+sys.path.append(os.path.dirname(os.path.realpath(__file__)))
+_SERVER_ID = "fake_server_id"
+_PROJECT_ID = "fake_project_id"
+_LOCATION = "global"
+_TEST_JWT_TOKEN_MATERIAL = secrets.token_urlsafe(24)
+
+os.environ.setdefault("GCP_PROJECT_ID", _PROJECT_ID)
 os.environ.setdefault("LOGGING_FILE", "/tmp/test.log")
-os.environ.setdefault("JWT_SECRET_KEY_PATH", "/tmp/jwt_secret_key")
-try:
-    with open("/tmp/jwt_secret_key", "w", encoding="utf-8") as _f:
-        _f.write("fake_jwt_secret_key")
-except Exception:
-    pass
+os.environ["JWT_SECRET_KEY"] = _TEST_JWT_TOKEN_MATERIAL
 
 # Mock redis library before importing main to prevent actual connections during unit tests
 mock_redis = MagicMock()
@@ -40,16 +42,13 @@ sys.modules["redis"] = mock_redis
 
 import google.auth
 
-google.auth.default = MagicMock(return_value=(MagicMock(), "fake_project_id"))
+google.auth.default = MagicMock(return_value=(MagicMock(), _PROJECT_ID))
 
+import auth
 import dialogflow
 import main
 from main import app, redis_pubsub_handler, socketio
 import webchannel  # pylint: disable=unused-import
-
-_SERVER_ID = "fake_server_id"
-_PROJECT_ID = "fake_project_id"
-_LOCATION = "global"
 
 
 def get_conversation_profile_name(conversation_profile_id):
@@ -421,6 +420,53 @@ class TestRestAPI(unittest.TestCase):
     def tearDown(self):
         pass
 
+    @patch("google.oauth2.id_token.verify_oauth2_token")
+    @patch("jwt.decode")
+    def test_check_jwt_valid_oidc(self, mock_jwt_decode, mock_verify):
+        mock_jwt_decode.return_value = {"aud": "fake_audience"}
+        mock_verify.return_value = {
+            "iss": "https://accounts.google.com",
+            "email": f"fake-sa@{auth.config.GCP_PROJECT_ID}.iam.gserviceaccount.com",
+        }
+        is_valid, msg = auth.check_jwt("Bearer fake_oidc_token")
+        self.assertTrue(is_valid)
+        self.assertEqual(msg, "Your Google ID token is valid.")
+
+    @patch("google.oauth2.id_token.verify_oauth2_token")
+    @patch("jwt.decode")
+    def test_check_jwt_oidc_unauthorized_email(self, mock_jwt_decode, mock_verify):
+        mock_jwt_decode.return_value = {"aud": "fake_audience"}
+        mock_verify.return_value = {
+            "iss": "https://accounts.google.com",
+            "email": "unauthorized-sa@other-project.iam.gserviceaccount.com",
+        }
+        is_valid, _ = auth.check_jwt("Bearer fake_oidc_token")
+        self.assertFalse(is_valid)
+
+    @patch("google.oauth2.id_token.verify_oauth2_token")
+    @patch("jwt.decode")
+    def test_check_jwt_oidc_wrong_issuer(self, mock_jwt_decode, mock_verify):
+        mock_jwt_decode.return_value = {"aud": "fake_audience"}
+        mock_verify.return_value = {
+            "iss": "https://untrusted-issuer.com",
+            "email": f"fake-sa@{auth.config.GCP_PROJECT_ID}.iam.gserviceaccount.com",
+        }
+        is_valid, _ = auth.check_jwt("Bearer fake_oidc_token")
+        self.assertFalse(is_valid)
+
+    @patch("google.oauth2.id_token.verify_oauth2_token")
+    @patch("jwt.decode")
+    def test_auth_options_check_google_oidc_token_success(self, mock_jwt_decode, mock_verify):
+        import auth_options
+        mock_jwt_decode.return_value = {"aud": "fake_audience"}
+        mock_verify.return_value = {
+            "iss": "https://accounts.google.com",
+            "email": f"fake-sa@{auth_options.config.GCP_PROJECT_ID}.iam.gserviceaccount.com",
+        }
+        is_valid, msg = auth_options.check_google_oidc_token("Bearer fake_oidc_token")
+        self.assertTrue(is_valid)
+        self.assertEqual(msg, "Your Google ID token is valid.")
+
     def test_register_jwt_auth_unset(self):
         client = app.test_client()
         response = client.post("/register",
@@ -495,6 +541,20 @@ class TestRestAPI(unittest.TestCase):
         self.assertIn("startTime", json_data)
         self.assertIn("conversationStage", json_data)
 
+    def test_dialogflow_list_participants(self):
+        """Lists participants with valid JWT."""
+        client = app.test_client()
+        list_participants_response = self.FakeListAnswerRecordResponse(
+            self.answer_record, self.header)
+        with patch("dialogflow.get_dialogflow", return_value=list_participants_response):
+            response = client.get(
+                f"/v2beta1/projects/{_PROJECT_ID}/locations/{_LOCATION}/conversations/{self.conversation_id}/participants",
+                headers={"Authorization": self.valid_jwt},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.headers["Content-Type"], "application/json; charset=UTF-8")
+
     def test_dialogflow_update_answerrecord(self):
         """Updates an answer record with valid JWT."""
         client = app.test_client()
@@ -554,6 +614,182 @@ class TestRestAPI(unittest.TestCase):
         self.assertIn(b"Not Found", response.data)
         self.assertEqual(response.headers["Content-Type"],
                          "text/html; charset=utf-8")
+        method_resp = client.delete(
+            f"/v2beta1/projects/{_PROJECT_ID}/locations/{_LOCATION}/conversationProfiles/{self.conversation_profile_id}"
+        )
+        self.assertEqual(method_resp.status_code, 405)
+
+    @patch("main.redis_client.set", return_value=True)
+    def test_set_conversation_name_success(self, mock_redis_set):
+        """Sets conversationIntegrationKey mapping successfully."""
+        client = app.test_client()
+        response = client.post(
+            "/conversation-name",
+            json={
+                "conversationIntegrationKey": "genesys-conv-123",
+                "conversationName": self.conversation_name,
+            },
+            headers={"Authorization": self.valid_jwt},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json(),
+            {"genesys-conv-123": self.conversation_name},
+        )
+        mock_redis_set.assert_called_once()
+
+    def test_set_conversation_name_bad_request(self):
+        """Rejects set conversation name request when missing fields."""
+        client = app.test_client()
+        response = client.post(
+            "/conversation-name",
+            json={"conversationIntegrationKey": ""},
+            headers={"Authorization": self.valid_jwt},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @patch(
+        "main.redis_client.get",
+        return_value=b"projects/fake_project_id/locations/global/conversations/fake_conversation_id",
+    )
+    def test_get_conversation_name_success(self, mock_redis_get):
+        """Gets conversationName by conversationIntegrationKey."""
+        client = app.test_client()
+        response = client.get(
+            "/conversation-name?conversationIntegrationKey=genesys-conv-123",
+            headers={"Authorization": self.valid_jwt},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json(),
+            {"conversationName": self.conversation_name},
+        )
+        mock_redis_get.assert_called_once()
+
+    def test_get_conversation_name_missing_param(self):
+        """Rejects get conversation name when query param is missing."""
+        client = app.test_client()
+        response = client.get(
+            "/conversation-name",
+            headers={"Authorization": self.valid_jwt},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @patch("main.redis_client.delete", return_value=1)
+    def test_del_conversation_name_success(self, mock_redis_del):
+        """Deletes conversationName by conversationIntegrationKey."""
+        client = app.test_client()
+        response = client.delete(
+            "/conversation-name?conversationIntegrationKey=genesys-conv-123",
+            headers={"Authorization": self.valid_jwt},
+        )
+        self.assertEqual(response.status_code, 200)
+        mock_redis_del.assert_called_once()
+
+    @patch("main.redis_client.delete", return_value=0)
+    def test_del_conversation_name_not_found(self, unused_mock_redis_del):
+        """Returns 404 when deleting a non-existent conversationIntegrationKey."""
+        client = app.test_client()
+        response = client.delete(
+            "/conversation-name?conversationIntegrationKey=genesys-conv-123",
+            headers={"Authorization": self.valid_jwt},
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_del_conversation_name_missing_param(self):
+        """Rejects delete conversation name when query param is missing."""
+        client = app.test_client()
+        response = client.delete(
+            "/conversation-name",
+            headers={"Authorization": self.valid_jwt},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @patch("main.redis_client.set", return_value=False)
+    def test_set_conversation_name_redis_failure(self, unused_mock_redis_set):
+        """Returns 400 if redis set operation fails."""
+        client = app.test_client()
+        response = client.post(
+            "/conversation-name",
+            json={
+                "conversationIntegrationKey": "genesys-conv-123",
+                "conversationName": self.conversation_name,
+            },
+            headers={"Authorization": self.valid_jwt},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @patch("main.redis_client.get", return_value=None)
+    def test_get_conversation_name_empty_redis(self, unused_mock_redis_get):
+        """Returns empty string for conversationName when key does not exist in Redis."""
+        client = app.test_client()
+        response = client.get(
+            "/conversation-name?conversationIntegrationKey=nonexistent-key",
+            headers={"Authorization": self.valid_jwt},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), {"conversationName": ""})
+
+    def test_check_jwt_malformed_token(self):
+        """Fails gracefully when parsing completely malformed token."""
+        is_valid, msg = auth.check_jwt("Bearer not.a.valid.jwt")
+        self.assertFalse(is_valid)
+        self.assertEqual(msg, "Failed to parse your token.")
+
+    def test_check_jwt_without_bearer_prefix(self):
+        """Handles tokens passed without Bearer prefix."""
+        is_valid, _ = auth.check_jwt("malformed_raw_token")
+        self.assertFalse(is_valid)
+
+    def test_load_jwt_secret_key_raises_when_unconfigured(self):
+        """Fails closed when JWT secret is not configured in file or env."""
+        with patch.object(auth, "jwt_secret_key", None), \
+             patch("os.path.exists", return_value=False), \
+             patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(ValueError):
+                auth.load_jwt_secret_key()
+
+    def test_socketio_join_leave_validation_and_multi_agent(self):
+        """Rejects invalid conversation names and non-member leave while allowing multi-agent join."""
+        c1 = socketio.test_client(app, auth={"token": self.valid_jwt})
+        c2 = socketio.test_client(app, auth={"token": self.valid_jwt})
+        ack_bad, msg_bad = c1.emit("join-conversation", "invalid/key:servers", callback=True)
+        self.assertFalse(ack_bad)
+        self.assertEqual(msg_bad, "invalid conversation name")
+
+        conv = get_conversation_name("conv_shared_1")
+        ack_1, _ = c1.emit("join-conversation", conv, callback=True)
+        self.assertTrue(ack_1)
+        ack_leave_2, msg_leave_2 = c2.emit("leave-conversation", conv, callback=True)
+        self.assertFalse(ack_leave_2)
+        self.assertEqual(msg_leave_2, "not authorized for this conversation")
+        ack_2, _ = c2.emit("join-conversation", conv, callback=True)
+        self.assertTrue(ack_2)
+        c1.disconnect()
+        c2.disconnect()
+
+    def test_server_id_uses_csprng_hex_prefix(self):
+        """Verifies SERVER_ID uses 16-char hex token from secrets.token_hex(8)."""
+        self.assertRegex(main.SERVER_ID, r"^[0-9a-f]{16}-\d+")
+
+    @patch("main.redis_client.set", return_value=True)
+    def test_crlf_log_injection_neutralized(self, unused_mock_set):
+        """Verifies CRLF sequences in untrusted inputs are escaped in logs."""
+        client = app.test_client()
+        with self.assertLogs(level="INFO") as captured:
+            resp = client.post(
+                "/conversation-name",
+                headers={"Authorization": self.valid_jwt},
+                json={
+                    "conversationIntegrationKey": "key\r\nFAKE_LOG: injected",
+                    "conversationName": "conv\r\nFAKE_LOG: injected2",
+                },
+            )
+            self.assertEqual(resp.status_code, 200)
+        for line in captured.output:
+            self.assertNotIn("\r", line)
+            self.assertNotIn("\n", line)
+            self.assertIn("\\r\\nFAKE_LOG:", line)
 
     def test_dialogflow_invalid_location(self):
         """Rejects locations that would change the Dialogflow host."""
@@ -588,6 +824,39 @@ class TestRestAPI(unittest.TestCase):
                      "/v2/x#y", "/v2/x?y", "/v2/x%2e", "/v2/x\\y"):
             self.assertIsNone(main.RESOURCE_PATH_REGEX.fullmatch(path), path)
 
+    @patch("auth_options.requests.get")
+    def test_check_genesyscloud_token_org_validation(self, mock_get):
+        """Validates Genesys Cloud token against configured organization ID."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "id": "user-123",
+            "organization": {
+                "id": "org-legit-111"
+            },
+        }
+        mock_get.return_value = mock_resp
+
+        # Unconfigured GENESYS_CLOUD_ORGANIZATION_ID warns and allows (backward-compatible)
+        with patch.object(main.config, "GENESYS_CLOUD_ORGANIZATION_ID", ""):
+            with self.assertLogs(level="WARNING") as captured:
+                self.assertTrue(
+                    auth.auth_options.check_genesyscloud_token("fake-token"))
+            self.assertTrue(
+                any("GENESYS_CLOUD_ORGANIZATION_ID is not configured" in msg
+                    for msg in captured.output))
+
+        # Matching organization succeeds
+        with patch.object(main.config, "GENESYS_CLOUD_ORGANIZATION_ID",
+                          "org-legit-111"):
+            self.assertTrue(
+                auth.auth_options.check_genesyscloud_token("fake-token"))
+
+        # Foreign organization fails closed when GENESYS_CLOUD_ORGANIZATION_ID is set
+        with patch.object(main.config, "GENESYS_CLOUD_ORGANIZATION_ID",
+                          "org-other-999"):
+            self.assertFalse(
+                auth.auth_options.check_genesyscloud_token("fake-token"))
 
 class TestDialogflowModule(unittest.TestCase):
     """Unit tests for dialogflow.py helper functions and session handling."""

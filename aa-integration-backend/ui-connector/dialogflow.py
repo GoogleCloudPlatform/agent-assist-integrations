@@ -70,7 +70,7 @@ def get_target_url(location, path):
 def get_dialogflow(location, path):
     """Sends GET request to Dialogflow API."""
     url = get_target_url(location, path)
-    logging.debug("get_dialogflow %s", url)
+    logging.debug("get_dialogflow %s", repr(url))
     response = _get_authed_session().get(url, stream=True)
     return response
 
@@ -78,7 +78,7 @@ def get_dialogflow(location, path):
 def post_dialogflow(location, path, data=None):
     """Sends POST request to Dialogflow API."""
     url = get_target_url(location, path)
-    logging.debug("post_dialogflow %s", url)
+    logging.debug("post_dialogflow %s", repr(url))
     response = _get_authed_session().post(url, json=data, stream=True)
     return response
 
@@ -86,6 +86,6 @@ def post_dialogflow(location, path, data=None):
 def patch_dialogflow(location, path, data):
     """Sends PATCH request to Dialogflow API."""
     url = get_target_url(location, path)
-    logging.debug("patch_dialogflow %s", url)
+    logging.debug("patch_dialogflow %s", repr(url))
     response = _get_authed_session().patch(url, json=data, stream=True)
     return response

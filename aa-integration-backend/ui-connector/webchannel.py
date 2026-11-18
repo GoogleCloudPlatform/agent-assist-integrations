@@ -18,8 +18,8 @@ import codecs
 import json
 import logging
 import os
-import random
 import re
+import secrets
 import threading
 from typing import Any
 import urllib.parse
@@ -281,7 +281,7 @@ def _decode_webchannel_payload(chunk_text: str) -> list[dict[str, Any]]:
                 })
         return results
     except (TypeError, ValueError) as e:  # Not JSON, or not `[aid, body]`.
-        logging.exception("Failed to parse WebChannel response: %s", e)
+        logging.exception("Failed to parse WebChannel response: %s", repr(e))
         return [{"type": "error", "payload": f"Error parsing response: {e}"}]
 
 
@@ -339,7 +339,7 @@ class WebChannelClient:
         self.on_close_cb = callback
 
     def _emit_error(self, err_msg):
-        logging.error("WebChannel Error: %s", err_msg)
+        logging.error("WebChannel Error: %s", repr(err_msg))
         if self.on_error_cb:
             self.on_error_cb(err_msg)
 
@@ -367,13 +367,13 @@ class WebChannelClient:
         if self.stopped:
             return
         self.stopped = True
-        logging.info("WebChannel stream stopped (reason: %s)", reason)
+        logging.info("WebChannel stream stopped (reason: %s)", repr(reason))
         self._loop.call_soon_threadsafe(self._outbound.put_nowait, STOP_SIGNAL)
         if self.on_close_cb:
             try:
                 self.on_close_cb()
             except Exception as e:  # pylint: disable=broad-exception-caught
-                logging.exception("Error in on_close callback: %s", e)
+                logging.exception("Error in on_close callback: %s", repr(e))
 
     async def _ensure_valid_token(self) -> str:
         """Returns a bearer token, refreshing expired credentials off-loop."""
@@ -395,7 +395,7 @@ class WebChannelClient:
     async def _perform_init(self, session):
         """Runs the init handshake and returns (sid, gsessionid)."""
         token = await self._ensure_valid_token()
-        init_rid = random.randint(10000, 99999)
+        init_rid = secrets.SystemRandom().randint(10000, 99999)
         init_url = create_webchannel_init_url(self.endpoint_url, init_rid)
         async with session.post(
                 init_url,
@@ -530,7 +530,7 @@ class WebChannelClient:
                 if failure is None or failure == "idle":
                     logging.info(
                         "WebChannel backchannel GET ended; reconnecting with "
-                        "AID=%s", self.last_aid)
+                        "AID=%s", repr(self.last_aid))
                     continue
             retries += 1
             cause = failure or "EOF"
@@ -542,8 +542,8 @@ class WebChannelClient:
             delay = BACKCHANNEL_RETRY_BASE_SECONDS * 2**(retries - 1)
             logging.warning(
                 "WebChannel backchannel GET ended without frames (%s); "
-                "retry %d/%d in %.1fs", cause, retries, BACKCHANNEL_MAX_RETRIES,
-                delay)
+                "retry %d/%d in %.1fs", repr(cause), retries,
+                BACKCHANNEL_MAX_RETRIES, delay)
             await asyncio.sleep(delay)
 
     async def _consume_backchannel(self, response) -> bool:
@@ -577,5 +577,5 @@ class WebChannelClient:
             return True
         elif event["type"] == "metadata":
             logging.debug("Ignoring WebChannel metadata frame: %s",
-                          event["payload"])
+                          repr(event["payload"]))
         return False

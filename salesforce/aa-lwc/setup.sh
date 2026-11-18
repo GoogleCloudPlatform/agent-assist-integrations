@@ -14,7 +14,7 @@
 # limitations under the License.
 
 UIM_TRANSCRIPT_VERSION='v1.5'
-UIM_CONTAINER_VERSION='v2.6'
+UIM_CONTAINER_VERSION='v2.7'
 UIM_COMMON_VERSION='v1.14'
 
 if [[ $1 == 'generate-static-resources' ]]; then
@@ -96,6 +96,9 @@ elif [[ $1 == 'setup-scratch' ]]; then
   sf org generate password --target-org scratch > /dev/null 2>&1
   sf org display user --target-org scratch 2> /dev/null | grep -E 'Username|Login|Password'
 
+elif [[ $1 == 'onboard' ]]; then
+  python3 scripts/onboard_demo_user.py
+
 elif [[ $1 == 'deploy-scratch' ]]; then
   sf project deploy start --target-org scratch
 
@@ -103,5 +106,5 @@ elif [[ $1 == 'teardown-scratch' ]]; then
   sf org delete scratch --target-org scratch
 
 else
-  echo 'setup.sh takes one argument (one of generate-static-resources, login-devhub, setup-scratch, teardown-scratch)'
+  echo 'setup.sh takes one argument (one of generate-static-resources, login-devhub, setup-scratch, onboard, deploy-scratch, teardown-scratch)'
 fi

@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import getOAuthToken from "@salesforce/apex/AgentAssistAuthController.getOAuthToken";
 import BasePlatformService from "../BasePlatformService";
 import {
   setupPlatformServiceTest,
@@ -21,6 +22,14 @@ import {
   createMockRefs
 } from "../testUtils";
 import { DIALOGFLOW_API_VERSION } from "../../config";
+
+jest.mock(
+  "@salesforce/apex/AgentAssistAuthController.getOAuthToken",
+  () => ({
+    default: jest.fn()
+  }),
+  { virtual: true }
+);
 
 describe("BasePlatformService", () => {
   let mockLwc;
@@ -114,51 +123,40 @@ describe("BasePlatformService", () => {
     });
 
     it("registers auth token successfully", async () => {
-      global.fetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ access_token: "test-access-token" })
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ token: "test-ui-connector-token" })
-        });
-
-      const result = await basePlatformService.registerAuthToken();
-
-      expect(global.fetch).toHaveBeenCalledTimes(2);
-      expect(result).toBe("test-ui-connector-token");
-    });
-
-    it("handles OAuth token request failure", async () => {
-      // This test verifies that a failed OAuth token request is handled gracefully.
+      getOAuthToken.mockResolvedValueOnce("test-access-token");
       global.fetch.mockResolvedValueOnce({
-        ok: false,
-        statusText: "OAuth failed"
+        ok: true,
+        json: () => Promise.resolve({ token: "test-ui-connector-token" })
       });
 
       const result = await basePlatformService.registerAuthToken();
 
+      expect(getOAuthToken).toHaveBeenCalledWith({
+        consumerKey: "test-key",
+        consumerSecret: "test-secret"
+      });
       expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(result).toBe("test-ui-connector-token");
+    });
+
+    it("handles OAuth token request failure", async () => {
+      getOAuthToken.mockRejectedValueOnce(new Error("OAuth failed"));
+
+      const result = await basePlatformService.registerAuthToken();
+
       expect(result).toBeNull();
       expect(mockLwc.loadError).toBeInstanceOf(Error);
     });
 
     it("handles UI Connector registration failure", async () => {
-      // This test verifies that a failed UI Connector registration is handled gracefully.
-      global.fetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ access_token: "test-access-token" })
-        })
-        .mockResolvedValueOnce({
-          ok: false,
-          statusText: "Bad Request"
-        });
+      getOAuthToken.mockResolvedValueOnce("test-access-token");
+      global.fetch.mockResolvedValueOnce({
+        ok: false,
+        statusText: "Bad Request"
+      });
 
       const result = await basePlatformService.registerAuthToken();
 
-      expect(global.fetch).toHaveBeenCalledTimes(2);
       expect(result).toBeNull();
       expect(mockLwc.loadError).toBeInstanceOf(Error);
     });
@@ -445,23 +443,16 @@ describe("BasePlatformService", () => {
   });
 
   describe("isConversationCompleted", () => {
-    it("detects completed conversation and deletes key", async () => {
+    it("detects completed conversation without deleting key", async () => {
       jest
         .spyOn(basePlatformService, "fetchConversationLifecycleState")
         .mockResolvedValue("COMPLETED");
-      jest
-        .spyOn(basePlatformService, "deleteConversationName")
-        .mockResolvedValue(undefined);
 
-      const result =
-        await basePlatformService.isConversationCompleted("test-key");
+      const result = await basePlatformService.isConversationCompleted();
 
       expect(
         basePlatformService.fetchConversationLifecycleState
       ).toHaveBeenCalled();
-      expect(basePlatformService.deleteConversationName).toHaveBeenCalledWith(
-        "test-key"
-      );
       expect(result).toBe(true);
     });
 

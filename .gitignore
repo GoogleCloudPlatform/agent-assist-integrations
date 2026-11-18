@@ -1,3 +1,22 @@
+# Environment
 *.code-workspace
 .env
 .env.*
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Internal Integration Guides & Private Runbooks (Secrets / Internal Endpoints)
+*INTERNAL*
+*Internal*
+*internal*
+*_internal.md
+
+# Salesforce CLI
+.sf/
+.sfdx/
+
