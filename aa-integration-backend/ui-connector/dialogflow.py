@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import logging
+import re
 
 from google.cloud import dialogflow_v2beta1 as dialogflow
 from google.auth.transport.requests import AuthorizedSession
@@ -20,6 +21,8 @@ import google.auth
 
 ROLES = ['HUMAN_AGENT', 'AUTOMATED_AGENT', 'END_USER']
 LANGUAGE_CODE = 'en-US'
+# Dialogflow location ids; anything else must not reach the target URL.
+LOCATION_ID_REGEX = re.compile(r'[a-z0-9-]+')
 
 # static variables for dialogflow client
 CONVERSATIONS_CLIENT = dialogflow.ConversationsClient()
@@ -30,6 +33,8 @@ AUTHED_SESSION = AuthorizedSession(CREDENTIALS)
 
 
 def get_target_url(location, path):
+    if not LOCATION_ID_REGEX.fullmatch(location):
+        raise ValueError(f'Invalid Dialogflow location: {location!r}')
     if location == 'global':
         return 'https://dialogflow.googleapis.com/{}'.format(path)
     return 'https://{0}-dialogflow.googleapis.com/{1}'.format(location, path)
@@ -37,20 +42,20 @@ def get_target_url(location, path):
 
 def get_dialogflow(location, path):
     url = get_target_url(location, path)
-    logging.debug('get_dialogflow {0}'.format(url))
+    logging.debug('get_dialogflow %s', repr(url))
     response = AUTHED_SESSION.get(url, stream=True)
     return response
 
 
 def post_dialogflow(location, path, data=None):
     url = get_target_url(location, path)
-    logging.debug('post_dialogflow {0}'.format(url))
+    logging.debug('post_dialogflow %s', repr(url))
     response = AUTHED_SESSION.post(url, json=data, stream=True)
     return response
 
 
 def patch_dialogflow(location, path, data):
     url = get_target_url(location, path)
-    logging.debug('patch_dialogflow {0}'.format(url))
+    logging.debug('patch_dialogflow %s', repr(url))
     response = AUTHED_SESSION.patch(url, json=data, stream=True)
     return response

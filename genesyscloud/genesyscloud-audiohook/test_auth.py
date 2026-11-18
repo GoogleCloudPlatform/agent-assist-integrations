@@ -18,6 +18,8 @@
 import base64
 import hashlib
 import hmac
+import os
+import secrets
 import unittest
 
 from auth import (build_signature_base, decode_secret, parse_signature,
@@ -28,20 +30,22 @@ class TestAuth(unittest.TestCase):
     """Test suite for AudioHook authentication and signature verification."""
 
     def setUp(self):
-        self.raw_secret = b'super-secret-key-32-bytes-length!'
+        self.raw_secret = os.urandom(32)
         self.b64_secret = base64.b64encode(self.raw_secret).decode('utf-8')
-        self.api_key = 'test-genesys-api-key-12345'
+        self.api_key = secrets.token_urlsafe(16)
         self.fixed_time = 1700000000.0
 
     def _generate_valid_signature_headers(
         self,
         method: str = 'GET',
         path: str = '/connect',
-        api_key: str = 'test-genesys-api-key-12345',
-        secret_bytes: bytes = None,
+        api_key: str | None = None,
+        secret_bytes: bytes | None = None,
         created_time: int = 1700000000,
         include_extra_headers: bool = True
     ):
+        if api_key is None:
+            api_key = self.api_key
         if secret_bytes is None:
             secret_bytes = self.raw_secret
 
@@ -391,21 +395,20 @@ class TestAuth(unittest.TestCase):
         self.assertIn('"audiohook-session-id": session-uuid-123 extra', sig_base)
 
     def test_genesys_rfc9421_official_test_vector(self):
-        """Tests official Genesys Cloud RFC 9421 test vector from PureCloudLabs reference implementation."""
-        # Test vector from PureCloudLabs/audiohook-reference-implementation
+        """Tests official Genesys Cloud RFC 9421 test vector structure from PureCloudLabs reference implementation."""
         path = '/api/v1/voicebiometrics/ws'
-        api_key = 'SGVsbG8sIEkgYW0gdGhlIEFQSSBrZXkh'
-        client_secret_b64 = 'TXlTdXBlclNlY3JldEtleVRlbGxOby0xITJAMyM0JDU='
+        sample_key_id = secrets.token_urlsafe(16)
+        sample_key_material = base64.b64encode(os.urandom(32)).decode('utf-8')
         sig_input_header = (
             'sig1=("@request-target" "@authority" "audiohook-organization-id" '
             '"audiohook-session-id" "audiohook-correlation-id" "x-api-key");'
-            'keyid="SGVsbG8sIEkgYW0gdGhlIEFQSSBrZXkh";'
+            f'keyid="{sample_key_id}";'
             'nonce="VGhpc0lzQVRlc3ROb25jZQ==";'
             'alg="hmac-sha256";created=1641038400;expires=1641038430'
         )
         headers = {
             'Host': 'localhost:8080',
-            'X-API-KEY': api_key,
+            'X-API-KEY': sample_key_id,
             'audiohook-organization-id': '00000000-0000-0000-0000-000000000000',
             'audiohook-session-id': '11111111-1111-1111-1111-111111111111',
             'audiohook-correlation-id': '22222222-2222-2222-2222-222222222222',
@@ -426,7 +429,7 @@ class TestAuth(unittest.TestCase):
         self.assertIn(f'"@request-target": {path}', sig_base)
         self.assertNotIn(f'"@request-target": get {path}', sig_base)
 
-        secret_bytes = decode_secret(client_secret_b64)
+        secret_bytes = decode_secret(sample_key_material)
         computed_digest = hmac.new(secret_bytes, sig_base.encode('utf-8'), hashlib.sha256).digest()
         computed_sig_b64 = base64.b64encode(computed_digest).decode('utf-8')
         headers['Signature'] = f'sig1=:{computed_sig_b64}:'
@@ -435,8 +438,8 @@ class TestAuth(unittest.TestCase):
             headers=headers,
             method='GET',
             path=path,
-            client_secret=client_secret_b64,
-            expected_api_key=api_key,
+            client_secret=sample_key_material,
+            expected_api_key=sample_key_id,
             current_time=1641038400.0,
             authority='localhost:8080'
         )
@@ -476,6 +479,25 @@ class TestAuth(unittest.TestCase):
             current_time=self.fixed_time
         )
         self.assertTrue(is_valid, f'Fallback verification failed: {err}')
+
+    def test_signature_mismatch_log_escapes_crlf(self):
+        """Ensures signature mismatch warning escapes newlines in headers."""
+        headers = self._generate_valid_signature_headers()
+        headers['audiohook-session-id'] = 'sess\r\nFAKE_LOG: injected'
+        headers['Signature'] = 'sig1=:d3Jvbmdfc2lnbmF0dXJl:'
+        with self.assertLogs('auth', level='WARNING') as captured:
+            is_valid, _ = verify_signature(
+                headers=headers,
+                method='GET',
+                path='/connect',
+                client_secret=self.b64_secret,
+                expected_api_key=self.api_key,
+                current_time=self.fixed_time
+            )
+            self.assertFalse(is_valid)
+        for line in captured.output:
+            self.assertNotIn('\r', line)
+            self.assertNotIn('\n', line)
 
 
 if __name__ == '__main__':

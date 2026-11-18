@@ -329,7 +329,7 @@ def verify_signature(
 
         if not matched:
             logger.warning(
-                'HMAC signature mismatch. Reconstructed base:\n%s', last_sig_base
+                'HMAC signature mismatch. Reconstructed base: %s', repr(last_sig_base)
             )
             return False, 'HMAC signature verification failed'
 

@@ -99,13 +99,20 @@ def store_conversation_mapping(integration_key: str, conversation_name: str):
             token = google.oauth2.id_token.fetch_id_token(req, config.ui_connector_endpoint)
             headers["Authorization"] = f"Bearer {token}"
         except Exception as e:
-            logging.warning("Failed to fetch Google ID token: %s", e)
+            logging.warning("Failed to fetch Google ID token: %s", repr(e))
             
         response = requests.post(url, json=payload, headers=headers, timeout=5)
         response.raise_for_status()
-        logging.info("Stored mapping in UI connector: %s -> %s", integration_key, conversation_name)
+        logging.info(
+            "Stored mapping in UI connector: %s -> %s",
+            repr(integration_key),
+            repr(conversation_name),
+        )
     except Exception as e:
-        logging.error("Failed to store conversation name mapping via UI connector: %s", e)
+        logging.error(
+            "Failed to store conversation name mapping via UI connector: %s",
+            repr(e),
+        )
 
 
 def find_participant_by_role(role: dialogflow.Participant.Role, participants_list: list[dialogflow.Participant]) -> dialogflow.Participant | None:
@@ -114,7 +121,7 @@ def find_participant_by_role(role: dialogflow.Participant.Role, participants_lis
         if participant.role == role:
 
             logging.debug("the active participant is %s:%s ",
-                          participant.role, participant.name)
+                          repr(participant.role), repr(participant.name))
             return participant
 
     return None
@@ -149,7 +156,7 @@ class DialogflowAPI:
         """Load conversation profile
         """
         logging.debug("Getting conversation profile for %s ",
-                      conversation_profile_name)
+                      repr(conversation_profile_name))
         return self.conversation_profiles_client.get_conversation_profile(
             request=dialogflow.GetConversationProfileRequest(
                 name=conversation_profile_name
@@ -176,7 +183,8 @@ class DialogflowAPI:
                 conversation.labels = labels
             except (AttributeError, KeyError, TypeError, ValueError):
                 logging.debug(
-                    "Conversation proto has no 'labels' field; skipping labels %s", labels
+                    "Conversation proto has no 'labels' field; skipping labels %s",
+                    repr(labels),
                 )
         project_path = self.conversations_client.common_location_path(
             project, location_id
@@ -191,10 +199,10 @@ class DialogflowAPI:
         )
         logging.info(
             "Created conversation %s (profile %s) with labels %s for project path %s",
-            conversation.name,
-            conversation_profile_name,
-            labels,
-            project_path,
+            repr(conversation.name),
+            repr(conversation_profile_name),
+            repr(labels),
+            repr(project_path),
         )
         return conversation
 

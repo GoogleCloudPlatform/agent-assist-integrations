@@ -69,6 +69,8 @@ SALESFORCE_ORGANIZATION_ID = os.environ.get('SALESFORCE_ORGANIZATION_ID', 'YOUR_
 
 # Genesys Cloud configuration.
 GENESYS_CLOUD_REGION = os.environ.get('GENESYS_CLOUD_REGION', 'mypurecloud.com')
+GENESYS_CLOUD_ORGANIZATION_ID = os.environ.get(
+    'GENESYS_CLOUD_ORGANIZATION_ID', '')
 
 # Twilio configuration.
 TWILIO_FLEX_ENVIRONMENT = os.environ.get('TWILIO_FLEX_ENVIRONMENT', 'YOUR_DOMAIN.twil.io')

@@ -22,16 +22,24 @@ from functools import wraps
 
 import config, auth_options
 
-jwt_secret_key = ''  # To be loaded from config.JWT_SECRET_KEY_PATH
+jwt_secret_key = None  # Loaded from config.JWT_SECRET_KEY_PATH or env.
 
 
 def load_jwt_secret_key():
     global jwt_secret_key
+    if jwt_secret_key:
+        return jwt_secret_key
+
     if os.path.exists(config.JWT_SECRET_KEY_PATH):
-        with open(config.JWT_SECRET_KEY_PATH, 'r') as key_file:
-            jwt_secret_key = key_file.read().strip()
-    else:
-        jwt_secret_key = os.environ.get('JWT_SECRET_KEY', 'default-test-jwt-secret-key')
+        with open(config.JWT_SECRET_KEY_PATH, 'r', encoding='utf-8') as key_file:
+            content = key_file.read().strip()
+            if content:
+                jwt_secret_key = content
+    if not jwt_secret_key:
+        jwt_secret_key = os.environ.get('JWT_SECRET_KEY')
+    if not jwt_secret_key:
+        raise ValueError('Server JWT secret key is not configured.')
+    return jwt_secret_key
 
 
 def check_auth(token):
@@ -57,17 +65,20 @@ check_google_oidc_token = auth_options.check_google_oidc_token
 
 
 def check_jwt(token):
+    if not isinstance(token, str) or not token:
+        return False, 'Failed to parse your token.'
     try:
         if token.startswith("Bearer "):
-            token = token.split(" ", 1)[1]
+            token = token[7:].strip()
 
         # Attempt to verify as a Google IAM OIDC token (service-to-service auth)
         is_oidc_valid, oidc_msg = check_google_oidc_token(token)
         if is_oidc_valid:
             return True, oidc_msg
 
+        secret_key = load_jwt_secret_key()
         # Decode the payload to fetch the stored details.
-        data = jwt.decode(token, jwt_secret_key, algorithms=['HS256'])
+        data = jwt.decode(token, secret_key, algorithms=['HS256'])
         if 'gcp_agent_assist_project' not in data:
             return False, 'The target project in your token is missing.'
         if data['gcp_agent_assist_project'] != config.GCP_PROJECT_ID:
@@ -77,11 +88,14 @@ def check_jwt(token):
         if data['exp'] < datetime.datetime.now().timestamp():
             return False, 'Your token has expired.'
         return True, 'Your token is valid.'
+    except ValueError as e:
+        return False, str(e)
     except Exception:
         return False, 'Failed to parse your token.'
 
 
 def generate_jwt(user_info=None):
+    secret_key = load_jwt_secret_key()
     gcp_agent_assist_user = ''
     if user_info:
         gcp_agent_assist_user = user_info.get('gcp_agent_assist_user')
@@ -92,15 +106,19 @@ def generate_jwt(user_info=None):
             'gcp_agent_assist_project': config.GCP_PROJECT_ID,
             'gcp_agent_assist_user': gcp_agent_assist_user
         },
-        jwt_secret_key,
+        secret_key,
         'HS256'
     )
 
 
 def check_app_auth(auth):
+    if not isinstance(auth, dict):
+        return False
     if config.APP_AUTH_OPTION == 'Twilio':
         response = requests.get(
-            config.TWILIO_ACCOUNTS_API_URL, auth=(auth.get('accountSid'), auth.get('authToken')))
+            config.TWILIO_ACCOUNTS_API_URL,
+            auth=(auth.get('accountSid'), auth.get('authToken')),
+            timeout=10)
         if response.status_code == 200:
             data = response.json()
             if data.get('sid') == config.TWILIO_ACCOUNT_SID:

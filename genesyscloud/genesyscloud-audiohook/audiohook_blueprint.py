@@ -167,15 +167,15 @@ def process_open_conversation_message(
     if f"/locations/{location_id}/" not in conversation_profile_name:
         logging.error(
             "Resolved profile %s is not in location '%s'; falling back to %s",
-            conversation_profile_name,
-            location_id,
-            config.conversation_profile_name,
+            repr(conversation_profile_name),
+            repr(location_id),
+            repr(config.conversation_profile_name),
         )
         conversation_profile_name = config.conversation_profile_name
     logging.info(
         "Resolved call session to LOB: '%s', Profile: '%s'",
-        lob,
-        conversation_profile_name,
+        repr(lob),
+        repr(conversation_profile_name),
     )
 
     conversation_profile = dialogflow_api.get_conversation_profile(
@@ -192,7 +192,7 @@ def process_open_conversation_message(
             conversation_name)
     except NotFound as e:
         is_new_conversation = True
-        logging.warning("Error getting the conversation : %s", e)
+        logging.warning("Error getting the conversation : %s", repr(e))
         dialogflow_api.create_conversation(
             conversation_profile_name,
             normalized_conversation_id,
@@ -209,8 +209,8 @@ def process_open_conversation_message(
         if res_ingest is not None:
             logging.info(
                 "Successfully ingested LOB filter '%s' for conversation %s",
-                lob_filter,
-                conversation_name,
+                repr(lob_filter),
+                repr(conversation_name),
             )
 
     participant_agent = None
@@ -229,15 +229,15 @@ def process_open_conversation_message(
             participant_user = dialogflow_api.create_participant(
                 conversation_name=conversation_name, role="END_USER")
     except NotFound as e:
-        logging.error("Participants not found %s: ", e)
+        logging.error("Participants not found %s: ", repr(e))
 
     if is_new_conversation and participant_agent:
         banner = build_summarization_context_banner(lob)
         try:
             dialogflow_api.analyze_text_content(participant_agent.name, banner)
-            logging.info("Message #0 Context injected: %s", banner)
+            logging.info("Message #0 Context injected: %s", repr(banner))
         except Exception as e:
-            logging.error("Error injecting Message #0 context turn: %s", e)
+            logging.error("Error injecting Message #0 context turn: %s", repr(e))
 
     agent_thread = Thread(
         target=dialogflow_api.maintained_streaming_analyze_content, args=(
@@ -299,7 +299,7 @@ def process_ongoing_conversation_messages(
                 dialogflow_api.complete_conversation(
                     open_conversation_state.conversation_name)
             except Exception as e:
-                logging.error("Error completing conversation %s", e)
+                logging.error("Error completing conversation %s", repr(e))
             # wait for the two thread to finish then terminate
             logging.debug("Stop streaming threads for customers and agents")
             return True
@@ -308,8 +308,8 @@ def process_ongoing_conversation_messages(
             duration = message.get("DURATION")
             logging.info(
                 "Currently the audio stream has been paused from %s for about %s second",
-                start_time,
-                duration)
+                repr(start_time),
+                repr(duration))
     return False
 
 
@@ -351,7 +351,7 @@ def audiohook_connect(ws: Server):
         expected_api_key=config.api_key,
     )
     if not is_valid:
-        logging.warning("Unauthorized AudioHook connection rejected: %s", err_msg)
+        logging.warning("Unauthorized AudioHook connection rejected: %s", repr(err_msg))
         try:
             ws.close(reason=1008, message=f"Policy Violation: {err_msg}")
         except Exception:
@@ -375,11 +375,11 @@ def audiohook_connect(ws: Server):
                 json_message = json.loads(data)
             except ValueError as e:
                 logging.warning(
-                    "Not a valid JSON message %s, error details %s ", data, e)
+                    "Not a valid JSON message %s, error details %s ", repr(data), repr(e))
                 continue
             message_type = json_message.get("type")
             logging.info(
-                "Handle %s message %s", message_type, json_message)
+                "Handle %s message %s", repr(message_type), repr(json_message))
             conversation_id = json_message.get("parameters", {}).get(
                 "conversationId", DEFAULT_CONVERSATION_ID)
             audiohook.set_session_id(json_message.get("id", 0))
@@ -405,7 +405,7 @@ def audiohook_connect(ws: Server):
                         audiohook
                     )
                     logging.debug(
-                        "open conversation message %s ", open_conversation_state)
+                        "open conversation message %s ", repr(open_conversation_state))
                     # Check if the redis client has join_room called from the
                     # agent assist backend. Before setting conversation_name in the redis client,
                     # we should not publish any messages to the redis client

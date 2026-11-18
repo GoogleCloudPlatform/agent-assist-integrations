@@ -15,7 +15,8 @@
 import logging
 import os
 import json
-import random
+import re
+import secrets
 from datetime import datetime
 import gzip
 import hashlib
@@ -36,28 +37,35 @@ CORS(app, origins=config.CORS_ALLOWED_ORIGINS)
 socketio = SocketIO(app, cors_allowed_origins=config.CORS_ALLOWED_ORIGINS)
 load_jwt_secret_key()
 
+RESOURCE_PATH_REGEX = re.compile(r'(?:/(?!\.{1,2}(?:/|$))[A-Za-z0-9_.:-]+)+')
+_CONVERSATION_NAME_RE = re.compile(
+    r'^projects/[A-Za-z0-9_.:-]+/conversations/[A-Za-z0-9_-]+$')
+
 
 def redis_pubsub_handler(message):
     """Handles messages from Redis Pub/Sub."""
-    logging.info('Redis Pub/Sub Received data: {}'.format(message))
+    logging.info('Redis Pub/Sub Received data: %s', repr(message))
     msg_object = json.loads(message['data'])
     socketio.emit(msg_object['data_type'], msg_object,
                   to=msg_object['conversation_name'])
-    logging.info('Redis Subscribe: {0},{1},{2},{3}; conversation_name: {4}, data_type: {5}.'.format(
-        message['type'],
-        message['pattern'],
-        message['channel'],
-        message['data'],
-        msg_object['conversation_name'],
-        msg_object['data_type']))
+    logging.info(
+        'Redis Subscribe: %s,%s,%s,%s; conversation_name: %s, data_type: %s.',
+        repr(message['type']),
+        repr(message['pattern']),
+        repr(message['channel']),
+        repr(message['data']),
+        repr(msg_object['conversation_name']),
+        repr(msg_object['data_type']))
+
 
 def psubscribe_exception_handler(ex, pubsub, thread):
-    logging.exception('An error occurred while getting pubsub messages: {}'.format(ex))
+    logging.exception('An error occurred while getting pubsub messages: %s',
+                      repr(ex))
     time.sleep(2)
 
-SERVER_ID = '{}-{}'.format(random.uniform(0, 322321),
-                           datetime.now().timestamp())
-logging.info('--------- SERVER_ID: {} ---------'.format(SERVER_ID))
+
+SERVER_ID = '{}-{}'.format(secrets.token_hex(8), datetime.now().timestamp())
+logging.info('--------- SERVER_ID: %s ---------', repr(SERVER_ID))
 redis_client = redis.StrictRedis(
     host=config.REDIS_HOST, port=config.REDIS_PORT,
     health_check_interval=10,
@@ -69,6 +77,7 @@ redis_client = redis.StrictRedis(
 p = redis_client.pubsub(ignore_subscribe_messages=True)
 p.psubscribe(**{'{}:*'.format(SERVER_ID): redis_pubsub_handler})
 thread = p.run_in_thread(sleep_time=0.001, exception_handler=psubscribe_exception_handler)
+
 
 def get_conversation_name_without_location(conversation_name):
     """Returns a conversation name without its location id."""
@@ -114,14 +123,21 @@ def register_app_token():
     token = generate_jwt(request.get_json(force=True, silent=True))
     return jsonify({'token': token})
 
+
 def call_dialogflow(version, project, location, tail):
     """Forwards valid request to dialogflow and return its responese."""
-    logging.info(
-        'Called Dialogflow for request path: {}'.format(request.full_path))
+    if not (dialogflow.LOCATION_ID_REGEX.fullmatch(location) and
+            RESOURCE_PATH_REGEX.fullmatch(request.path)):
+        return make_response('Bad request', 400)
+    logging.info('Called Dialogflow for request path: %s',
+                 repr(request.full_path))
     if request.method == 'GET':
         response = dialogflow.get_dialogflow(location, request.full_path)
-        logging.info('get_dialogflow response: {0}, {1}, {2}'.format(
-            gzip.decompress(response.raw.data), response.status_code, response.headers))
+        logging.info(
+            'get_dialogflow response: %s, %s, %s',
+            repr(gzip.decompress(response.raw.data)),
+            repr(response.status_code),
+            repr(response.headers))
         return response.raw.data, response.status_code, response.headers.items()
     elif request.method == 'POST':
         # Handles projects.conversations.complete, whose request body should be empty.
@@ -131,14 +147,20 @@ def call_dialogflow(version, project, location, tail):
         else:
             response = dialogflow.post_dialogflow(
                 location, request.full_path, request.get_json())
-        logging.info('post_dialogflow response: {0}, {1}, {2}'.format(
-            response.raw.data, response.status_code, response.headers))
+        logging.info(
+            'post_dialogflow response: %s, %s, %s',
+            repr(response.raw.data),
+            repr(response.status_code),
+            repr(response.headers))
         return response.raw.data, response.status_code, response.headers.items()
     else:
         response = dialogflow.patch_dialogflow(
             location, request.full_path, request.get_json())
-        logging.info('patch_dialogflow response: {0}, {1}, {2}'.format(
-            response.raw.data, response.status_code, response.headers))
+        logging.info(
+            'patch_dialogflow response: %s, %s, %s',
+            repr(response.raw.data),
+            repr(response.status_code),
+            repr(response.headers))
         return response.raw.data, response.status_code, response.headers.items()
 
 
@@ -183,19 +205,26 @@ def call_dialogflow_without_tail(version, project, location):
 def call_dialogflow_with_tail(version, project, location, tail):
     return call_dialogflow(version, project, location, tail)
 
+
 @app.route('/conversation-name', methods=['POST'])
 @token_required
 def set_conversation_name():
     """Allows setting a conversationIntegrationKey:conversationName key/value pair in Redis."""
-    body = request.get_json(silent=True) or {}
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return make_response('Bad request', 400)
     conversation_integration_key = body.get('conversationIntegrationKey', '')
     conversation_name = body.get('conversationName', '')
-    if not (conversation_integration_key and conversation_name):
+    if not (isinstance(conversation_integration_key, str) and
+            isinstance(conversation_name, str) and
+            conversation_integration_key and conversation_name):
         return make_response('Bad request', 400)
-    
+
     hashed_key = hashlib.sha256(conversation_integration_key.encode('utf-8')).hexdigest()
     logging.info(
-        '/conversation-name - redis: SET %s %s', conversation_integration_key, conversation_name)
+        '/conversation-name - redis: SET %s %s',
+        repr(conversation_integration_key),
+        repr(conversation_name))
     result = redis_client.set(hashed_key, conversation_name, ex=86400)
     if not result:
         return make_response('Bad request', 400)
@@ -215,7 +244,9 @@ def get_conversation_name():
     hashed_key = hashlib.sha256(conversation_integration_key.encode('utf-8')).hexdigest()
     conversation_name = redis_client.get(hashed_key)
     logging.info(
-        '/conversation-name - redis: GET %s -> %s', conversation_integration_key, conversation_name)
+        '/conversation-name - redis: GET %s -> %s',
+        repr(conversation_integration_key),
+        repr(conversation_name))
     return jsonify({'conversationName': str(conversation_name, encoding='utf-8') if conversation_name else ''})
 
 
@@ -232,19 +263,23 @@ def del_conversation_name():
     hashed_key = hashlib.sha256(conversation_integration_key.encode('utf-8')).hexdigest()
     result = redis_client.delete(hashed_key)
     logging.info(
-        '/conversation-name - redis: DEL %s, result %s', conversation_integration_key, result)
+        '/conversation-name - redis: DEL %s, result %s',
+        repr(conversation_integration_key),
+        repr(result))
     if not result:
         return make_response('Not found', 404)
     return make_response('Success', 200)
 
 
 @socketio.on('connect')
-def connect(auth={}):
-    logging.info(
-        'Receives connection request with sid: {0}.'.format(request.sid))
+def connect(auth=None):
+    if auth is None:
+        auth = {}
+    logging.info('Receives connection request with sid: %s.',
+                 repr(request.sid))
     if isinstance(auth, dict) and 'token' in auth:
         is_valid, log_info = check_jwt(auth['token'])
-        logging.info(log_info)
+        logging.info('%s', repr(log_info))
         if is_valid:
             return True
     socketio.emit('unauthenticated')
@@ -253,7 +288,8 @@ def connect(auth={}):
 
 @socketio.on('disconnect')
 def disconnect(reason):
-    logging.info('Client disconnected, reason: {}, request.sid: {}'.format(reason, request.sid))
+    logging.info('Client disconnected, reason: %s, request.sid: %s',
+                 repr(reason), repr(request.sid))
     room_list = rooms()
     # Delete mapping for conversation_name and SERVER_ID.
     if len(room_list) > 1:
@@ -274,35 +310,57 @@ def server_error(e):
 @socketio.on('join-conversation')
 def on_join(message):
     """Joins a room specified by its conversation name."""
-    logging.info('Received event: join-conversation: {}'.format(message))
+    logging.info('Received event: join-conversation: %s', repr(message))
+    if not isinstance(message, str):
+        return False, 'invalid conversation name'
     # Remove location id from the conversation name.
     conversation_name = get_conversation_name_without_location(message)
+    if not _CONVERSATION_NAME_RE.match(conversation_name):
+        logging.warning('join-conversation rejected (bad name): %s',
+                        repr(conversation_name))
+        return False, 'invalid conversation name'
     join_room(conversation_name)
     # Update mapping for conversation_name and SERVER_ID.
     redis_client.set(conversation_name, SERVER_ID)
-    logging.info(
-            'join-conversation for: {}'.format(conversation_name))
+    logging.info('join-conversation for: %s', repr(conversation_name))
     return True, conversation_name
 
 
 @socketio.on('leave-conversation')
 def on_leave(message):
     """Leaves a room specified by its conversation name."""
-    logging.info('Received event: leave-conversation: {}'.format(message))
+    logging.info('Received event: leave-conversation: %s', repr(message))
+    if not isinstance(message, str):
+        return False, 'invalid conversation name'
     # Remove location id from the conversation name.
     conversation_name = get_conversation_name_without_location(message)
+    if not _CONVERSATION_NAME_RE.match(conversation_name):
+        logging.warning('leave-conversation rejected (bad name): %s',
+                        repr(conversation_name))
+        return False, 'invalid conversation name'
+    server = socketio.server
+    current_member_sids = ({
+        p[0] if isinstance(p, tuple) else p
+        for p in server.manager.get_participants('/', conversation_name)
+    } if server else set())
+    if server and request.sid not in current_member_sids:
+        logging.warning(
+            'leave-conversation rejected (not in room): sid=%s conv=%s',
+            repr(request.sid),
+            repr(conversation_name))
+        return False, 'not authorized for this conversation'
     leave_room(conversation_name)
     # Delete mapping for conversation_name and SERVER_ID.
     redis_client.delete(conversation_name)
-    logging.info(
-            'leave-conversation for: {}'.format(conversation_name))
+    logging.info('leave-conversation for: %s', repr(conversation_name))
     return True, conversation_name
+
 
 @socketio.on_error_default
 def default_error_handler(e):
     """Handles SocketIO event errors."""
-    logging.exception('error from {0} event: {1}'.format(
-        request.event['message'], e))
+    logging.exception('error from %s event: %s',
+                      repr(request.event['message']), repr(e))
 
 
 if __name__ == '__main__':

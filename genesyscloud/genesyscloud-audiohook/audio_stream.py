@@ -75,7 +75,7 @@ class Stream:
                     if dropped_chunk:
                         self.buffer_byte_size -= len(dropped_chunk)
                 except queue.Empty:
-                    logging.debug("Buffer size: %s, max buffer size: %s", self.buffer_byte_size, max_buffer_bytes)
+                    logging.debug("Buffer size: %s, max buffer size: %s", repr(self.buffer_byte_size), repr(max_buffer_bytes))
                     break
     def define_audio_config(
             self,
