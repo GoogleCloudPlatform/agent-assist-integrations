@@ -30,6 +30,9 @@ RUN_ID="aai-smoke-$$"
 NETWORK_NAME="${RUN_ID}-net"
 REDIS_CONTAINER="${RUN_ID}-redis"
 TMP_DIR="$(mktemp -d)"
+ADC_FILE="${TMP_DIR}/adc.json"
+printf '{"type":"authorized_user","client_id":"smoke-test","client_secret":"smoke-test","refresh_token":"smoke-test","quota_project_id":"smoke-test-project"}\n' > "$ADC_FILE"
+chmod 644 "$ADC_FILE"
 
 CONTAINERS=()
 IMAGES=()
@@ -138,7 +141,9 @@ smoke_ui_connector() {
   docker run -d --name "$name" --network "$NETWORK_NAME" \
     -p "127.0.0.1:${port}:8080" \
     -v "${secret_file}:/secret/jwt_secret_key:ro" \
+    -v "${ADC_FILE}:/tmp/adc.json:ro" \
     -e PORT=8080 \
+    -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/adc.json \
     -e GCP_PROJECT_ID=smoke-test-project \
     -e REDISHOST="$REDIS_CONTAINER" \
     -e REDISPORT=6379 \
@@ -188,7 +193,9 @@ smoke_five9_grpc() {
 
   docker run -d --name "$name" \
     -p "127.0.0.1:${port}:8080" \
+    -v "${ADC_FILE}:/tmp/adc.json:ro" \
     -e PORT=8080 \
+    -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/adc.json \
     -e PROJECT_ID=smoke-test-project \
     "$img" >/dev/null
   CONTAINERS+=("$name")
@@ -232,7 +239,9 @@ smoke_genesyscloud_audiohook() {
 
   docker run -d --name "$name" --network "$NETWORK_NAME" \
     -p "127.0.0.1:${port}:8080" \
+    -v "${ADC_FILE}:/tmp/adc.json:ro" \
     -e PORT=8080 \
+    -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/adc.json \
     -e API_KEY=smoke-api-key \
     -e GCP_PROJECT_ID=smoke-test-project \
     -e CONVERSATION_PROFILE_NAME=projects/p/locations/global/conversationProfiles/cp1 \
