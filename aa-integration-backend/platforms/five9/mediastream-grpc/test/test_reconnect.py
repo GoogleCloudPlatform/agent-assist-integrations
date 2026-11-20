@@ -16,6 +16,7 @@ import os
 import sys
 import unittest
 from unittest.mock import MagicMock, patch, AsyncMock
+from google.api_core.exceptions import InternalServerError
 
 # Ensure server & proto modules can be imported
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -32,6 +33,7 @@ class TestReconnect(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.servicer = get_suggestions.VoiceServicer()
 
+    @patch("services.get_suggestions.conversation_profile_management")
     @patch("services.get_suggestions.conversation_management")
     @patch("services.get_suggestions.participant_management")
     @patch("services.get_suggestions.call_stream.CallStream")
@@ -40,6 +42,7 @@ class TestReconnect(unittest.IsolatedAsyncioTestCase):
         mock_call_stream,
         mock_participant_management,
         mock_conversation_management,
+        unused_mock_conversation_profile_management,
     ):
         # Setup the mock stream
         mock_stream_instance = MagicMock()
@@ -76,7 +79,7 @@ class TestReconnect(unittest.IsolatedAsyncioTestCase):
                 mock_participant_management.analyze_content_audio_stream.call_count
             )
             if call_count == 1:
-                raise Exception("500 Internal error encountered")
+                raise InternalServerError("500 Internal error encountered")
             else:
                 # Second call - success
                 # Set terminate/closed eventually to break loop after this
