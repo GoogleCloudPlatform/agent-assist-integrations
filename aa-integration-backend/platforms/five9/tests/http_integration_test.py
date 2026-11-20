@@ -144,8 +144,8 @@ class TestFive9MediaStreamHttpSmoke(unittest.TestCase):
             ],
             cwd=str(HTTP_DIR),
             env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         try:
             health = _wait_for_http(f"{base_url}/", timeout=20.0)
