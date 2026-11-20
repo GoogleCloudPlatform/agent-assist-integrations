@@ -97,8 +97,8 @@ class TestFive9MediaStreamGrpcSmoke(unittest.TestCase):
                 [sys.executable, "main.py"],
                 cwd=str(GRPC_DIR),
                 env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
             try:
                 _wait_for_port("127.0.0.1", port, timeout=20.0)

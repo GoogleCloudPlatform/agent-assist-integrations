@@ -34,7 +34,6 @@ import unittest
 from unittest import mock
 
 from aiohttp import web
-import pytest
 import requests
 import socketio
 
@@ -138,8 +137,8 @@ class _RedisFixture:
                     "--loglevel",
                     "warning",
                 ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
             _wait_for_port(self.host, self.port, timeout=10.0)
             return
@@ -167,8 +166,9 @@ class _RedisFixture:
             _wait_for_port(self.host, self.port, timeout=20.0)
             return
 
-        pytest.skip("Real Redis unavailable (install redis-server, docker, "
-                    "or set INTEGRATION_REDIS_HOST/INTEGRATION_REDIS_PORT).")
+        raise unittest.SkipTest(
+            "Real Redis unavailable (install redis-server, docker, "
+            "or set INTEGRATION_REDIS_HOST/INTEGRATION_REDIS_PORT).")
 
     def stop(self) -> None:
         """Stops any Redis server spawned by this fixture."""
@@ -249,8 +249,8 @@ class TestCoreBackendRealProtocol(unittest.TestCase):
             ],
             cwd=str(UI_CONNECTOR_DIR),
             env=ui_env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
 
         pubsub_env = {
@@ -279,8 +279,8 @@ class TestCoreBackendRealProtocol(unittest.TestCase):
             ],
             cwd=str(PUBSUB_DIR),
             env=pubsub_env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
 
         try:
