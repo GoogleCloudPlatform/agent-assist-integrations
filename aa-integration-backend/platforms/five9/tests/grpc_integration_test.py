@@ -18,11 +18,13 @@ port and verifies gRPC Server Reflection advertises the Five9 Voice service.
 """
 
 import asyncio
+import json
 import os
 from pathlib import Path
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 
@@ -72,41 +74,56 @@ class TestFive9MediaStreamGrpcSmoke(unittest.TestCase):
     def test_grpc_server_boots_and_advertises_voice_service(self) -> None:
         """Starts mediastream-grpc main.py and queries gRPC reflection."""
         port = _find_free_port()
-        env = {
-            **os.environ,
-            "PORT": str(port),
-            "PROJECT_ID": "integration-test-project",
-            "LOG_LEVEL": "WARNING",
-        }
-        proc = subprocess.Popen(
-            [sys.executable, "main.py"],
-            cwd=str(GRPC_DIR),
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        try:
-            _wait_for_port("127.0.0.1", port, timeout=20.0)
-
-            async def _list_services() -> list[str]:
-                async with grpc.aio.insecure_channel(
-                        f"127.0.0.1:{port}") as channel:
-                    stub = reflection_pb2_grpc.ServerReflectionStub(channel)
-                    req = reflection_pb2.ServerReflectionRequest(
-                        list_services="")
-                    services = []
-                    async for resp in stub.ServerReflectionInfo(iter([req])):
-                        for svc in resp.list_services_response.service:
-                            services.append(svc.name)
-                    return services
-
-            services = asyncio.run(_list_services())
-            self.assertTrue(
-                any(name.endswith("Voice") for name in services),
-                f"Expected Voice service in reflection list, got: {services}",
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            adc_path = Path(tmp_dir) / "adc.json"
+            adc_path.write_text(
+                json.dumps({
+                    "type": "authorized_user",
+                    "client_id": "integration-test",
+                    "client_secret": "integration-test",
+                    "refresh_token": "integration-test",
+                    "quota_project_id": "integration-test-project",
+                }),
+                encoding="utf-8",
             )
-        finally:
-            _terminate_process(proc)
+            env = {
+                **os.environ,
+                "GOOGLE_APPLICATION_CREDENTIALS": str(adc_path),
+                "PORT": str(port),
+                "PROJECT_ID": "integration-test-project",
+                "LOG_LEVEL": "WARNING",
+            }
+            proc = subprocess.Popen(
+                [sys.executable, "main.py"],
+                cwd=str(GRPC_DIR),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            try:
+                _wait_for_port("127.0.0.1", port, timeout=20.0)
+
+                async def _list_services() -> list[str]:
+                    async with grpc.aio.insecure_channel(
+                            f"127.0.0.1:{port}") as channel:
+                        stub = reflection_pb2_grpc.ServerReflectionStub(channel)
+                        req = reflection_pb2.ServerReflectionRequest(
+                            list_services="")
+                        services = []
+                        async for resp in stub.ServerReflectionInfo(iter([req
+                                                                         ])):
+                            for svc in resp.list_services_response.service:
+                                services.append(svc.name)
+                        return services
+
+                services = asyncio.run(_list_services())
+                self.assertTrue(
+                    any(name.endswith("Voice") for name in services),
+                    f"Expected Voice service in reflection list, got: "
+                    f"{services}",
+                )
+            finally:
+                _terminate_process(proc)
 
 
 if __name__ == "__main__":

@@ -203,6 +203,17 @@ class TestCoreBackendRealProtocol(unittest.TestCase):
             "integration-test-jwt-secret-key-at-least-32-bytes!",
             encoding="utf-8",
         )
+        adc_path = Path(cls.temp_dir.name) / "adc.json"
+        adc_path.write_text(
+            json.dumps({
+                "type": "authorized_user",
+                "client_id": "integration-test",
+                "client_secret": "integration-test",
+                "refresh_token": "integration-test",
+                "quota_project_id": "integration-test-project",
+            }),
+            encoding="utf-8",
+        )
 
         ui_port = _find_free_port()
         pubsub_port = _find_free_port()
@@ -211,6 +222,7 @@ class TestCoreBackendRealProtocol(unittest.TestCase):
 
         ui_env = {
             **os.environ,
+            "GOOGLE_APPLICATION_CREDENTIALS": str(adc_path),
             "GCP_PROJECT_ID": "integration-test-project",
             "REDISHOST": cls.redis_fixture.host,
             "REDISPORT": str(cls.redis_fixture.port),
@@ -573,7 +585,7 @@ class TestWebChannelRealAiohttpProtocol(unittest.TestCase):
         fake_creds.token = "fake-bearer-token"
         fake_creds.expired = False
 
-        client = webchannel.WebChannelClient(endpoint)
+        client = webchannel.WebChannelClient(endpoint, credentials=fake_creds)
         client.onResponse(lambda payload: (
             responses.append(payload),
             two_responses.set() if len(responses) >= 2 else None,
@@ -581,14 +593,13 @@ class TestWebChannelRealAiohttpProtocol(unittest.TestCase):
         client.onError(errors.append)
 
         try:
-            with mock.patch.object(webchannel, "CREDENTIALS", fake_creds):
-                client.connect()
-                client.send({"participant": "projects/p/locations/global"})
-                self.assertTrue(
-                    two_responses.wait(timeout=10.0),
-                    f"Expected 2 frames; got responses={responses}, "
-                    f"errors={errors}",
-                )
+            client.connect()
+            client.send({"participant": "projects/p/locations/global"})
+            self.assertTrue(
+                two_responses.wait(timeout=10.0),
+                f"Expected 2 frames; got responses={responses}, "
+                f"errors={errors}",
+            )
         finally:
             client.close(reason="integration_test_done")
             loop = server_loop_holder.get("loop")
