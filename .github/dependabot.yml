@@ -1,0 +1,491 @@
+# Dependabot configuration — grouped, scoped update trains per service/platform.
+# - Security updates are grouped into production vs. development PRs so runtime
+#   fixes can be prioritized and merged independently of dev/build tooling.
+# - Version updates batch minor/patch updates by dependency-type while leaving
+#   major bumps ungrouped for explicit review and staging E2E validation.
+version: 2
+updates:
+  # ---------------------------------------------------------------------------
+  # Core Backend (Python)
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "pip"
+    directory: "/aa-integration-backend/ui-connector"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "backend"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      minor-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+
+  - package-ecosystem: "pip"
+    directory: "/aa-integration-backend/cloud-pubsub-interceptor"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "backend"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      minor-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+
+  # ---------------------------------------------------------------------------
+  # Five9 (Python)
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "pip"
+    directory: "/aa-integration-backend/platforms/five9/mediastream-grpc"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "five9"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      minor-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+
+  - package-ecosystem: "pip"
+    directory: "/aa-integration-backend/platforms/five9/mediastream-http"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "five9"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      minor-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+
+  - package-ecosystem: "pip"
+    directory: "/aa-integration-backend/platforms/five9/mediastream-grpc/test/locust_load_test"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 2
+    labels:
+      - "dependencies"
+      - "five9"
+    commit-message:
+      prefix: "chore(deps-dev)"
+    groups:
+      security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      minor-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+
+  # ---------------------------------------------------------------------------
+  # Genesys Cloud (Python & npm)
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "pip"
+    directory: "/genesyscloud/genesyscloud-audiohook"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "genesyscloud"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      minor-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/genesyscloud/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "genesyscloud"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      security-production:
+        applies-to: security-updates
+        dependency-type: "production"
+        patterns:
+          - "*"
+      security-development:
+        applies-to: security-updates
+        dependency-type: "development"
+        patterns:
+          - "*"
+      production-minor-patch:
+        applies-to: version-updates
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+      development-minor-patch:
+        applies-to: version-updates
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+
+  # ---------------------------------------------------------------------------
+  # LivePerson (npm)
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/liveperson/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "liveperson"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      security-production:
+        applies-to: security-updates
+        dependency-type: "production"
+        patterns:
+          - "*"
+      security-development:
+        applies-to: security-updates
+        dependency-type: "development"
+        patterns:
+          - "*"
+      production-minor-patch:
+        applies-to: version-updates
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+      development-minor-patch:
+        applies-to: version-updates
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/liveperson/proxy-server"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "liveperson"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      security-production:
+        applies-to: security-updates
+        dependency-type: "production"
+        patterns:
+          - "*"
+      security-development:
+        applies-to: security-updates
+        dependency-type: "development"
+        patterns:
+          - "*"
+      production-minor-patch:
+        applies-to: version-updates
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+      development-minor-patch:
+        applies-to: version-updates
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+
+  # ---------------------------------------------------------------------------
+  # Salesforce (npm)
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/salesforce/aa-lwc"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "salesforce"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      security-production:
+        applies-to: security-updates
+        dependency-type: "production"
+        patterns:
+          - "*"
+      security-development:
+        applies-to: security-updates
+        dependency-type: "development"
+        patterns:
+          - "*"
+      production-minor-patch:
+        applies-to: version-updates
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+      development-minor-patch:
+        applies-to: version-updates
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/salesforce/canvas"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "salesforce"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      security-production:
+        applies-to: security-updates
+        dependency-type: "production"
+        patterns:
+          - "*"
+      security-development:
+        applies-to: security-updates
+        dependency-type: "development"
+        patterns:
+          - "*"
+      production-minor-patch:
+        applies-to: version-updates
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+      development-minor-patch:
+        applies-to: version-updates
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+
+  # ---------------------------------------------------------------------------
+  # Twilio Flex (npm)
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/twilioflex"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 2
+    labels:
+      - "dependencies"
+      - "twilioflex"
+    commit-message:
+      prefix: "chore(deps-dev)"
+    groups:
+      security-development:
+        applies-to: security-updates
+        dependency-type: "development"
+        patterns:
+          - "*"
+      development-minor-patch:
+        applies-to: version-updates
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/twilioflex/flex-config"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "twilioflex"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      security-production:
+        applies-to: security-updates
+        dependency-type: "production"
+        patterns:
+          - "*"
+      production-minor-patch:
+        applies-to: version-updates
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/twilioflex/serverless-functions"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "twilioflex"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      security-production:
+        applies-to: security-updates
+        dependency-type: "production"
+        patterns:
+          - "*"
+      security-development:
+        applies-to: security-updates
+        dependency-type: "development"
+        patterns:
+          - "*"
+      production-minor-patch:
+        applies-to: version-updates
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+      development-minor-patch:
+        applies-to: version-updates
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/twilioflex/flex-template-agent-assist"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "twilioflex"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      security-production:
+        applies-to: security-updates
+        dependency-type: "production"
+        patterns:
+          - "*"
+      security-development:
+        applies-to: security-updates
+        dependency-type: "development"
+        patterns:
+          - "*"
+      production-minor-patch:
+        applies-to: version-updates
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+      development-minor-patch:
+        applies-to: version-updates
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
