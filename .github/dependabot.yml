@@ -11,8 +11,7 @@ updates:
     directories:
       - "/**/*"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
     cooldown:
       default-days: 7
     open-pull-requests-limit: 5
@@ -38,8 +37,7 @@ updates:
     directories:
       - "/**/*"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
     cooldown:
       default-days: 7
     open-pull-requests-limit: 5
