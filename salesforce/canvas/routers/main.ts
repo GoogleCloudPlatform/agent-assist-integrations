@@ -17,7 +17,6 @@
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import express from 'express';
-import {uuid} from 'uuidv4';
 
 dotenv.config();
 
@@ -80,7 +79,7 @@ router.post('/', (req, res) => {
 
   // Generate a random conversation ID for demo purposes. In a real app, this
   // would come from an external source.
-  const conversationId = `a${uuid()}`;
+  const conversationId = `a${crypto.randomUUID()}`;
 
   const conversationName = `${projectLocation}/conversations/${conversationId}`;
 

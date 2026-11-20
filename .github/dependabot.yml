@@ -1,0 +1,75 @@
+# Repo-level Dependabot umbrella configuration.
+# Uses glob-based multi-directory discovery (`/**/*`) so new services and
+# platforms are covered automatically without maintaining per-directory entries.
+# - Security updates are batched per manifest directory (split into production
+#   vs. development for npm) so runtime fixes can land independently of tooling.
+# - Version updates batch minor/patch updates with a 7-day release cooldown,
+#   leaving major bumps ungrouped for explicit review and staging validation.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directories:
+      - "/**/*"
+    schedule:
+      interval: "monthly"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      minor-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directories:
+      - "/**/*"
+    schedule:
+      interval: "monthly"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "javascript"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      security-production:
+        applies-to: security-updates
+        dependency-type: "production"
+        patterns:
+          - "*"
+      security-development:
+        applies-to: security-updates
+        dependency-type: "development"
+        patterns:
+          - "*"
+      production-minor-patch:
+        applies-to: version-updates
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+      development-minor-patch:
+        applies-to: version-updates
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"

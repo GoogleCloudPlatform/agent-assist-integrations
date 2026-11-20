@@ -17,13 +17,12 @@
 import ClientOAuth2 from 'client-oauth2';
 import timeout from 'connect-timeout';
 import cookieParser from 'cookie-parser';
-import { createHmac } from 'crypto';
+import { createHmac, randomUUID } from 'crypto';
 import dotenv from 'dotenv';
 import express from 'express';
 import fetch from 'node-fetch';
 import path, { dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { uuid } from 'uuidv4';
 
 dotenv.config();
 
@@ -93,7 +92,7 @@ app.get('/', (req, res) => {
   // A random ID to associate with this request. This will be included
   // in the request as well as cached in the client browser. When the OAuth flow
   // is finished redirecting, we will verify that the two IDs match.
-  const requestId = uuid();
+  const requestId = randomUUID();
   const hashedRequestId = getHmacHasher().update(requestId).digest('hex');
 
   const state = Buffer.from(
