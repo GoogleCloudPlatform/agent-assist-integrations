@@ -29,7 +29,7 @@ def load_jwt_secret_key():
     global jwt_secret_key
     if jwt_secret_key:
         return jwt_secret_key
-    if os.path.exists(config.JWT_SECRET_KEY_PATH):
+    if os.path.isfile(config.JWT_SECRET_KEY_PATH):
         with open(config.JWT_SECRET_KEY_PATH, 'r', encoding='utf-8') as key_file:
             content = key_file.read().strip()
             if content:
@@ -61,8 +61,8 @@ def check_auth(token):
 
 
 def check_jwt(token):
+    secret = load_jwt_secret_key()
     try:
-        secret = load_jwt_secret_key()
         if token.startswith("Bearer "):
             token = token.split(" ")[1]
         # Decode the payload to fetch the stored details.
