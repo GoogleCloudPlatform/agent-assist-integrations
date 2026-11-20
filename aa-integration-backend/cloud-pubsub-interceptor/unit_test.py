@@ -26,12 +26,14 @@ CONVERSATION_ID = 'fake-conversation-001'
 PROJECT_ID = 'aa-integration-poc'
 CONVERSATION_NAME = 'projects/{0}/locations/global/conversations/{1}'.format(
     PROJECT_ID, CONVERSATION_ID)
+CONVERSATION_NAME_WITHOUT_LOCATION = 'projects/{0}/conversations/{1}'.format(
+    PROJECT_ID, CONVERSATION_ID)
 SAMPLE_DIALOGFLOW_EVENT = {
     'conversation': CONVERSATION_NAME,
     'type': 'CONVERSATION_STARTED'
 }
 SAMPLE_REDIS_PUBSUB_PUB = {
-    'conversation_name': CONVERSATION_NAME,
+    'conversation_name': CONVERSATION_NAME_WITHOUT_LOCATION,
     'data': json.dumps(SAMPLE_DIALOGFLOW_EVENT),
     'data_type': 'conversation-lifecycle-event',
     'ack_time': '2022-03-11T00:00:10Z',
@@ -67,7 +69,7 @@ class TestInterceptorAPI(unittest.TestCase):
         response = client.post('/conversation-lifecycle-event',
                                json=SAMPLE_CLOUD_PUBSUB_MSG)
         MockPublish.assert_called_once_with(
-            '{}:{}'.format(SERVER_ID, CONVERSATION_NAME),
+            '{}:{}'.format(SERVER_ID, CONVERSATION_NAME_WITHOUT_LOCATION),
             json.dumps(SAMPLE_REDIS_PUBSUB_PUB))
         MockSmembers.assert_called_once_with(main.get_conversation_servers_key(
             main.get_conversation_name_without_location(CONVERSATION_NAME)))

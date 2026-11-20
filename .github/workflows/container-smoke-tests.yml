@@ -1,0 +1,195 @@
+name: Container Build & Boot Smoke Tests
+
+on:
+  pull_request:
+    paths:
+      - "aa-integration-backend/ui-connector/**"
+      - "aa-integration-backend/cloud-pubsub-interceptor/**"
+      - "aa-integration-backend/platforms/five9/mediastream-grpc/Dockerfile"
+      - "aa-integration-backend/platforms/five9/mediastream-grpc/main.py"
+      - "aa-integration-backend/platforms/five9/mediastream-grpc/requirements.txt"
+      - "aa-integration-backend/platforms/five9/mediastream-grpc/proto/**"
+      - "aa-integration-backend/platforms/five9/mediastream-grpc/services/**"
+      - "aa-integration-backend/platforms/five9/mediastream-grpc/utils/**"
+      - "aa-integration-backend/platforms/five9/mediastream-http/**"
+      - "genesyscloud/genesyscloud-audiohook/**"
+      - "genesyscloud/frontend/**"
+      - "scripts/docker_smoke_test.sh"
+      - ".github/workflows/container-smoke-tests.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "aa-integration-backend/ui-connector/**"
+      - "aa-integration-backend/cloud-pubsub-interceptor/**"
+      - "aa-integration-backend/platforms/five9/mediastream-grpc/Dockerfile"
+      - "aa-integration-backend/platforms/five9/mediastream-grpc/main.py"
+      - "aa-integration-backend/platforms/five9/mediastream-grpc/requirements.txt"
+      - "aa-integration-backend/platforms/five9/mediastream-grpc/proto/**"
+      - "aa-integration-backend/platforms/five9/mediastream-grpc/services/**"
+      - "aa-integration-backend/platforms/five9/mediastream-grpc/utils/**"
+      - "aa-integration-backend/platforms/five9/mediastream-http/**"
+      - "genesyscloud/genesyscloud-audiohook/**"
+      - "genesyscloud/frontend/**"
+      - "scripts/docker_smoke_test.sh"
+      - ".github/workflows/container-smoke-tests.yml"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Smoke test target (all, backend, five9, genesyscloud)"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - backend
+          - five9
+          - genesyscloud
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect Changed Containers
+    runs-on: ubuntu-latest
+    outputs:
+      ui-connector: ${{ steps.filter.outputs.ui-connector }}
+      cloud-pubsub-interceptor: ${{ steps.filter.outputs.cloud-pubsub-interceptor }}
+      five9-grpc: ${{ steps.filter.outputs.five9-grpc }}
+      five9-http: ${{ steps.filter.outputs.five9-http }}
+      genesyscloud-audiohook: ${{ steps.filter.outputs.genesyscloud-audiohook }}
+      genesyscloud-frontend: ${{ steps.filter.outputs.genesyscloud-frontend }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Filter Changed Paths
+        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
+        id: filter
+        with:
+          filters: |
+            ui-connector:
+              - 'aa-integration-backend/ui-connector/**'
+              - 'scripts/docker_smoke_test.sh'
+              - '.github/workflows/container-smoke-tests.yml'
+            cloud-pubsub-interceptor:
+              - 'aa-integration-backend/cloud-pubsub-interceptor/**'
+              - 'scripts/docker_smoke_test.sh'
+              - '.github/workflows/container-smoke-tests.yml'
+            five9-grpc:
+              - 'aa-integration-backend/platforms/five9/mediastream-grpc/Dockerfile'
+              - 'aa-integration-backend/platforms/five9/mediastream-grpc/main.py'
+              - 'aa-integration-backend/platforms/five9/mediastream-grpc/requirements.txt'
+              - 'aa-integration-backend/platforms/five9/mediastream-grpc/proto/**'
+              - 'aa-integration-backend/platforms/five9/mediastream-grpc/services/**'
+              - 'aa-integration-backend/platforms/five9/mediastream-grpc/utils/**'
+              - 'scripts/docker_smoke_test.sh'
+              - '.github/workflows/container-smoke-tests.yml'
+            five9-http:
+              - 'aa-integration-backend/platforms/five9/mediastream-http/**'
+              - 'scripts/docker_smoke_test.sh'
+              - '.github/workflows/container-smoke-tests.yml'
+            genesyscloud-audiohook:
+              - 'genesyscloud/genesyscloud-audiohook/**'
+              - 'scripts/docker_smoke_test.sh'
+              - '.github/workflows/container-smoke-tests.yml'
+            genesyscloud-frontend:
+              - 'genesyscloud/frontend/**'
+              - 'scripts/docker_smoke_test.sh'
+              - '.github/workflows/container-smoke-tests.yml'
+
+  smoke-backend:
+    name: Docker Smoke — Core Backend
+    needs: changes
+    if: >-
+      needs.changes.outputs.ui-connector == 'true' ||
+      needs.changes.outputs.cloud-pubsub-interceptor == 'true' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.target == 'all' || inputs.target == 'backend'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Build and Boot Affected Core Backend Containers
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_UI_CONNECTOR: ${{ needs.changes.outputs.ui-connector }}
+          RUN_PUBSUB: ${{ needs.changes.outputs.cloud-pubsub-interceptor }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            ./scripts/docker_smoke_test.sh backend
+          else
+            targets=()
+            [ "$RUN_UI_CONNECTOR" = "true" ] && targets+=(ui-connector)
+            [ "$RUN_PUBSUB" = "true" ] && targets+=(cloud-pubsub-interceptor)
+            ./scripts/docker_smoke_test.sh "${targets[@]}"
+          fi
+
+  smoke-five9:
+    name: Docker Smoke — Five9
+    needs: changes
+    if: >-
+      needs.changes.outputs.five9-grpc == 'true' ||
+      needs.changes.outputs.five9-http == 'true' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.target == 'all' || inputs.target == 'five9'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Build and Boot Affected Five9 Containers
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_FIVE9_GRPC: ${{ needs.changes.outputs.five9-grpc }}
+          RUN_FIVE9_HTTP: ${{ needs.changes.outputs.five9-http }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            ./scripts/docker_smoke_test.sh five9
+          else
+            targets=()
+            [ "$RUN_FIVE9_GRPC" = "true" ] && targets+=(five9-grpc)
+            [ "$RUN_FIVE9_HTTP" = "true" ] && targets+=(five9-http)
+            ./scripts/docker_smoke_test.sh "${targets[@]}"
+          fi
+
+  smoke-genesyscloud:
+    name: Docker Smoke — Genesys Cloud
+    needs: changes
+    if: >-
+      needs.changes.outputs.genesyscloud-audiohook == 'true' ||
+      needs.changes.outputs.genesyscloud-frontend == 'true' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.target == 'all' || inputs.target == 'genesyscloud'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Build and Boot Affected Genesys Cloud Containers
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_AUDIOHOOK: ${{ needs.changes.outputs.genesyscloud-audiohook }}
+          RUN_FRONTEND: ${{ needs.changes.outputs.genesyscloud-frontend }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            ./scripts/docker_smoke_test.sh genesyscloud
+          else
+            targets=()
+            [ "$RUN_AUDIOHOOK" = "true" ] && targets+=(genesyscloud-audiohook)
+            [ "$RUN_FRONTEND" = "true" ] && targets+=(genesyscloud-frontend)
+            ./scripts/docker_smoke_test.sh "${targets[@]}"
+          fi
