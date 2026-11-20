@@ -12,8 +12,8 @@
   },
   "dependencies": {
     "@twilio/runtime-handler": "2.0.0",
-    "axios": "^1.7.4",
-    "lodash": "^4.17.21",
+    "axios": "^1.20.0",
+    "lodash": "^4.18.0",
     "randomstring": "^1.3.0",
     "twilio": "^4.23.0",
     "twilio-flex-token-validator": "^1.5.6"
@@ -21,9 +21,15 @@
   "devDependencies": {
     "eslint": "^8.37.0",
     "eslint-config-twilio": "^2.0.0",
-    "twilio-run": "^4.0.0"
+    "twilio-run": "^6.0.0"
   },
   "engines": {
     "node": ">=18"
+  },
+  "overrides": {
+    "file-type": "^21.3.1",
+    "clipboardy": {
+      "cross-spawn": "^6.0.6"
+    }
   }
 }
