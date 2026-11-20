@@ -56,16 +56,6 @@ module.exports = (config, { isProd, isDev, isTest }) => {
           include: [path.join(__dirname, 'src/utils/feature-loader/')],
           use: 'import-glob',
         },
-        {
-          test: /\.js$/,
-          include: [path.join(__dirname, 'node_modules/uuid')],
-          use: {
-            loader: 'babel-loader',
-            options: {
-              presets: ['@babel/preset-env'],
-            },
-          },
-        },
       ],
     },
   };

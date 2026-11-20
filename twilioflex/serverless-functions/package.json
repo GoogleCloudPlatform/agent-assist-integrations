@@ -25,11 +25,5 @@
   },
   "engines": {
     "node": ">=18"
-  },
-  "overrides": {
-    "file-type": "^21.3.1",
-    "clipboardy": {
-      "cross-spawn": "^6.0.6"
-    }
   }
 }

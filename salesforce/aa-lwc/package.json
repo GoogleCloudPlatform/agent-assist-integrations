@@ -24,9 +24,5 @@
   },
   "dependencies": {
     "jsonwebtoken": "^9.0.2"
-  },
-  "overrides": {
-    "@lwc/engine-dom": "8.28.2",
-    "@babel/core": "^7.29.7"
   }
 }
