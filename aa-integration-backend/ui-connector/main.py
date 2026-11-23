@@ -21,6 +21,7 @@ import logging
 import os
 import re
 import secrets
+import ssl
 import time
 from typing import Any, NotRequired, TypedDict
 
@@ -84,6 +85,33 @@ def psubscribe_exception_handler(ex, pubsub, unused_thread):  # pylint: disable=
     time.sleep(2)
 
 
+def get_redis_tls_kwargs(tls_enabled, ca_cert_path, ca_cert_pem):
+    """Returns TLS kwargs for redis.StrictRedis when REDIS_TLS_ENABLED=true.
+
+    Progressive upgrade: returns an empty dict when TLS is disabled.
+    When enabled, enforces TLS 1.2+ with required Server CA verification and
+    fails closed if no CA certificate file or PEM string is provided.
+    """
+    if not tls_enabled:
+        return {}
+    tls_kwargs = {
+        "ssl": True,
+        "ssl_cert_reqs": "required",
+        "ssl_min_version": ssl.TLSVersion.TLSv1_2,
+    }
+    if ca_cert_path and os.path.isfile(ca_cert_path):
+        tls_kwargs["ssl_ca_certs"] = ca_cert_path
+    elif ca_cert_pem:
+        tls_kwargs["ssl_ca_data"] = ca_cert_pem.replace("\\n", "\n")
+    else:
+        raise ValueError(
+            "REDIS_TLS_ENABLED is true, but no Memorystore Server CA "
+            "certificate was found. Mount the CA PEM at REDIS_CA_CERT_PATH "
+            "or set REDIS_CA_CERT_PEM."
+        )
+    return tls_kwargs
+
+
 SERVER_ID = f"{secrets.token_hex(8)}-{datetime.now().timestamp()}"
 logging.info("--------- SERVER_ID: %s ---------", repr(SERVER_ID))
 redis_client = redis.StrictRedis(
@@ -99,6 +127,11 @@ redis_client = redis.StrictRedis(
         redis.exceptions.TimeoutError,
         redis.exceptions.ResponseError,
     ],
+    **get_redis_tls_kwargs(
+        config.REDIS_TLS_ENABLED,
+        config.REDIS_CA_CERT_PATH,
+        config.REDIS_CA_CERT_PEM,
+    ),
 )
 p = redis_client.pubsub(ignore_subscribe_messages=True)
 p.psubscribe(**{f"{SERVER_ID}:*": redis_pubsub_handler})

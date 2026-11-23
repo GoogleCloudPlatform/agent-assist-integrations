@@ -143,6 +143,46 @@ class TestInterceptorAPI(unittest.TestCase):
         # Ack messeages to avoid unnecessary retry.
         self.assertEqual(response.status_code, 204)
 
+    def test_get_redis_tls_kwargs_progressive_upgrade(self):
+        """Verifies Redis TLS is opt-in and enforces TLS 1.2+ with CA verification."""
+        import ssl
+        import tempfile
+
+        self.assertEqual(
+            main.get_redis_tls_kwargs(False, '/secret/redis_ca_cert.pem', ''),
+            {},
+        )
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.pem') as ca_file:
+            ca_file.write('-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n')
+            ca_file.flush()
+            self.assertEqual(
+                main.get_redis_tls_kwargs(True, ca_file.name, ''),
+                {
+                    'ssl': True,
+                    'ssl_cert_reqs': 'required',
+                    'ssl_min_version': ssl.TLSVersion.TLSv1_2,
+                    'ssl_ca_certs': ca_file.name,
+                },
+            )
+
+        self.assertEqual(
+            main.get_redis_tls_kwargs(
+                True,
+                '/nonexistent/redis_ca_cert.pem',
+                '-----BEGIN CERTIFICATE-----\\nFAKE\\n-----END CERTIFICATE-----',
+            ),
+            {
+                'ssl': True,
+                'ssl_cert_reqs': 'required',
+                'ssl_min_version': ssl.TLSVersion.TLSv1_2,
+                'ssl_ca_data': '-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----',
+            },
+        )
+
+        with self.assertRaises(ValueError):
+            main.get_redis_tls_kwargs(True, '/nonexistent/redis_ca_cert.pem', '')
+
 
 if __name__ == '__main__':
     unittest.main()

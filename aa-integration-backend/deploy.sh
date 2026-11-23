@@ -88,6 +88,8 @@ export JWT_SECRET_NAME='aa-integration-jwt-secret'
 export VPC_NETWORK='default'
 export VPC_SUBNET='default'
 export REDIS_INSTANCE_ID='aa-integration-redis'
+export REDIS_TLS_ENABLED=${REDIS_TLS_ENABLED:-'false'}
+export REDIS_CA_CERT_SECRET_NAME=${REDIS_CA_CERT_SECRET_NAME:-'aa-integration-redis-ca-cert'}
 
 # Additional configurations for using a Serverless VPC Access connector to connect to Redis.
 # Please uncomment both variable settings if it's the preferred option.
@@ -220,6 +222,10 @@ gcloud projects add-iam-policy-binding $GCP_PROJECT_ID \
   --member="serviceAccount:$interceptor_service_account" \
   --role='roles/compute.viewer' \
   --condition="None"
+gcloud projects add-iam-policy-binding $GCP_PROJECT_ID \
+  --member="serviceAccount:$interceptor_service_account" \
+  --role='roles/secretmanager.secretAccessor' \
+  --condition="None"
 
 
 echo -e '\n\n ===================== Create a JWT Secret Key ===================== \n\n'
@@ -244,7 +250,11 @@ if [[ "$REDIS_INSTANCE_ID" = \
     --filter=$REDIS_INSTANCE_ID --format='value(INSTANCE_NAME)' | grep ^$REDIS_INSTANCE_ID$` ]]; then
   echo "Skip creating redis instance $REDIS_INSTANCE_ID as it exists."
 else
-  gcloud redis instances create $REDIS_INSTANCE_ID --size=5 --region=$SERVICE_REGION --format=json
+  REDIS_CREATE_TLS_ARGS=()
+  if [[ "${REDIS_TLS_ENABLED,,}" == "true" ]]; then
+    REDIS_CREATE_TLS_ARGS+=(--transit-encryption-mode=SERVER_AUTHENTICATION)
+  fi
+  gcloud redis instances create $REDIS_INSTANCE_ID --size=5 --region=$SERVICE_REGION "${REDIS_CREATE_TLS_ARGS[@]}" --format=json
 fi
 
 # (Optional) Create a Serverless VPC Access connector with a custom IP range.
@@ -266,6 +276,32 @@ fi
 # Record redis instance information for later service deployment.
 export REDIS_HOST=`gcloud redis instances describe $REDIS_INSTANCE_ID --region $SERVICE_REGION --format 'value(host)'`
 export REDIS_PORT=`gcloud redis instances describe $REDIS_INSTANCE_ID --region $SERVICE_REGION --format 'value(port)'`
+
+# Progressive upgrade: when REDIS_TLS_ENABLED=true, export Memorystore Server CA
+# certificate(s) to Secret Manager and mount them on Cloud Run services.
+REDIS_TLS_RUN_ARGS=()
+if [[ "${REDIS_TLS_ENABLED,,}" == "true" ]]; then
+  REDIS_CA_PEM="$(gcloud redis instances describe $REDIS_INSTANCE_ID --region $SERVICE_REGION --format='value[separator="\n"](serverCaCerts[].cert)')"
+  if [[ -z "$REDIS_CA_PEM" ]]; then
+    echo "Error: REDIS_TLS_ENABLED=true but no serverCaCerts found on Redis instance $REDIS_INSTANCE_ID." >&2
+    echo "Memorystore for Redis requires --transit-encryption-mode=SERVER_AUTHENTICATION at instance creation time." >&2
+    exit 1
+  fi
+  if [[ $REDIS_CA_CERT_SECRET_NAME = `gcloud secrets list --filter=$REDIS_CA_CERT_SECRET_NAME --format='value(NAME)' | grep ^$REDIS_CA_CERT_SECRET_NAME$` ]]; then
+    printf '%s\n' "$REDIS_CA_PEM" | gcloud secrets versions add $REDIS_CA_CERT_SECRET_NAME --data-file=-
+  else
+    printf '%s\n' "$REDIS_CA_PEM" | \
+    gcloud secrets create $REDIS_CA_CERT_SECRET_NAME \
+      --data-file=- \
+      --replication-policy=user-managed \
+      --locations=$SERVICE_REGION
+  fi
+  REDIS_TLS_RUN_ARGS+=(
+    --update-secrets=/secret/redis_ca_cert.pem=${REDIS_CA_CERT_SECRET_NAME}:latest
+    --set-env-vars REDIS_TLS_ENABLED=true
+    --set-env-vars REDIS_CA_CERT_PATH=/secret/redis_ca_cert.pem
+  )
+fi
 
 
 echo -e '\n\n ========================= Deploy UI Connector Service ========================= \n\n'
@@ -299,7 +335,8 @@ if [[ -z $VPC_CONNECTOR_NAME ]]; then
   --set-env-vars GENESYS_CLOUD_ORGANIZATION_ID="$GENESYS_CLOUD_ORGANIZATION_ID" \
   --set-env-vars TWILIO_ACCOUNT_SID=$TWILIO_ACCOUNT_SID \
   --set-env-vars APP_AUTH_OPTION=$APP_AUTH_OPTION \
-  --set-env-vars FIVE9_TRUST_TOKEN=$FIVE9_TRUST_TOKEN
+  --set-env-vars FIVE9_TRUST_TOKEN=$FIVE9_TRUST_TOKEN \
+  "${REDIS_TLS_RUN_ARGS[@]}"
 
 else
   echo "Deploying with a Serverless VPC Access connector."
@@ -327,7 +364,8 @@ else
     --set-env-vars GENESYS_CLOUD_ORGANIZATION_ID="$GENESYS_CLOUD_ORGANIZATION_ID" \
     --set-env-vars TWILIO_ACCOUNT_SID=$TWILIO_ACCOUNT_SID \
     --set-env-vars APP_AUTH_OPTION=$APP_AUTH_OPTION \
-    --set-env-vars FIVE9_TRUST_TOKEN=$FIVE9_TRUST_TOKEN
+    --set-env-vars FIVE9_TRUST_TOKEN=$FIVE9_TRUST_TOKEN \
+    "${REDIS_TLS_RUN_ARGS[@]}"
 fi
 
 
@@ -350,7 +388,8 @@ if [[ -z $VPC_CONNECTOR_NAME ]]; then
     --concurrency=80 \
     --no-cpu-throttling \
     --set-env-vars REDISHOST=$REDIS_HOST \
-    --set-env-vars REDISPORT=$REDIS_PORT
+    --set-env-vars REDISPORT=$REDIS_PORT \
+    "${REDIS_TLS_RUN_ARGS[@]}"
 else
   echo "Deploying with a Serverless VPC Access connector."
   gcloud run deploy $INTERCEPTOR_SERVICE_NAME \
@@ -365,7 +404,8 @@ else
     --min-instances=1 \
     --no-cpu-throttling \
     --set-env-vars REDISHOST=$REDIS_HOST \
-    --set-env-vars REDISPORT=$REDIS_PORT
+    --set-env-vars REDISPORT=$REDIS_PORT \
+    "${REDIS_TLS_RUN_ARGS[@]}"
 fi
 
 echo -e '\n\n ================= Create Cloud PubSub Topic ================== \n\n'

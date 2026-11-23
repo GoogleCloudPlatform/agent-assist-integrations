@@ -68,6 +68,9 @@ class AudiohookConfig:
     ui_connector_endpoint: str
     redis_host: str
     redis_port: Optional[int]
+    redis_tls_enabled: bool = field(default=False)
+    redis_ca_cert_path: str = field(default='/secret/redis_ca_cert.pem')
+    redis_ca_cert_pem: str = field(default='')
     datastore_id: Optional[str] = field(default=None)
     datastore_location: Optional[str] = field(default=None)
     language_code: str = field(default="ja")
@@ -121,6 +124,15 @@ config = AudiohookConfig(
     ui_connector_endpoint=os.environ.get("UI_CONNECTOR"),
     redis_host=os.environ.get('REDISHOST'),
     redis_port=int(redis_port_env) if redis_port_env is not None else None,
+    redis_tls_enabled=os.environ.get('REDIS_TLS_ENABLED', '').strip().lower() in (
+        'true',
+        '1',
+        'yes',
+    ),
+    redis_ca_cert_path=os.environ.get(
+        'REDIS_CA_CERT_PATH', '/secret/redis_ca_cert.pem'
+    ),
+    redis_ca_cert_pem=os.environ.get('REDIS_CA_CERT_PEM', ''),
     log_level=os.environ.get('LOG_LEVEL', 'INFO'),
     datastore_id=os.environ.get("DATASTORE_ID"),
     datastore_location=os.environ.get("DATASTORE_LOCATION"),

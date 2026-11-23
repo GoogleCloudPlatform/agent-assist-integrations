@@ -1033,6 +1033,52 @@ class TestRestAPI(unittest.TestCase):
                 auth.auth_options.check_five9_token(
                     f"Bearer {secrets.token_hex(16)}"))
 
+    def test_get_redis_tls_kwargs_progressive_upgrade(self):
+        """Verifies Redis TLS is opt-in and enforces TLS 1.2+ with CA verification."""
+        import ssl
+        import tempfile
+
+        # Disabled by default -> no TLS kwargs
+        self.assertEqual(
+            main.get_redis_tls_kwargs(False, "/secret/redis_ca_cert.pem", ""),
+            {},
+        )
+
+        # Enabled with mounted CA file -> uses ssl_ca_certs and TLS 1.2+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".pem") as ca_file:
+            ca_file.write("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n")
+            ca_file.flush()
+            kwargs = main.get_redis_tls_kwargs(True, ca_file.name, "")
+            self.assertEqual(
+                kwargs,
+                {
+                    "ssl": True,
+                    "ssl_cert_reqs": "required",
+                    "ssl_min_version": ssl.TLSVersion.TLSv1_2,
+                    "ssl_ca_certs": ca_file.name,
+                },
+            )
+
+        # Enabled with PEM env var fallback -> normalizes escaped newlines into ssl_ca_data
+        kwargs = main.get_redis_tls_kwargs(
+            True,
+            "/nonexistent/redis_ca_cert.pem",
+            "-----BEGIN CERTIFICATE-----\\nFAKE\\n-----END CERTIFICATE-----",
+        )
+        self.assertEqual(
+            kwargs,
+            {
+                "ssl": True,
+                "ssl_cert_reqs": "required",
+                "ssl_min_version": ssl.TLSVersion.TLSv1_2,
+                "ssl_ca_data": "-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----",
+            },
+        )
+
+        # Enabled without CA cert file or PEM -> fails closed
+        with self.assertRaises(ValueError):
+            main.get_redis_tls_kwargs(True, "/nonexistent/redis_ca_cert.pem", "")
+
 class TestDialogflowModule(unittest.TestCase):
     """Unit tests for dialogflow.py helper functions and session handling."""
 

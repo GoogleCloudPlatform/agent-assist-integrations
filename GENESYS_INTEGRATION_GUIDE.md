@@ -154,6 +154,10 @@ export CONVERSATION_PROFILE_NAME="projects/${GCP_PROJECT_ID}/locations/global/co
 export REDIS_INSTANCE_ID="${RESOURCE_PREFIX}-redis-${NAMESPACE}"
 export VPC_CONNECTOR_NAME="${RESOURCE_PREFIX}-vpc-${NAMESPACE}"
 export REDIS_IP_RANGE="10.8.0.0/28" # Ensure non-overlapping CIDR block
+# Progressive upgrade: set REDIS_TLS_ENABLED="true" to enable Memorystore
+# in-transit encryption (TLS 1.2+, port 6378, SERVER_AUTHENTICATION).
+export REDIS_TLS_ENABLED="false"
+export REDIS_CA_CERT_SECRET_NAME="${RESOURCE_PREFIX}-redis-ca-cert-${NAMESPACE}"
 
 # ==========================================
 # Genesys Cloud Configuration
@@ -211,7 +215,7 @@ export SF_CONNECTED_APP_CONSUMER_SECRET="<your-connected-app-client-secret>"
 
 3. **Deploy Memorystore Redis & Serverless VPC Access Connector**:
    ```bash
-   # Create Memorystore Redis
+   # Create Memorystore Redis (add --transit-encryption-mode=SERVER_AUTHENTICATION for TLS 1.2+)
    gcloud redis instances create ${REDIS_INSTANCE_ID} \
      --size=5 \
      --region=${SERVICE_REGION}
@@ -222,6 +226,50 @@ export SF_CONNECTED_APP_CONSUMER_SECRET="<your-connected-app-client-secret>"
      --region=${SERVICE_REGION} \
      --range=${REDIS_IP_RANGE}
    ```
+
+4. **(Optional — Progressive Upgrade) Enable Memorystore for Redis In-Transit Encryption (TLS 1.2+)**:
+
+   > [!IMPORTANT]
+   > **Creation-Time Prerequisite:** Cloud Memorystore for Redis only supports enabling in-transit encryption (`--transit-encryption-mode=SERVER_AUTHENTICATION`) at **instance creation time** — it cannot be toggled on an existing instance in place. To migrate an existing non-TLS instance, create a new Memorystore instance with `SERVER_AUTHENTICATION` enabled, update the Cloud Run services, and decommission the old instance. TLS-enabled instances listen on port **`6378`** (instead of `6379`).
+
+   * **Step A — Create the TLS-Enabled Memorystore Instance**:
+     ```bash
+     gcloud redis instances create ${REDIS_INSTANCE_ID} \
+       --size=5 \
+       --region=${SERVICE_REGION} \
+       --transit-encryption-mode=SERVER_AUTHENTICATION
+     ```
+
+   * **Step B — Export the Server CA Certificate(s) into Secret Manager**:
+     Memorystore uses a GCP-managed private CA. Extract all active Server CA `.pem` certificates and store them in Secret Manager:
+     ```bash
+     # Export all active Server CA certs (concatenated PEM bundle)
+     gcloud redis instances describe ${REDIS_INSTANCE_ID} \
+       --region=${SERVICE_REGION} \
+       --format='value[separator="\n"](serverCaCerts[].cert)' > server-ca.pem
+
+     # Create (or add a new version to) the Secret Manager secret
+     gcloud secrets create ${REDIS_CA_CERT_SECRET_NAME} \
+       --data-file=server-ca.pem \
+       --replication-policy=user-managed \
+       --locations=${SERVICE_REGION}
+     # For updates / CA rotations, use:
+     # gcloud secrets versions add ${REDIS_CA_CERT_SECRET_NAME} --data-file=server-ca.pem
+     ```
+
+   * **Step C — Grant Secret Access & Configure All 3 Cloud Run Services**:
+     All three Cloud Run services (`ui-connector`, `cloud-pubsub-interceptor`, and `genesyscloud-audiohook`) connect to Memorystore for Redis. When `REDIS_TLS_ENABLED=true`, each service enforces TLS 1.2+ with `ssl_cert_reqs="required"` and fails closed if no Server CA certificate is available.
+     * Ensure each service's runtime service account has `roles/secretmanager.secretAccessor`.
+     * When using `deploy.sh`, set `REDIS_TLS_ENABLED=true` and `REDIS_CA_CERT_SECRET_NAME` in `.env` — the scripts automatically read `REDISPORT` (`6378`), mount `/secret/redis_ca_cert.pem`, and set `REDIS_TLS_ENABLED=true` and `REDIS_CA_CERT_PATH=/secret/redis_ca_cert.pem`.
+     * For custom / CI-CD Cloud Run deployments, pass the following on all three services:
+       ```bash
+       --update-secrets=/secret/redis_ca_cert.pem=${REDIS_CA_CERT_SECRET_NAME}:latest \
+       --set-env-vars REDISHOST=${REDIS_HOST},REDISPORT=6378,REDIS_TLS_ENABLED=true,REDIS_CA_CERT_PATH=/secret/redis_ca_cert.pem
+       ```
+       *(Alternatively, if volume mounts are not used, supply the PEM contents directly via `REDIS_CA_CERT_PEM`.)*
+
+   * **Step D — Ongoing Server CA Certificate Rotation**:
+     Memorystore rotates Server CA certificates every 5 years and provides an overlap period where both the old and new CAs are returned by `serverCaCerts[].cert`. Before a CA expires, re-run Step B (`gcloud redis instances describe ...` + `gcloud secrets versions add ...`) to store the updated multi-CA bundle, then deploy a new Cloud Run revision (or restart instances) for all three services so they pick up the latest `:latest` secret version with zero downtime.
 
 ---
 

@@ -75,6 +75,17 @@ gcloud projects add-iam-policy-binding $GCP_PROJECT_ID \
 # Fallback for variable naming differences between .env files
 export API_KEY=${API_KEY:=$AUDIOHOOK_API_KEY}
 export CLIENT_SECRET=${CLIENT_SECRET:=$AUDIOHOOK_CLIENT_SECRET}
+export REDIS_TLS_ENABLED=${REDIS_TLS_ENABLED:-false}
+export REDIS_CA_CERT_SECRET_NAME=${REDIS_CA_CERT_SECRET_NAME:-aa-integration-redis-ca-cert}
+
+REDIS_TLS_RUN_ARGS=()
+if [[ "${REDIS_TLS_ENABLED,,}" == "true" ]]; then
+  REDIS_TLS_RUN_ARGS+=(
+    --update-secrets=/secret/redis_ca_cert.pem=${REDIS_CA_CERT_SECRET_NAME}:latest
+    --set-env-vars REDIS_TLS_ENABLED=true
+    --set-env-vars REDIS_CA_CERT_PATH=/secret/redis_ca_cert.pem
+  )
+fi
 
 # Cloud Run settings for long-lived Audiohook websockets:
 # --timeout 3600: Cloud Run request timeout (maximum). Each call is one
@@ -108,4 +119,5 @@ gcloud run deploy $VOICE_INTERCEPTOR_SERVICE\
   --set-env-vars CLIENT_SECRET="$CLIENT_SECRET" \
   --set-env-vars UI_CONNECTOR=$UI_CONNECTOR \
   --set-env-vars REDISPORT=$REDISPORT \
-  --set-env-vars REDISHOST=$REDISHOST
+  --set-env-vars REDISHOST=$REDISHOST \
+  "${REDIS_TLS_RUN_ARGS[@]}"

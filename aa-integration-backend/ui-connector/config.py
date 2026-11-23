@@ -21,6 +21,16 @@ GCP_PROJECT_ID = os.environ.get('GCP_PROJECT_ID', '')
 # Set up the connection with Redis database
 REDIS_HOST = os.environ.get('REDISHOST', 'localhost')
 REDIS_PORT = int(os.environ.get('REDISPORT', 6379))
+# Progressive upgrade: only enable TLS 1.2+ when REDIS_TLS_ENABLED=true.
+REDIS_TLS_ENABLED = os.environ.get('REDIS_TLS_ENABLED', '').strip().lower() in (
+    'true',
+    '1',
+    'yes',
+)
+REDIS_CA_CERT_PATH = os.environ.get(
+    'REDIS_CA_CERT_PATH', '/secret/redis_ca_cert.pem'
+)
+REDIS_CA_CERT_PEM = os.environ.get('REDIS_CA_CERT_PEM', '')
 
 # TTL for the conversation -> UI Connector instances routing set in Redis.
 # Refreshed on every join-conversation. Must exceed the maximum WebSocket

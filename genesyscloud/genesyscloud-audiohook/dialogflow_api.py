@@ -17,7 +17,9 @@ dialogflow_v2beta1 API version
 Reference: https://cloud.google.com/python/docs/reference/dialogflow/latest/google.cloud.dialogflow_v2beta1
 """
 import logging
+import os
 import re
+import ssl
 import time
 
 import google.auth
@@ -39,6 +41,37 @@ STREAMING_RETRY_INITIAL_BACKOFF_SECONDS = 1.0
 STREAMING_RETRY_MAX_BACKOFF_SECONDS = 30.0
 LOCATION_ID_REGEX = r"^projects\/[^/]+\/locations\/([^/]+)"
 
+def get_redis_tls_kwargs(
+    tls_enabled: bool,
+    ca_cert_path: str,
+    ca_cert_pem: str,
+) -> dict:
+    """Returns TLS kwargs for redis.StrictRedis when REDIS_TLS_ENABLED=true.
+
+    Progressive upgrade: returns an empty dict when TLS is disabled.
+    When enabled, enforces TLS 1.2+ with required Server CA verification and
+    fails closed if no CA certificate file or PEM string is provided.
+    """
+    if not tls_enabled:
+        return {}
+    tls_kwargs = {
+        "ssl": True,
+        "ssl_cert_reqs": "required",
+        "ssl_min_version": ssl.TLSVersion.TLSv1_2,
+    }
+    if ca_cert_path and os.path.isfile(ca_cert_path):
+        tls_kwargs["ssl_ca_certs"] = ca_cert_path
+    elif ca_cert_pem:
+        tls_kwargs["ssl_ca_data"] = ca_cert_pem.replace("\\n", "\n")
+    else:
+        raise ValueError(
+            "REDIS_TLS_ENABLED is true, but no Memorystore Server CA "
+            "certificate was found. Mount the CA PEM at REDIS_CA_CERT_PATH "
+            "or set REDIS_CA_CERT_PEM."
+        )
+    return tls_kwargs
+
+
 credentials, project = google.auth.default()
 # Initialize redis client with retry strategy for connection resilience
 redis_client = redis.StrictRedis(
@@ -54,6 +87,11 @@ redis_client = redis.StrictRedis(
             redis.exceptions.TimeoutError,
             redis.exceptions.ResponseError
         )
+    ),
+    **get_redis_tls_kwargs(
+        config.redis_tls_enabled,
+        config.redis_ca_cert_path,
+        config.redis_ca_cert_pem,
     )
 )
 

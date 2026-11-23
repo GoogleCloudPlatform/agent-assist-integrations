@@ -16,6 +16,7 @@ import logging
 import base64
 import os
 import redis
+import ssl
 import json
 from datetime import datetime
 
@@ -26,9 +27,46 @@ from flask import Flask, request
 logging.basicConfig(filename=os.environ.get('LOGGING_FILE', '/var/log/test.log'), level=logging.INFO)
 app = Flask(__name__)
 
+
+def get_redis_tls_kwargs(tls_enabled, ca_cert_path, ca_cert_pem):
+    """Returns TLS kwargs for redis.StrictRedis when REDIS_TLS_ENABLED=true.
+
+    Progressive upgrade: returns an empty dict when TLS is disabled.
+    When enabled, enforces TLS 1.2+ with required Server CA verification and
+    fails closed if no CA certificate file or PEM string is provided.
+    """
+    if not tls_enabled:
+        return {}
+    tls_kwargs = {
+        'ssl': True,
+        'ssl_cert_reqs': 'required',
+        'ssl_min_version': ssl.TLSVersion.TLSv1_2,
+    }
+    if ca_cert_path and os.path.isfile(ca_cert_path):
+        tls_kwargs['ssl_ca_certs'] = ca_cert_path
+    elif ca_cert_pem:
+        tls_kwargs['ssl_ca_data'] = ca_cert_pem.replace('\\n', '\n')
+    else:
+        raise ValueError(
+            'REDIS_TLS_ENABLED is true, but no Memorystore Server CA '
+            'certificate was found. Mount the CA PEM at REDIS_CA_CERT_PATH '
+            'or set REDIS_CA_CERT_PEM.'
+        )
+    return tls_kwargs
+
+
 # Redis setup
 redis_host = os.environ.get('REDISHOST', 'localhost')
 redis_port = int(os.environ.get('REDISPORT', 6379))
+redis_tls_enabled = os.environ.get('REDIS_TLS_ENABLED', '').strip().lower() in (
+    'true',
+    '1',
+    'yes',
+)
+redis_ca_cert_path = os.environ.get(
+    'REDIS_CA_CERT_PATH', '/secret/redis_ca_cert.pem'
+)
+redis_ca_cert_pem = os.environ.get('REDIS_CA_CERT_PEM', '')
 redis_client = redis.StrictRedis(
     host=redis_host, port=redis_port,
     health_check_interval=10,
@@ -36,7 +74,12 @@ redis_client = redis.StrictRedis(
     retry_on_timeout=True,
     socket_keepalive=True,
     retry=redis.retry.Retry(redis.backoff.ExponentialBackoff(cap=5, base=1), 5),
-    retry_on_error=[redis.exceptions.ConnectionError, redis.exceptions.TimeoutError, redis.exceptions.ResponseError])
+    retry_on_error=[redis.exceptions.ConnectionError, redis.exceptions.TimeoutError, redis.exceptions.ResponseError],
+    **get_redis_tls_kwargs(
+        redis_tls_enabled,
+        redis_ca_cert_path,
+        redis_ca_cert_pem,
+    ))
 
 
 def get_conversation_name_without_location(conversation_name):
