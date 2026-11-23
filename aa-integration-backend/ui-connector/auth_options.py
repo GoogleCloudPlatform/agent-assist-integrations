@@ -12,22 +12,43 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import hmac
 import re
 import requests
 import logging
 import jwt
 import config
-from urllib.parse import urlencode
+
+_HOSTNAME_REGEX = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$")
+
+
+def _is_valid_hostname(host):
+    """Validates that a configured hostname contains no scheme, path, or injection characters."""
+    return (
+        isinstance(host, str)
+        and bool(_HOSTNAME_REGEX.fullmatch(host))
+        and ".." not in host
+    )
 
 
 def check_salesforce_token(token):
     """Verifies the access token using Salesforce OpenID Connect.
     Reference: https://help.salesforce.com/s/articleView?id=sf.remoteaccess_using_userinfo_endpoint.htm
     """
+    if not config.SALESFORCE_ORGANIZATION_ID:
+        logging.error("SALESFORCE_ORGANIZATION_ID is not set. Auth will fail.")
+        return False
+    if not _is_valid_hostname(config.SALESFORCE_DOMAIN):
+        logging.error("SALESFORCE_DOMAIN is invalid. Auth will fail.")
+        return False
     request_headers = {"Authorization": "Bearer " + token}
     # Get the user info.
-    user_info_url = f"https://{config.SALESFORCE_DOMAIN}/services/oauth2/userinfo"
-    user_info_resp = requests.get(user_info_url, headers=request_headers)
+    user_info_resp = requests.get(
+        f"https://{config.SALESFORCE_DOMAIN}/services/oauth2/userinfo",
+        headers=request_headers,
+        timeout=10,
+        verify=True,
+    )
     # Check response.
     if user_info_resp.status_code == 200:
         user_info = user_info_resp.json()
@@ -69,14 +90,21 @@ def check_salesforce_lwc_token(token):
     Reference: https://help.salesforce.com/s/articleView?id=sf.remoteaccess_oauth_client_credentials_flow.htm&type=5
 
     """
-    access_token = re.sub(r"Bearer ", "", token, re.IGNORECASE)
+    access_token = re.sub(r"^Bearer ", "", token, flags=re.IGNORECASE)
     if config.SALESFORCE_DOMAIN == "login.salesforce.com":
         logging.error("SALESFORCE_DOMAIN is not set. Auth will fail.")
-    if config.SALESFORCE_ORGANIZATION_ID == "YOUR_ORGANIZATION_ID":
+    if not config.SALESFORCE_ORGANIZATION_ID:
         logging.error("SALESFORCE_ORGANIZATION_ID is not set. Auth will fail.")
+        return False
+    if not _is_valid_hostname(config.SALESFORCE_DOMAIN):
+        logging.error("SALESFORCE_DOMAIN is invalid. Auth will fail.")
+        return False
+    request_headers = {"Authorization": f"Bearer {access_token}"}
     user_info_resp = requests.get(
-        f"https://{config.SALESFORCE_DOMAIN}/services/oauth2/userinfo?"
-        + urlencode({"access_token": access_token})
+        f"https://{config.SALESFORCE_DOMAIN}/services/oauth2/userinfo",
+        headers=request_headers,
+        timeout=10,
+        verify=True,
     )
     if user_info_resp.status_code == 200:
         user_info = user_info_resp.json()
@@ -96,6 +124,7 @@ def check_salesforce_lwc_token(token):
             repr(user_info_resp.status_code),
             repr(user_info_resp.reason),
         )
+    return False
 
 
 def check_genesyscloud_token(token):
@@ -120,12 +149,16 @@ def check_genesyscloud_token(token):
     Reference: https://developer.genesys.cloud/devapps/api-explorer#get-api-v2-users-me
 
     """
+    if not _is_valid_hostname(config.GENESYS_CLOUD_REGION):
+        logging.error("GENESYS_CLOUD_REGION is invalid. Auth will fail.")
+        return False
     # Prepare for GET /api/v2/users/me request.
     request_headers = {"Authorization": "Bearer " + token}
     response = requests.get(
         f"https://api.{config.GENESYS_CLOUD_REGION}/api/v2/users/me?expand=organization",
         headers=request_headers,
         timeout=10,
+        verify=True,
     )
     # Check response.
     if response.status_code == 200:
@@ -172,9 +205,15 @@ def check_twilio_token(token):
          https://www.twilio.com/docs/flex/developer/ui/add-components-flex-ui
 
     """
+    if not _is_valid_hostname(config.TWILIO_FLEX_ENVIRONMENT):
+        logging.error("TWILIO_FLEX_ENVIRONMENT is not configured or invalid. Auth will fail.")
+        return False
     body = {"Token": token}
     response = requests.post(
-        f"https://{config.TWILIO_FLEX_ENVIRONMENT}/verify", json=body
+        f"https://{config.TWILIO_FLEX_ENVIRONMENT}/verify",
+        json=body,
+        timeout=10,
+        verify=True,
     )
     # If the endpoint return 200 then the token was validated
     if response.status_code == 200:
@@ -185,6 +224,7 @@ def check_twilio_token(token):
             repr(response.status_code),
             repr(response.reason),
         )
+    return False
 
 
 def check_five9_token(token):
@@ -192,6 +232,9 @@ def check_five9_token(token):
     Verifies the internal shared secret (FIVE9_TRUST_TOKEN) sent in the Authorization header.
     Expects: 'Bearer <FIVE9_TRUST_TOKEN>'
     """
+    if not config.FIVE9_TRUST_TOKEN:
+        logging.error("FIVE9_TRUST_TOKEN is not configured. Auth will fail.")
+        return False
     if not token or not token.startswith("Bearer "):
         logging.warning("Missing or malformed Authorization header.")
         return False
@@ -200,8 +243,8 @@ def check_five9_token(token):
     token = token.split(" ")[1]
 
     try:
-        # Secure string comparison
-        if token == config.FIVE9_TRUST_TOKEN:
+        # Secure constant-time string comparison
+        if hmac.compare_digest(token, config.FIVE9_TRUST_TOKEN):
             return True
         else:
             logging.warning("Failed to verify the Five9 trust token.")

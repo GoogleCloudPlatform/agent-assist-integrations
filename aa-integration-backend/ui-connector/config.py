@@ -73,7 +73,7 @@ APP_AUTH_OPTION = os.environ.get('APP_AUTH_OPTION', '')
 # For sandbox environment, please replace login.salesforce.com with test.salesforce.com.
 # For SalesforceLWC auth option, please replace login.salesforce.com with <your-salesforce-org-domain>.<org-type>.lightning.force.com.
 SALESFORCE_DOMAIN = os.environ.get('SALESFORCE_DOMAIN', 'login.salesforce.com')
-SALESFORCE_ORGANIZATION_ID = os.environ.get('SALESFORCE_ORGANIZATION_ID', 'YOUR_ORGANIZATION_ID')
+SALESFORCE_ORGANIZATION_ID = os.environ.get('SALESFORCE_ORGANIZATION_ID', '')
 
 # Genesys Cloud configuration.
 GENESYS_CLOUD_REGION = os.environ.get('GENESYS_CLOUD_REGION', 'mypurecloud.com')
@@ -81,9 +81,12 @@ GENESYS_CLOUD_ORGANIZATION_ID = os.environ.get(
     'GENESYS_CLOUD_ORGANIZATION_ID', '')
 
 # Twilio configuration.
-TWILIO_FLEX_ENVIRONMENT = os.environ.get('TWILIO_FLEX_ENVIRONMENT', 'YOUR_DOMAIN.twil.io')
-TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID', 'YOUR_TWILIO_ACCOUNT_SID')
-TWILIO_ACCOUNTS_API_URL = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}.json"
+TWILIO_FLEX_ENVIRONMENT = os.environ.get('TWILIO_FLEX_ENVIRONMENT', '')
+TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID', '')
+TWILIO_ACCOUNTS_API_URL = (
+    f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}.json"
+    if TWILIO_ACCOUNT_SID else ''
+)
 
 # Five9 configuration.
-FIVE9_TRUST_TOKEN = os.environ.get('FIVE9_TRUST_TOKEN', 'YOUR_FIVE9_TRUST_TOKEN')
+FIVE9_TRUST_TOKEN = os.environ.get('FIVE9_TRUST_TOKEN', '')

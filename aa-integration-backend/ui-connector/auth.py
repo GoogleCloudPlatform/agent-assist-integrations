@@ -13,14 +13,18 @@
 # limitations under the License.
 
 import os
+import re
 import datetime
 import jwt
 import requests
+from requests.auth import HTTPBasicAuth
 
 from flask import request, jsonify
 from functools import wraps
 
 import config, auth_options
+
+_TWILIO_ACCOUNT_SID_REGEX = re.compile(r'^[A-Za-z0-9_-]+$')
 
 jwt_secret_key = None  # Loaded from config.JWT_SECRET_KEY_PATH or env.
 
@@ -115,13 +119,25 @@ def check_app_auth(auth):
     if not isinstance(auth, dict):
         return False
     if config.APP_AUTH_OPTION == 'Twilio':
+        configured_sid = config.TWILIO_ACCOUNT_SID
+        if not configured_sid or not _TWILIO_ACCOUNT_SID_REGEX.fullmatch(
+                configured_sid):
+            return False
+        account_sid = auth.get('accountSid')
+        auth_token = auth.get('authToken')
+        if not isinstance(account_sid, str) or not account_sid:
+            return False
+        if not isinstance(auth_token, str) or not auth_token:
+            return False
         response = requests.get(
-            config.TWILIO_ACCOUNTS_API_URL,
-            auth=(auth.get('accountSid'), auth.get('authToken')),
-            timeout=10)
+            f"https://api.twilio.com/2010-04-01/Accounts/{configured_sid}.json",
+            auth=HTTPBasicAuth(account_sid, auth_token),
+            timeout=10,
+            verify=True,
+        )
         if response.status_code == 200:
             data = response.json()
-            if data.get('sid') == config.TWILIO_ACCOUNT_SID:
+            if data.get('sid') == configured_sid:
                 return True
     return False
 

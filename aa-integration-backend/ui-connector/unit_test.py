@@ -858,6 +858,181 @@ class TestRestAPI(unittest.TestCase):
             self.assertFalse(
                 auth.auth_options.check_genesyscloud_token("fake-token"))
 
+        # Verify TLS and timeout flags are explicitly enforced
+        _, kwargs = mock_get.call_args
+        self.assertTrue(kwargs.get("verify"))
+        self.assertEqual(kwargs.get("timeout"), 10)
+
+        # Invalid region fails closed without making an outbound request
+        mock_get.reset_mock()
+        with patch.object(main.config, "GENESYS_CLOUD_REGION",
+                          "evil.example/path"):
+            self.assertFalse(
+                auth.auth_options.check_genesyscloud_token("fake-token"))
+        mock_get.assert_not_called()
+
+    @patch("auth.requests.get")
+    def test_check_app_auth_twilio(self, mock_get):
+        """Validates Twilio app auth fails closed on bad config/inputs and enforces HTTPS."""
+        runtime_sid = f"AC{secrets.token_hex(16)}"
+        runtime_secret = secrets.token_hex(16)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"sid": runtime_sid}
+        mock_get.return_value = mock_resp
+
+        with patch.object(main.config, "APP_AUTH_OPTION", "Twilio"):
+            # Unconfigured TWILIO_ACCOUNT_SID fails closed
+            with patch.object(main.config, "TWILIO_ACCOUNT_SID", ""):
+                self.assertFalse(
+                    auth.check_app_auth({
+                        "accountSid": runtime_sid,
+                        "authToken": runtime_secret,
+                    }))
+            mock_get.assert_not_called()
+
+            # Invalid SID format fails closed
+            with patch.object(main.config, "TWILIO_ACCOUNT_SID", "../evil"):
+                self.assertFalse(
+                    auth.check_app_auth({
+                        "accountSid": runtime_sid,
+                        "authToken": runtime_secret,
+                    }))
+            mock_get.assert_not_called()
+
+            # Missing runtime credentials fail closed
+            with patch.object(main.config, "TWILIO_ACCOUNT_SID", runtime_sid):
+                self.assertFalse(auth.check_app_auth({"accountSid": runtime_sid}))
+                self.assertFalse(auth.check_app_auth({"authToken": runtime_secret}))
+                mock_get.assert_not_called()
+
+                # Valid runtime credentials succeed with explicit verify=True and timeout=10
+                self.assertTrue(
+                    auth.check_app_auth({
+                        "accountSid": runtime_sid,
+                        "authToken": runtime_secret,
+                    }))
+                mock_get.assert_called_once()
+                url = mock_get.call_args.args[0]
+                kwargs = mock_get.call_args.kwargs
+                self.assertEqual(
+                    url,
+                    f"https://api.twilio.com/2010-04-01/Accounts/{runtime_sid}.json",
+                )
+                self.assertTrue(kwargs.get("verify"))
+                self.assertEqual(kwargs.get("timeout"), 10)
+
+    @patch("auth_options.requests.get")
+    def test_check_salesforce_token_validation_and_tls(self, mock_get):
+        """Validates Salesforce token checks require org ID, valid host, and TLS verify."""
+        runtime_token = secrets.token_hex(16)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "user_id": "sf-user-1",
+            "organization_id": "00D000000000001",
+        }
+        mock_get.return_value = mock_resp
+
+        # Unconfigured org ID fails closed
+        with patch.object(main.config, "SALESFORCE_ORGANIZATION_ID", ""):
+            self.assertFalse(
+                auth.auth_options.check_salesforce_token(runtime_token))
+        mock_get.assert_not_called()
+
+        # Invalid domain fails closed
+        with patch.object(main.config, "SALESFORCE_ORGANIZATION_ID",
+                          "00D000000000001"), \
+             patch.object(main.config, "SALESFORCE_DOMAIN",
+                          "evil.example/userinfo"):
+            self.assertFalse(
+                auth.auth_options.check_salesforce_token(runtime_token))
+        mock_get.assert_not_called()
+
+        # Valid config succeeds with verify=True and timeout=10
+        with patch.object(main.config, "SALESFORCE_ORGANIZATION_ID",
+                          "00D000000000001"), \
+             patch.object(main.config, "SALESFORCE_DOMAIN",
+                          "login.salesforce.com"):
+            self.assertTrue(
+                auth.auth_options.check_salesforce_token(runtime_token))
+        mock_get.assert_called_once_with(
+            "https://login.salesforce.com/services/oauth2/userinfo",
+            headers={"Authorization": f"Bearer {runtime_token}"},
+            timeout=10,
+            verify=True,
+        )
+
+    @patch("auth_options.requests.get")
+    def test_check_salesforce_lwc_token_uses_bearer_header(self, mock_get):
+        """Verifies Salesforce LWC auth sends token in Authorization header, not URL query."""
+        runtime_token = secrets.token_hex(16)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "user_id": "sf-user-2",
+            "organization_id": "00D000000000002",
+        }
+        mock_get.return_value = mock_resp
+
+        with patch.object(main.config, "SALESFORCE_ORGANIZATION_ID", ""):
+            self.assertFalse(
+                auth.auth_options.check_salesforce_lwc_token(
+                    f"Bearer {runtime_token}"))
+        mock_get.assert_not_called()
+
+        with patch.object(main.config, "SALESFORCE_ORGANIZATION_ID",
+                          "00D000000000002"), \
+             patch.object(main.config, "SALESFORCE_DOMAIN",
+                          "myorg.my.salesforce.com"):
+            self.assertTrue(
+                auth.auth_options.check_salesforce_lwc_token(
+                    f"Bearer {runtime_token}"))
+        mock_get.assert_called_once_with(
+            "https://myorg.my.salesforce.com/services/oauth2/userinfo",
+            headers={"Authorization": f"Bearer {runtime_token}"},
+            timeout=10,
+            verify=True,
+        )
+
+    @patch("auth_options.requests.post")
+    def test_check_twilio_token_validation_and_tls(self, mock_post):
+        """Validates Twilio Flex token check requires valid host and enforces TLS verify."""
+        runtime_token = secrets.token_hex(16)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_post.return_value = mock_resp
+
+        with patch.object(main.config, "TWILIO_FLEX_ENVIRONMENT", ""):
+            self.assertFalse(
+                auth.auth_options.check_twilio_token(runtime_token))
+        mock_post.assert_not_called()
+
+        with patch.object(main.config, "TWILIO_FLEX_ENVIRONMENT",
+                          "example-1234.twil.io"):
+            self.assertTrue(
+                auth.auth_options.check_twilio_token(runtime_token))
+        mock_post.assert_called_once_with(
+            "https://example-1234.twil.io/verify",
+            json={"Token": runtime_token},
+            timeout=10,
+            verify=True,
+        )
+
+    def test_check_five9_token_fails_closed_when_unconfigured(self):
+        """Validates Five9 trust token fails closed when unset and uses exact match."""
+        runtime_token = secrets.token_hex(16)
+        with patch.object(main.config, "FIVE9_TRUST_TOKEN", ""):
+            self.assertFalse(
+                auth.auth_options.check_five9_token(f"Bearer {runtime_token}"))
+
+        with patch.object(main.config, "FIVE9_TRUST_TOKEN", runtime_token):
+            self.assertTrue(
+                auth.auth_options.check_five9_token(f"Bearer {runtime_token}"))
+            self.assertFalse(
+                auth.auth_options.check_five9_token(
+                    f"Bearer {secrets.token_hex(16)}"))
+
 class TestDialogflowModule(unittest.TestCase):
     """Unit tests for dialogflow.py helper functions and session handling."""
 
