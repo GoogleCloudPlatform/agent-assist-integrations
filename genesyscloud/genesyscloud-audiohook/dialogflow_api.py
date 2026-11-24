@@ -152,8 +152,9 @@ class DialogflowAPI:
             request=conversation_request)
 
         logging.info(
-            "Created conversation %s for project path %s", conversation.name,
-            project_path)
+            "Created conversation %s for project path %s",
+            repr(conversation.name),
+            repr(project_path))
 
         return conversation
 
@@ -184,7 +185,7 @@ class DialogflowAPI:
         participants_pagers = self.participants_client.list_participants(
             dialogflow.ListParticipantsRequest(parent=conversation_name))
         participant_list = list(participants_pagers.__iter__())
-        logging.debug("participant list %s, type ", participant_list)
+        logging.debug("participant list %s, type ", repr(participant_list))
         return participant_list
 
     def create_participant(
@@ -200,8 +201,8 @@ class DialogflowAPI:
         participant = self.participants_client.create_participant(
             parent=conversation_name, participant=participant)
         logging.debug("Creating new participant %s:%s",
-                      role,
-                      participant)
+                      repr(role),
+                      repr(participant))
 
         return participant
 
@@ -365,15 +366,17 @@ def await_redis(conversation_name: str) -> bool:
     """
     conversation_name = determine_conversation_name_without_location(
         conversation_name)
+    servers_key = f"{conversation_name}:servers"
     # give the user bit time to accept the call and wait for the Agent Assist Backend
     # to create the redis memory store
     counter = AWAIT_REDIS_COUNTER
 
     def _check_exists():
         try:
-            return redis_client.exists(conversation_name) != 0
+            return (redis_client.exists(servers_key) != 0 or
+                    redis_client.exists(conversation_name) != 0)
         except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
-            logging.warning("Redis connection error in await_redis: %s", e)
+            logging.warning("Redis connection error in await_redis: %s", repr(e))
             return False
 
     redis_exists = _check_exists()
@@ -382,7 +385,7 @@ def await_redis(conversation_name: str) -> bool:
         redis_exists = _check_exists()
         counter = counter - 1
     logging.debug("return to send resume message redis client exist %s and final counter %s ",
-                  redis_exists, counter)
+                  repr(redis_exists), repr(counter))
     return redis_exists
 
 

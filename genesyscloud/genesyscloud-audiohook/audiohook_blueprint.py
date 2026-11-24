@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from threading import Thread
 
 import numpy as np
-from flask import Blueprint
+from flask import Blueprint, request
 from flask_sock import Sock
 from google.api_core.exceptions import NotFound
 from google.cloud import dialogflow_v2beta1 as dialogflow
@@ -30,6 +30,7 @@ from simple_websocket import ConnectionClosed, Server
 from audio_stream import Stream
 from audiohook import DEFAULT_CONVERSATION_ID, AudioHook
 from audiohook_config import config
+from auth import verify_signature
 from dialogflow_api import (DialogflowAPI, await_redis, create_conversation_name,
                             find_participant_by_role, location_id, project)
 
@@ -175,7 +176,7 @@ def process_ongoing_conversation_messages(
                 dialogflow_api.complete_conversation(
                     open_conversation_state.conversation_name)
             except Exception as e:
-                logging.error("Error completing conversation %s", e)
+                logging.error("Error completing conversation %s", repr(e))
             # wait for the two thread to finish then terminate
             logging.debug("Stop streaming threads for customers and agents")
             return True
@@ -184,8 +185,8 @@ def process_ongoing_conversation_messages(
             duration = message.get("DURATION")
             logging.info(
                 "Currently the audio stream has been paused from %s for about %s second",
-                start_time,
-                duration)
+                repr(start_time),
+                repr(duration))
     return False
 
 
@@ -205,6 +206,46 @@ def audiohook_connect(ws: Server):
     Args:
         ws (Server): Websocket server for exchange messages
     """
+    if not config.api_key and not config.client_secret:
+        logging.warning(
+            "Rejecting AudioHook connection: neither API_KEY nor CLIENT_SECRET is configured"
+        )
+        try:
+            ws.close(
+                reason=1008,
+                message="Policy Violation: AudioHook authentication is not configured",
+            )
+        except Exception:  # pylint: disable=broad-except
+            ws.close()
+        return
+
+    raw_uri = request.environ.get("RAW_URI") or request.environ.get(
+        "REQUEST_URI")
+    if raw_uri:
+        request_target = raw_uri
+    elif request.query_string:
+        request_target = (
+            f"{request.path}?{request.query_string.decode('utf-8')}")
+    else:
+        request_target = request.path
+
+    is_valid, err_msg = verify_signature(
+        headers=dict(request.headers),
+        method=request.method,
+        path=request.path,
+        request_target=request_target,
+        client_secret=config.client_secret,
+        expected_api_key=config.api_key,
+    )
+    if not is_valid:
+        logging.warning("Unauthorized AudioHook connection rejected: %s",
+                        repr(err_msg))
+        try:
+            ws.close(reason=1008, message=f"Policy Violation: {err_msg}")
+        except Exception:  # pylint: disable=broad-except
+            ws.close()
+        return
+
     run_audiohook_connection(ws)
 
 
@@ -261,11 +302,12 @@ def handle_audiohook_session(ws: Server, agent_stream: Stream,
                 json_message = json.loads(data)
             except ValueError as e:
                 logging.warning(
-                    "Not a valid JSON message %s, error details %s ", data, e)
+                    "Not a valid JSON message %s, error details %s ",
+                    repr(data), repr(e))
                 continue
             message_type = json_message.get("type")
             logging.info(
-                "Handle %s message %s", message_type, json_message)
+                "Handle %s message %s", repr(message_type), repr(json_message))
             conversation_id = json_message.get("parameters", {}).get(
                 "conversationId", DEFAULT_CONVERSATION_ID)
             audiohook.set_session_id(json_message.get("id", 0))
@@ -290,7 +332,8 @@ def handle_audiohook_session(ws: Server, agent_stream: Stream,
                         audiohook,
                     )
                     logging.debug(
-                        "open conversation message %s ", open_conversation_state)
+                        "open conversation message %s ",
+                        repr(open_conversation_state))
                     # Check if the redis client has join_room called from the
                     # agent assist backend. Before setting conversation_name in the redis client,
                     # we should not publish any messages to the redis client
