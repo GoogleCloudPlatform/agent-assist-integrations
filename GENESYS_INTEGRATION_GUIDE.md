@@ -165,6 +165,8 @@ export REDIS_CA_CERT_SECRET_NAME="${RESOURCE_PREFIX}-redis-ca-cert-${NAMESPACE}"
 export GENESYS_CLOUD_ORG_NAME="<your-genesys-org-name>"
 export GENESYS_CLOUD_REGION="usw2.pure.cloud" # e.g., usw2.pure.cloud, mypurecloud.com
 export GENESYS_CLOUD_ENVIRONMENT="usw2.pure.cloud"
+# Optional: enforce Genesys Cloud org ID match during UI Connector token exchange
+# export GENESYS_CLOUD_ORGANIZATION_ID="<your-genesys-org-id>"
 export GENESYS_OAUTH_CLIENT_ID="<your-genesys-oauth-client-id>"
 export GENESYS_OAUTH_CLIENT_SECRET="<your-genesys-oauth-client-secret>"
 export AUDIOHOOK_CREDENTIAL_ID="<your-audiohook-credential-id>"
@@ -174,11 +176,14 @@ export AUDIOHOOK_API_KEY="<your-audiohook-shared-api-key>"
 # Salesforce Configuration
 # ==========================================
 export AUTH_OPTION="SalesforceLWC"
-export SALESFORCE_DOMAIN="<your-org-domain>.my.salesforce.com" # Exclude https://
-export SALESFORCE_ORGANIZATION_ID="<your-salesforce-org-id>"
+export SALESFORCE_DOMAIN="<your-org-domain>.my.salesforce.com" # Hostname only; exclude https://
+export SALESFORCE_ORGANIZATION_ID="<your-salesforce-org-id>" # Required (fails closed if unset)
 export SF_CONNECTED_APP_CONSUMER_KEY="<your-connected-app-client-id>"
 export SF_CONNECTED_APP_CONSUMER_SECRET="<your-connected-app-client-secret>"
 ```
+
+> [!NOTE]
+> **Fail-Closed Auth & Hostname Validation (`ui-connector`):** Auth configuration variables (`SALESFORCE_ORGANIZATION_ID`, `TWILIO_FLEX_ENVIRONMENT`, `TWILIO_ACCOUNT_SID`, `FIVE9_TRUST_TOKEN`) have no placeholder defaults and fail closed if left unset. Configured hostnames (`SALESFORCE_DOMAIN`, `GENESYS_CLOUD_REGION`, `TWILIO_FLEX_ENVIRONMENT`) must be plain hostnames without schemes (`https://`) or path segments.
 
 ---
 
@@ -227,28 +232,46 @@ export SF_CONNECTED_APP_CONSUMER_SECRET="<your-connected-app-client-secret>"
      --range=${REDIS_IP_RANGE}
    ```
 
-4. **(Optional — Progressive Upgrade) Enable Memorystore for Redis In-Transit Encryption (TLS 1.2+)**:
+4. **(Optional — Progressive Upgrade) Manual Steps to Enable Memorystore for Redis In-Transit Encryption (TLS 1.2+)**:
 
    > [!IMPORTANT]
-   > **Creation-Time Prerequisite:** Cloud Memorystore for Redis only supports enabling in-transit encryption (`--transit-encryption-mode=SERVER_AUTHENTICATION`) at **instance creation time** — it cannot be toggled on an existing instance in place. To migrate an existing non-TLS instance, create a new Memorystore instance with `SERVER_AUTHENTICATION` enabled, update the Cloud Run services, and decommission the old instance. TLS-enabled instances listen on port **`6378`** (instead of `6379`).
+   > **Creation-Time Prerequisite:** Cloud Memorystore for Redis only supports enabling in-transit encryption (`--transit-encryption-mode=SERVER_AUTHENTICATION`) at **instance creation time** — it cannot be toggled on an existing instance in place.
+   > * **Port change:** TLS-enabled Memorystore instances listen on port **`6378`** (instead of `6379`).
+   > * **Shared state across all 3 services:** `ui-connector`, `cloud-pubsub-interceptor`, and `genesyscloud-audiohook` all share the same Redis instance. During a migration, all three Cloud Run services must be updated to point at the new TLS-enabled Redis host and port (`6378`) together.
 
-   * **Step A — Create the TLS-Enabled Memorystore Instance**:
+   * **Step A — Create the TLS-Enabled Memorystore Instance (and Record `REDISHOST` / `REDISPORT`)**:
+     If migrating an existing non-TLS instance, use a **new** instance ID (for example `${REDIS_INSTANCE_ID}-tls`) in the same VPC network and region (keeping any required CMEK or authorized-network flags):
      ```bash
-     gcloud redis instances create ${REDIS_INSTANCE_ID} \
+     export REDIS_TLS_INSTANCE_ID="${REDIS_INSTANCE_ID}-tls" # or ${REDIS_INSTANCE_ID} for a fresh setup
+
+     gcloud redis instances create ${REDIS_TLS_INSTANCE_ID} \
        --size=5 \
        --region=${SERVICE_REGION} \
        --transit-encryption-mode=SERVER_AUTHENTICATION
+
+     # Capture the new instance IP and TLS port (6378)
+     export NEW_REDIS_HOST=$(gcloud redis instances describe ${REDIS_TLS_INSTANCE_ID} \
+       --region=${SERVICE_REGION} --format='value(host)')
+     export NEW_REDIS_PORT=$(gcloud redis instances describe ${REDIS_TLS_INSTANCE_ID} \
+       --region=${SERVICE_REGION} --format='value(port)')
+     echo "Redis TLS endpoint: ${NEW_REDIS_HOST}:${NEW_REDIS_PORT}"
      ```
 
    * **Step B — Export the Server CA Certificate(s) into Secret Manager**:
-     Memorystore uses a GCP-managed private CA. Extract all active Server CA `.pem` certificates and store them in Secret Manager:
+     Memorystore uses a GCP-managed private CA. Extract all active Server CA `.pem` certificates, verify the bundle, and store it in Secret Manager:
      ```bash
      # Export all active Server CA certs (concatenated PEM bundle)
-     gcloud redis instances describe ${REDIS_INSTANCE_ID} \
+     gcloud redis instances describe ${REDIS_TLS_INSTANCE_ID} \
        --region=${SERVICE_REGION} \
        --format='value[separator="\n"](serverCaCerts[].cert)' > server-ca.pem
 
-     # Create (or add a new version to) the Secret Manager secret
+     # Inspect certificate expiration timestamps and confirm PEM header
+     gcloud redis instances describe ${REDIS_TLS_INSTANCE_ID} \
+       --region=${SERVICE_REGION} \
+       --format='table(serverCaCerts[].createTime,serverCaCerts[].expireTime)'
+     head -n 2 server-ca.pem
+
+     # Create Secret Manager secret (or add a new version if it already exists)
      gcloud secrets create ${REDIS_CA_CERT_SECRET_NAME} \
        --data-file=server-ca.pem \
        --replication-policy=user-managed \
@@ -257,19 +280,46 @@ export SF_CONNECTED_APP_CONSUMER_SECRET="<your-connected-app-client-secret>"
      # gcloud secrets versions add ${REDIS_CA_CERT_SECRET_NAME} --data-file=server-ca.pem
      ```
 
-   * **Step C — Grant Secret Access & Configure All 3 Cloud Run Services**:
-     All three Cloud Run services (`ui-connector`, `cloud-pubsub-interceptor`, and `genesyscloud-audiohook`) connect to Memorystore for Redis. When `REDIS_TLS_ENABLED=true`, each service enforces TLS 1.2+ with `ssl_cert_reqs="required"` and fails closed if no Server CA certificate is available.
-     * Ensure each service's runtime service account has `roles/secretmanager.secretAccessor`.
-     * When using `deploy.sh`, set `REDIS_TLS_ENABLED=true` and `REDIS_CA_CERT_SECRET_NAME` in `.env` — the scripts automatically read `REDISPORT` (`6378`), mount `/secret/redis_ca_cert.pem`, and set `REDIS_TLS_ENABLED=true` and `REDIS_CA_CERT_PATH=/secret/redis_ca_cert.pem`.
-     * For custom / CI-CD Cloud Run deployments, pass the following on all three services:
-       ```bash
-       --update-secrets=/secret/redis_ca_cert.pem=${REDIS_CA_CERT_SECRET_NAME}:latest \
-       --set-env-vars REDISHOST=${REDIS_HOST},REDISPORT=6378,REDIS_TLS_ENABLED=true,REDIS_CA_CERT_PATH=/secret/redis_ca_cert.pem
-       ```
-       *(Alternatively, if volume mounts are not used, supply the PEM contents directly via `REDIS_CA_CERT_PEM`.)*
+   * **Step C — Grant Secret Manager Access to All 3 Cloud Run Service Accounts**:
+     Ensure the runtime service account for **each** of the three Redis-connected Cloud Run services (`ui-connector`, `cloud-pubsub-interceptor`, and `genesyscloud-audiohook`) has `roles/secretmanager.secretAccessor` on `${REDIS_CA_CERT_SECRET_NAME}`:
+     ```bash
+     for SA_EMAIL in \
+       "${CONNECTOR_SERVICE_ACCOUNT_NAME}@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+       "${INTERCEPTOR_SERVICE_ACCOUNT_NAME}@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+       "${AUDIOHOOK_SERVICE_ACCOUNT_NAME}@${GCP_PROJECT_ID}.iam.gserviceaccount.com"; do
+       gcloud secrets add-iam-policy-binding ${REDIS_CA_CERT_SECRET_NAME} \
+         --member="serviceAccount:${SA_EMAIL}" \
+         --role="roles/secretmanager.secretAccessor"
+     done
+     ```
 
-   * **Step D — Ongoing Server CA Certificate Rotation**:
-     Memorystore rotates Server CA certificates every 5 years and provides an overlap period where both the old and new CAs are returned by `serverCaCerts[].cert`. Before a CA expires, re-run Step B (`gcloud redis instances describe ...` + `gcloud secrets versions add ...`) to store the updated multi-CA bundle, then deploy a new Cloud Run revision (or restart instances) for all three services so they pick up the latest `:latest` secret version with zero downtime.
+   * **Step D — Configure & Roll Out All 3 Cloud Run Services**:
+     When `REDIS_TLS_ENABLED=true`, all three services enforce **TLS 1.2+** (`ssl.TLSVersion.TLSv1_2`) with `ssl_cert_reqs="required"` and **fail closed** at startup if no valid Server CA certificate is found.
+     * **Option 1 — Using `deploy.sh`:** Set `REDIS_TLS_ENABLED=true`, `REDIS_INSTANCE_ID=${REDIS_TLS_INSTANCE_ID}`, and `REDIS_CA_CERT_SECRET_NAME` in both `aa-integration-backend/.env` and `genesyscloud/genesyscloud-audiohook/.env`, then run `aa-integration-backend/deploy.sh` and `genesyscloud/genesyscloud-audiohook/deploy.sh`.
+     * **Option 2 — Manual / CI-CD Cutover (without `deploy.sh`):** Update each existing Cloud Run service (`ui-connector`, `cloud-pubsub-interceptor`, and `genesyscloud-audiohook`) to mount the Secret Manager CA bundle and set the TLS environment variables:
+       ```bash
+       for SERVICE_NAME in \
+         "${CONNECTOR_SERVICE_NAME}" \
+         "${INTERCEPTOR_SERVICE_NAME}" \
+         "${VOICE_INTERCEPTOR_SERVICE}"; do
+         gcloud run services update "${SERVICE_NAME}" \
+           --region="${SERVICE_REGION}" \
+           --update-secrets="/secret/redis_ca_cert.pem=${REDIS_CA_CERT_SECRET_NAME}:latest" \
+           --update-env-vars="REDISHOST=${NEW_REDIS_HOST},REDISPORT=${NEW_REDIS_PORT},REDIS_TLS_ENABLED=true,REDIS_CA_CERT_PATH=/secret/redis_ca_cert.pem"
+       done
+       ```
+       *(If your deployment pipeline cannot mount Secret Manager files, inject the PEM contents via `REDIS_CA_CERT_PEM` instead.)*
+
+   * **Step E — Verify TLS Connectivity & Decommission Old Non-TLS Redis Instance**:
+     1. Confirm `gcloud redis instances describe ${REDIS_TLS_INSTANCE_ID} --region=${SERVICE_REGION}` reports `transitEncryptionMode: SERVER_AUTHENTICATION` and `port: 6378`.
+     2. Check Cloud Run logs for `ui-connector`, `cloud-pubsub-interceptor`, and `genesyscloud-audiohook` to confirm startup succeeds without TLS handshake or certificate errors, and validate with an inbound test call.
+     3. Once traffic is confirmed healthy on the TLS instance, delete the legacy non-TLS Redis instance:
+        ```bash
+        gcloud redis instances delete ${OLD_REDIS_INSTANCE_ID} --region=${SERVICE_REGION}
+        ```
+
+   * **Step F — Ongoing Server CA Certificate Rotation**:
+     Memorystore rotates Server CA certificates every 5 years and provides an overlap window where both the old and new CAs are returned by `serverCaCerts[].cert`. Before a CA expires, re-run Step B (`gcloud redis instances describe ...` + `gcloud secrets versions add ...`) to store the updated multi-CA bundle, then deploy a new Cloud Run revision (or restart instances) for all three services so they pick up the latest `:latest` secret version with zero downtime.
 
 ---
 
@@ -475,12 +525,13 @@ The CLI automates:
 | :---: | :--- | :--- | :---: |
 | 1 | Run LWC Unit Tests | `npm test` passes all Jest test suites (113/113 passing) | [ ] |
 | 2 | Check Cloud Run Health | UI Connector and AudioHook return HTTP 200/404 health status | [ ] |
-| 3 | Log in to Genesys CTI Softphone | Softphone renders in Service Console utility bar and authenticates | [ ] |
-| 4 | Set Agent Status | Toggle agent switch to **On Queue**; clear any pending ACW | [ ] |
-| 5 | Place Inbound Test Call | DID routes through Architect -> rings in CTI Softphone | [ ] |
-| 6 | Verify AudioHook Stream | Cloud Run logs show WebSocket `open` and bi-directional audio frames | [ ] |
-| 7 | Verify Session Discovery | LWC captures `interaction.id`, polls `/conversation-name`, binds session | [ ] |
-| 8 | Validate Real-Time Suggestions | Suggestions, summaries, and smart replies appear in real-time in LWC | [ ] |
+| 3 | Verify Redis TLS (if enabled) | Memorystore shows `SERVER_AUTHENTICATION` (`port: 6378`); all 3 Cloud Run services mount `/secret/redis_ca_cert.pem` with `REDIS_TLS_ENABLED=true` | [ ] |
+| 4 | Log in to Genesys CTI Softphone | Softphone renders in Service Console utility bar and authenticates | [ ] |
+| 5 | Set Agent Status | Toggle agent switch to **On Queue**; clear any pending ACW | [ ] |
+| 6 | Place Inbound Test Call | DID routes through Architect -> rings in CTI Softphone | [ ] |
+| 7 | Verify AudioHook Stream | Cloud Run logs show WebSocket `open` and bi-directional audio frames | [ ] |
+| 8 | Verify Session Discovery | LWC captures `interaction.id`, polls `/conversation-name`, binds session | [ ] |
+| 9 | Validate Real-Time Suggestions | Suggestions, summaries, and smart replies appear in real-time in LWC | [ ] |
 
 ---
 
