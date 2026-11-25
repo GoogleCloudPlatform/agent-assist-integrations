@@ -183,6 +183,57 @@ class TestInterceptorAPI(unittest.TestCase):
         with self.assertRaises(ValueError):
             main.get_redis_tls_kwargs(True, '/nonexistent/redis_ca_cert.pem', '')
 
+    @patch('main.datetime')
+    @patch('main.redis_client.smembers', return_value={bytes(SERVER_ID, encoding='raw_unicode_escape')})
+    @patch('main.redis_client.publish')
+    def test_invalid_pubsub_payload_acks_without_retry(
+        self, MockPublish, MockSmembers, MockDateTime
+    ):
+        """Acks malformed base64, JSON, or non-dict payloads without crashing."""
+        client = app.test_client()
+        malformed_payloads = [
+            {'message': {'data': '!!!not-base64!!!'}},
+            {'message': {'data': base64.b64encode(b'{invalid-json').decode('ascii')}},
+            {'message': {'data': base64.b64encode(b'["list-not-dict"]').decode('ascii')}},
+        ]
+        for payload in malformed_payloads:
+            with self.subTest(payload=payload):
+                response = client.post('/conversation-lifecycle-event',
+                                       json=payload)
+                self.assertEqual(response.status_code, 204)
+        self.assertFalse(MockPublish.called)
+        self.assertFalse(MockSmembers.called)
+        self.assertFalse(MockDateTime.called)
+
+    @patch('main.datetime')
+    @patch('main.redis_client.smembers', return_value={bytes(SERVER_ID, encoding='raw_unicode_escape')})
+    @patch('main.redis_client.publish')
+    def test_missing_optional_pubsub_metadata_fields(
+        self, MockPublish, unused_MockSmembers, MockDateTime
+    ):
+        """Handles Pub/Sub messages missing optional publishTime/messageId keys."""
+        MockDateTime.now = Mock(
+            return_value=datetime.datetime(2022, 3, 11, 0, 0, 10))
+        payload = {
+            'message': {
+                'data': base64.b64encode(
+                    json.dumps(SAMPLE_DIALOGFLOW_EVENT).encode('utf-8')
+                ).decode('ascii'),
+            }
+        }
+        client = app.test_client()
+        response = client.post('/conversation-lifecycle-event', json=payload)
+        expected_msg = dict(
+            SAMPLE_REDIS_PUBSUB_PUB,
+            publish_time='',
+            message_id='',
+        )
+        MockPublish.assert_called_once_with(
+            '{0}:{1}'.format(SERVER_ID, CONVERSATION_NAME_WITHOUT_LOCATION),
+            json.dumps(expected_msg),
+        )
+        self.assertEqual(response.status_code, 204)
+
 
 if __name__ == '__main__':
     unittest.main()
