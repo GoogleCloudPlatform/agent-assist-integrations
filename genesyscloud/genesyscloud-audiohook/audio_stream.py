@@ -168,6 +168,32 @@ class Stream:
                 self.buffer_byte_size -= len(chunk)
             data.append(chunk)
 
+    def _next_audio_batch(self):
+        """Fetches the next batch of buffered audio bytes, or None to stop."""
+        if self.is_final and self.speech_end_offset > SINGLE_STREAM_MAX_DURATION:
+            logging.info(
+                "Stream running for > 90s (%s ms), closing current stream.",
+                self.speech_end_offset,
+            )
+            return None
+        try:
+            chunk = self._buff.get(block=True, timeout=0.5)
+        except queue.Empty:
+            logging.debug("queue is empty break the loop and stop generator")
+            return None
+        if chunk is None:
+            logging.debug(
+                "chunk is none half close the stream by stopping generates requests"
+            )
+            return None
+        with self._lock:
+            self.buffer_byte_size -= len(chunk)
+        data, stop_stream = self._drain_queued_chunks(chunk)
+        if stop_stream:
+            return None
+        self.audio_input_chunks.extend(data)
+        return b"".join(data)
+
     def generator(self):
         """Stream Audio from Genesys Audiohook Monitor to API and to local buffer"""
         logging.debug("Restart generator")
@@ -196,30 +222,11 @@ class Stream:
 
         try:
             while not self.closed:
-                if self.is_final and self.speech_end_offset > SINGLE_STREAM_MAX_DURATION:
-                    logging.info(
-                        "Stream running for > 90s (%s ms), closing current stream.",
-                        self.speech_end_offset,
-                    )
-                    break
-                try:
-                    chunk = self._buff.get(block=True, timeout=0.5)
-                    with self._lock:
-                        self.buffer_byte_size -= len(chunk)
-                except queue.Empty:
-                    logging.debug("queue is empty break the loop and stop generator")
-                    break
-                if chunk is None:
-                    logging.debug(
-                        "chunk is none half close the stream by stopping generates requests"
-                    )
+                batch = self._next_audio_batch()
+                if batch is None:
                     return
-                data, stop_stream = self._drain_queued_chunks(chunk)
-                if stop_stream:
-                    return
-                self.audio_input_chunks.extend(data)
-                if data:
-                    yield b"".join(data)
+                if batch:
+                    yield batch
         except GeneratorExit as e:
             logging.debug("Generator exit after is_final set to true %s", e)
             return
