@@ -104,8 +104,8 @@ def _publish_conversation_event(
         # It could help with analyzing service time of each part of the backend
         # infrastructure, which can be used for load testing.
         'ack_time': datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ'),
-        'publish_time': pubsub_message['publishTime'],
-        'message_id': pubsub_message['messageId'],
+        'publish_time': pubsub_message.get('publishTime', ''),
+        'message_id': pubsub_message.get('messageId', ''),
     }
     if data_type == 'new-recognition-result-notification-event':
         msg_data['participant_role'] = participant_role
@@ -136,8 +136,8 @@ def _publish_conversation_event(
         redis_client.publish(channel, msg_json)
         logging.debug(
             'Redis publish (message_id: %s, publish_time: %s, conversation_name: %s, channel: %s, data_type: %s.',
-            pubsub_message['messageId'],
-            pubsub_message['publishTime'],
+            pubsub_message.get('messageId', ''),
+            pubsub_message.get('publishTime', ''),
             conversation_name,
             channel,
             data_type,
@@ -156,10 +156,17 @@ def cloud_pubsub_handler(request, data_type):
     if 'data' not in pubsub_message:
         return
 
-    data = base64.b64decode(pubsub_message['data']).decode('utf-8')
-    logging.debug('Subscribed Pub/Sub message: %s', data)
-    data_object = json.loads(data)
-    if 'conversation' not in data_object:
+    try:
+        data = base64.b64decode(pubsub_message['data']).decode('utf-8')
+        logging.debug('Subscribed Pub/Sub message: %s', data)
+        data_object = json.loads(data)
+    except ValueError as e:
+        logging.warning(
+            _WARNING_LOG_FMT,
+            f'Failed to decode/parse Pub/Sub message data: {e}',
+        )
+        return
+    if not isinstance(data_object, dict) or 'conversation' not in data_object:
         logging.warning(
             _WARNING_LOG_FMT,
             'Cannot extract conversation id from Pub/Sub request.',

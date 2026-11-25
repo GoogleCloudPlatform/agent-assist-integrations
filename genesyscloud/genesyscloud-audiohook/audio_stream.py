@@ -189,9 +189,9 @@ class Stream:
         with self._lock:
             self.buffer_byte_size -= len(chunk)
         data, stop_stream = self._drain_queued_chunks(chunk)
-        if stop_stream:
-            return None
         self.audio_input_chunks.extend(data)
+        if stop_stream:
+            self.closed = True
         return b"".join(data)
 
     def generator(self):
