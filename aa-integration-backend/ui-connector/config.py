@@ -42,9 +42,13 @@ logging.basicConfig(filename=os.environ.get(
 JWT_SECRET_KEY_PATH = os.environ.get('JWT_SECRET_KEY_PATH',
                                      '/secret/jwt_secret_key')
 
-# TODO replace '*' with a list of allowed origins to limit the access to your server.
-# Origin or list of origins that are allowed to connect to this server.
-CORS_ALLOWED_ORIGINS = '*'
+# Origin or comma-separated list of origins allowed to connect to this server.
+# Set CORS_ALLOWED_ORIGINS in the environment to restrict origins (defaults to '*').
+_cors_allowed_origins_raw = os.environ.get('CORS_ALLOWED_ORIGINS', '*').strip()
+CORS_ALLOWED_ORIGINS = (
+    '*' if _cors_allowed_origins_raw == '*' else
+    [o.strip() for o in _cors_allowed_origins_raw.split(',') if o.strip()]
+)
 
 # Lifetime for generated JWT
 JWT_TOKEN_LIFETIME = 60  # minutes

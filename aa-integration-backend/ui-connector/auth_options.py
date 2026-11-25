@@ -12,18 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import re
-import requests
 import logging
-import config
 from urllib.parse import urlencode
+
+import config
+import requests
+
+_BEARER_PREFIX = "Bearer "
+_TOKEN_VERIFY_FAILED_LOG = "Failed to verify the access token, %s, %s."
 
 
 def check_salesforce_token(token):
     """Verifies the access token using Salesforce OpenID Connect.
     Reference: https://help.salesforce.com/s/articleView?id=sf.remoteaccess_using_userinfo_endpoint.htm
     """
-    request_headers = {"Authorization": "Bearer " + token}
+    request_headers = {"Authorization": _BEARER_PREFIX + token}
     # Get the user info.
     user_info_url = f"https://{config.SALESFORCE_DOMAIN}/services/oauth2/userinfo"
     user_info_resp = requests.get(user_info_url, headers=request_headers)
@@ -41,7 +44,7 @@ def check_salesforce_token(token):
             )
     else:
         logging.warning(
-            "Failed to verify the access token, %s, %s.",
+            _TOKEN_VERIFY_FAILED_LOG,
             repr(user_info_resp.status_code),
             repr(user_info_resp.reason),
         )
@@ -68,7 +71,10 @@ def check_salesforce_lwc_token(token):
     Reference: https://help.salesforce.com/s/articleView?id=sf.remoteaccess_oauth_client_credentials_flow.htm&type=5
 
     """
-    access_token = re.sub(r"Bearer ", "", token, re.IGNORECASE)
+    if token.lower().startswith(_BEARER_PREFIX.lower()):
+        access_token = token[len(_BEARER_PREFIX):]
+    else:
+        access_token = token
     if config.SALESFORCE_DOMAIN == "login.salesforce.com":
         logging.error("SALESFORCE_DOMAIN is not set. Auth will fail.")
     if config.SALESFORCE_ORGANIZATION_ID == "YOUR_ORGANIZATION_ID":
@@ -120,7 +126,7 @@ def check_genesyscloud_token(token):
 
     """
     # Prepare for GET /api/v2/users/me request.
-    request_headers = {"Authorization": "Bearer " + token}
+    request_headers = {"Authorization": _BEARER_PREFIX + token}
     response = requests.get(
         f"https://api.{config.GENESYS_CLOUD_REGION}/api/v2/users/me?expand=organization",
         headers=request_headers,
@@ -146,7 +152,7 @@ def check_genesyscloud_token(token):
             )
     else:
         logging.warning(
-            "Failed to verify the access token, %s, %s.",
+            _TOKEN_VERIFY_FAILED_LOG,
             repr(response.status_code),
             repr(response.reason),
         )
@@ -180,7 +186,7 @@ def check_twilio_token(token):
         return True
     else:
         logging.warning(
-            "Failed to verify the access token, %s, %s.",
+            _TOKEN_VERIFY_FAILED_LOG,
             repr(response.status_code),
             repr(response.reason),
         )
@@ -191,7 +197,7 @@ def check_five9_token(token):
     Verifies the internal shared secret (FIVE9_TRUST_TOKEN) sent in the Authorization header.
     Expects: 'Bearer <FIVE9_TRUST_TOKEN>'
     """
-    if not token or not token.startswith("Bearer "):
+    if not token or not token.startswith(_BEARER_PREFIX):
         logging.warning("Missing or malformed Authorization header.")
         return False
 

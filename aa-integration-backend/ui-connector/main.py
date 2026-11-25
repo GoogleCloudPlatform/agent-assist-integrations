@@ -40,6 +40,9 @@ CORS(app, origins=config.CORS_ALLOWED_ORIGINS)
 socketio = SocketIO(app, cors_allowed_origins=config.CORS_ALLOWED_ORIGINS)
 load_jwt_secret_key()
 
+_BAD_REQUEST_MSG = "Bad request"
+_INVALID_CONVERSATION_NAME_MSG = "invalid conversation name"
+
 LOCATION_REGEX = re.compile(r"projects/[^/]+/locations/([a-z0-9-]+)(?:/|$)")
 # Decoded request paths that only name a Dialogflow resource: plain segments,
 # no `.` or `..`. Anything else could retarget the proxied request.
@@ -161,11 +164,11 @@ def register_app_token():
     return jsonify({"token": token})
 
 
-def call_dialogflow(version, project, location, tail):  # pylint: disable=unused-argument
+def call_dialogflow(location):
     """Forwards valid request to dialogflow and return its response."""
     if not (dialogflow.LOCATION_ID_REGEX.fullmatch(location) and
             RESOURCE_PATH_REGEX.fullmatch(request.path)):
-        return make_response("Bad request", 400)
+        return make_response(_BAD_REQUEST_MSG, 400)
     logging.info("Called Dialogflow for request path: %s",
                  repr(request.full_path))
     if request.method == "GET":
@@ -220,9 +223,9 @@ def call_dialogflow(version, project, location, tail):  # pylint: disable=unused
     methods=["POST"],
 )
 @token_required
-def call_dialogflow_without_tail(version, project, location):
+def call_dialogflow_without_tail(location, **_unused):
     """Handles Dialogflow calls that do not have a sub-path tail."""
-    return call_dialogflow(version, project, location, "")
+    return call_dialogflow(location)
 
 
 # Note: Dialogflow methods projects.locations.conversations.list and
@@ -279,9 +282,9 @@ def call_dialogflow_without_tail(version, project, location):
     methods=["GET"],
 )
 @token_required
-def call_dialogflow_with_tail(version, project, location, tail):
+def call_dialogflow_with_tail(location, **_unused):
     """Handles Dialogflow calls that contain a sub-path tail."""
-    return call_dialogflow(version, project, location, tail)
+    return call_dialogflow(location)
 
 
 @app.route("/conversation-name", methods=["POST"])
@@ -290,13 +293,13 @@ def set_conversation_name():
     """Sets a conversationIntegrationKey:conversationName pair in Redis."""
     body = request.get_json(silent=True)
     if not isinstance(body, dict):
-        return make_response("Bad request", 400)
+        return make_response(_BAD_REQUEST_MSG, 400)
     conversation_integration_key = body.get("conversationIntegrationKey", "")
     conversation_name = body.get("conversationName", "")
     if not (isinstance(conversation_integration_key, str) and
             isinstance(conversation_name, str) and
             conversation_integration_key and conversation_name):
-        return make_response("Bad request", 400)
+        return make_response(_BAD_REQUEST_MSG, 400)
 
     hashed_key = hashlib.sha256(
         conversation_integration_key.encode("utf-8")).hexdigest()
@@ -307,7 +310,7 @@ def set_conversation_name():
     )
     result = redis_client.set(hashed_key, conversation_name, ex=86400)
     if not result:
-        return make_response("Bad request", 400)
+        return make_response(_BAD_REQUEST_MSG, 400)
     return jsonify({conversation_integration_key: conversation_name})
 
 
@@ -318,7 +321,7 @@ def get_conversation_name():
     conversation_integration_key = request.args.get(
         "conversationIntegrationKey")
     if not conversation_integration_key:
-        return make_response("Bad request", 400)
+        return make_response(_BAD_REQUEST_MSG, 400)
 
     hashed_key = hashlib.sha256(
         conversation_integration_key.encode("utf-8")).hexdigest()
@@ -341,7 +344,7 @@ def del_conversation_name():
     conversation_integration_key = request.args.get(
         "conversationIntegrationKey")
     if not conversation_integration_key:
-        return make_response("Bad request", 400)
+        return make_response(_BAD_REQUEST_MSG, 400)
 
     hashed_key = hashlib.sha256(
         conversation_integration_key.encode("utf-8")).hexdigest()
@@ -410,13 +413,13 @@ def on_join(message):
     """Joins a room specified by its conversation name."""
     logging.info("Received event: join-conversation: %s", repr(message))
     if not isinstance(message, str):
-        return False, "invalid conversation name"
+        return False, _INVALID_CONVERSATION_NAME_MSG
     # Remove location id from the conversation name.
     conversation_name = get_conversation_name_without_location(message)
     if not _CONVERSATION_NAME_RE.match(conversation_name):
         logging.warning("join-conversation rejected (bad name): %s",
                         repr(conversation_name))
-        return False, "invalid conversation name"
+        return False, _INVALID_CONVERSATION_NAME_MSG
     join_room(conversation_name)
     # Add this instance to the conversation's routing set and refresh its TTL.
     servers_key = get_conversation_servers_key(conversation_name)
@@ -433,13 +436,13 @@ def on_leave(message):
     """Leaves a room specified by its conversation name."""
     logging.info("Received event: leave-conversation: %s", repr(message))
     if not isinstance(message, str):
-        return False, "invalid conversation name"
+        return False, _INVALID_CONVERSATION_NAME_MSG
     # Remove location id from the conversation name.
     conversation_name = get_conversation_name_without_location(message)
     if not _CONVERSATION_NAME_RE.match(conversation_name):
         logging.warning("leave-conversation rejected (bad name): %s",
                         repr(conversation_name))
-        return False, "invalid conversation name"
+        return False, _INVALID_CONVERSATION_NAME_MSG
     server = socketio.server
     current_member_sids = ({
         p[0] if isinstance(p, tuple) else p
