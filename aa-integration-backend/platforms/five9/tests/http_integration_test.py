@@ -170,8 +170,15 @@ class TestFive9MediaStreamHttpSmoke(unittest.TestCase):
             )
             self.assertEqual(cti_bad.status_code, 401)
 
+            page_unauth = requests.get(
+                f"{base_url}/agent-assist-ui-modules/",
+                timeout=5.0,
+            )
+            self.assertEqual(page_unauth.status_code, 401)
+
             page = requests.get(
                 f"{base_url}/agent-assist-ui-modules/",
+                headers={"x-api-key": self.api_key},
                 timeout=5.0,
             )
             self.assertEqual(page.status_code, 200)
