@@ -16,7 +16,6 @@
 """
 
 import base64
-import binascii
 import hashlib
 import hmac
 import logging
@@ -49,7 +48,7 @@ def decode_secret(secret: str) -> bytes:
         return b''
     try:
         return base64.b64decode(secret, validate=True)
-    except (binascii.Error, ValueError):
+    except ValueError:
         return secret.encode('utf-8')
 
 
@@ -222,6 +221,105 @@ def build_signature_base(
     return '\n'.join(lines), None
 
 
+def _verify_api_key(
+    expected_api_key: str, normalized_headers: Mapping[str, str]
+) -> Optional[str]:
+    """Validates the X-API-KEY header against the configured expected API key."""
+    received_api_key = normalized_headers.get('x-api-key')
+    if not received_api_key:
+        return 'Missing X-API-KEY header'
+    if not hmac.compare_digest(expected_api_key, received_api_key):
+        return 'Invalid X-API-KEY header value'
+    return None
+
+
+def _validate_signature_timestamp(
+    created_timestamp: Optional[int],
+    max_clock_skew_seconds: int,
+    current_time: Optional[float],
+) -> Optional[str]:
+    """Checks that an optional RFC 9421 created timestamp is within allowed skew."""
+    if created_timestamp is None:
+        return None
+    now = current_time if current_time is not None else time.time()
+    skew = abs(now - created_timestamp)
+    if skew > max_clock_skew_seconds:
+        return (
+            f'Signature timestamp expired: created={created_timestamp}, '
+            f'now={int(now)}, skew={skew:.1f}s'
+        )
+    return None
+
+
+def _verify_hmac_signature(
+    normalized_headers: Mapping[str, str],
+    client_secret: str,
+    method: str,
+    path: str,
+    authority: Optional[str],
+    request_target: Optional[str],
+    max_clock_skew_seconds: int,
+    current_time: Optional[float],
+) -> Optional[str]:
+    """Validates RFC 9421 Signature-Input and Signature HMAC-SHA256 headers."""
+    sig_input_header = normalized_headers.get('signature-input')
+    signature_header = normalized_headers.get('signature')
+    if not sig_input_header:
+        return 'Missing Signature-Input header'
+    if not signature_header:
+        return 'Missing Signature header'
+
+    _, components, params_string, created_timestamp = parse_signature_input(
+        sig_input_header
+    )
+    if not components or not params_string:
+        return 'Malformed Signature-Input header'
+
+    received_sig_b64 = parse_signature(signature_header)
+    if not received_sig_b64:
+        return 'Malformed Signature header'
+
+    ts_err = _validate_signature_timestamp(
+        created_timestamp, max_clock_skew_seconds, current_time
+    )
+    if ts_err:
+        return ts_err
+
+    secret_bytes = decode_secret(client_secret)
+    if not secret_bytes:
+        return 'Server client secret is empty'
+
+    last_sig_base = None
+    # Try standard Genesys Cloud RFC 9421 (@request-target = path) first,
+    # then fallback to draft-cavage style (@request-target = "get " + path)
+    for include_method in (False, True):
+        sig_base, err = build_signature_base(
+            components=components,
+            params_string=params_string,
+            headers=normalized_headers,
+            method=method,
+            path=path,
+            authority=authority,
+            request_target=request_target,
+            include_method_in_request_target=include_method,
+        )
+        if err or sig_base is None:
+            continue
+
+        last_sig_base = sig_base
+        computed_digest = hmac.new(
+            secret_bytes, sig_base.encode('utf-8'), hashlib.sha256
+        ).digest()
+        expected_sig_b64 = base64.b64encode(computed_digest).decode('utf-8')
+        if hmac.compare_digest(expected_sig_b64, received_sig_b64):
+            return None
+
+    logger.warning(
+        'HMAC signature mismatch. Reconstructed base: %s', repr(last_sig_base)
+    )
+    return 'HMAC signature verification failed'
+
+
 def verify_signature(
     headers: Mapping[str, str],
     method: str,
@@ -259,78 +357,23 @@ def verify_signature(
 
     normalized_headers = {k.lower(): v for k, v in headers.items()}
 
-    # 1. Verify API Key if configured
     if expected_api_key:
-        received_api_key = normalized_headers.get('x-api-key')
-        if not received_api_key:
-            return False, 'Missing X-API-KEY header'
-        if not hmac.compare_digest(expected_api_key, received_api_key):
-            return False, 'Invalid X-API-KEY header value'
+        api_key_err = _verify_api_key(expected_api_key, normalized_headers)
+        if api_key_err:
+            return False, api_key_err
 
-    # 2. Verify RFC 9421 HMAC-SHA256 Signature if client_secret is configured
     if client_secret:
-        sig_input_header = normalized_headers.get('signature-input')
-        signature_header = normalized_headers.get('signature')
-
-        if not sig_input_header:
-            return False, 'Missing Signature-Input header'
-        if not signature_header:
-            return False, 'Missing Signature header'
-
-        label, components, params_string, created_timestamp = parse_signature_input(
-            sig_input_header
+        hmac_err = _verify_hmac_signature(
+            normalized_headers=normalized_headers,
+            client_secret=client_secret,
+            method=method,
+            path=path,
+            authority=authority,
+            request_target=request_target,
+            max_clock_skew_seconds=max_clock_skew_seconds,
+            current_time=current_time,
         )
-        if not components or not params_string:
-            return False, 'Malformed Signature-Input header'
-
-        received_sig_b64 = parse_signature(signature_header)
-        if not received_sig_b64:
-            return False, 'Malformed Signature header'
-
-        if created_timestamp is not None:
-            now = current_time if current_time is not None else time.time()
-            if abs(now - created_timestamp) > max_clock_skew_seconds:
-                return False, (
-                    f'Signature timestamp expired: created={created_timestamp}, '
-                    f'now={int(now)}, skew={abs(now - created_timestamp):.1f}s'
-                )
-
-        secret_bytes = decode_secret(client_secret)
-        if not secret_bytes:
-            return False, 'Server client secret is empty'
-
-        matched = False
-        last_sig_base = None
-        # Try standard Genesys Cloud RFC 9421 (@request-target = path) first,
-        # then fallback to draft-cavage style (@request-target = "get " + path)
-        for include_method in (False, True):
-            sig_base, err = build_signature_base(
-                components=components,
-                params_string=params_string,
-                headers=normalized_headers,
-                method=method,
-                path=path,
-                authority=authority,
-                request_target=request_target,
-                include_method_in_request_target=include_method,
-            )
-            if err or sig_base is None:
-                continue
-
-            last_sig_base = sig_base
-            computed_digest = hmac.new(
-                secret_bytes, sig_base.encode('utf-8'), hashlib.sha256
-            ).digest()
-            expected_sig_b64 = base64.b64encode(computed_digest).decode('utf-8')
-
-            if hmac.compare_digest(expected_sig_b64, received_sig_b64):
-                matched = True
-                break
-
-        if not matched:
-            logger.warning(
-                'HMAC signature mismatch. Reconstructed base: %s', repr(last_sig_base)
-            )
-            return False, 'HMAC signature verification failed'
+        if hmac_err:
+            return False, hmac_err
 
     return True, None

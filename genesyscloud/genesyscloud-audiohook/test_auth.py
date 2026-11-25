@@ -139,7 +139,7 @@ class TestAuth(unittest.TestCase):
         components = ['@request-target', 'x-api-key', 'audiohook-session-id', '@authority']
         params_str = '("@request-target" "x-api-key" "audiohook-session-id" "@authority");created=1700000000'
 
-        base, err = build_signature_base(
+        base, _ = build_signature_base(
             components=components,
             params_string=params_str,
             headers=headers,
@@ -454,7 +454,7 @@ class TestAuth(unittest.TestCase):
             secret_bytes=self.raw_secret
         )
         # Force the signature to be computed with include_method_in_request_target=True
-        label, components, params_string, _ = parse_signature_input(headers['Signature-Input'])
+        _, components, params_string, _ = parse_signature_input(headers['Signature-Input'])
         legacy_base, err = build_signature_base(
             components=components,
             params_string=params_string,

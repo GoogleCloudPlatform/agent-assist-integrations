@@ -87,7 +87,7 @@ class Stream:
         self.stopped.set()
         self.active.set()
 
-    def fill_buffer(self, in_data, *args, **kwargs):
+    def fill_buffer(self, in_data):
         """Append audio data to buffer if not full"""
 
         with self._lock:
@@ -125,97 +125,99 @@ class Stream:
         logging.debug("Input audio config %s ", audio_input_config)
         return audio_input_config
 
+    def _get_lookback_bytes(self, processed_bytes_length):
+        """Returns unprocessed lookback audio bytes when restarting non-chirp_3 streams."""
+        if processed_bytes_length == 0 or self.stt_model == "chirp_3":
+            return b""
+        audio_bytes = b"".join(self.audio_input_chunks)
+        # Lookback for unprocessed audio data.
+        # ApproximatesBytes = Rate(Sample per Second) * Duration(Seconds) *  BitRate(Bits per Sample) / 8
+        # reference https://en.wikipedia.org/wiki/G.711
+        need_to_process_length = min(
+            int(len(audio_bytes) - processed_bytes_length),
+            int(config.max_lookback * self._rate),
+        )
+        if need_to_process_length <= 0:
+            return b""
+        need_to_process_bytes = audio_bytes[-need_to_process_length:]
+        logging.debug(
+            "Sending need to process bytes length %s, total audio byte length %s, processed byte length %s ",
+            len(need_to_process_bytes),
+            len(audio_bytes),
+            processed_bytes_length,
+        )
+        return need_to_process_bytes
+
+    def _drain_queued_chunks(self, first_chunk):
+        """Drains remaining queued audio chunks after a blocking get().
+
+        Returns:
+            Tuple of (chunks, stop_stream) where stop_stream is True if a None
+            sentinel was encountered.
+        """
+        data = [first_chunk]
+        while True:
+            try:
+                chunk = self._buff.get(block=False)
+            except queue.Empty:
+                return data, False
+            if chunk is None:
+                logging.debug("Remaining chunk is none half close the stream")
+                return data, True
+            with self._lock:
+                self.buffer_byte_size -= len(chunk)
+            data.append(chunk)
+
     def generator(self):
         """Stream Audio from Genesys Audiohook Monitor to API and to local buffer"""
-        # Handle restart.
         logging.debug("Restart generator")
         self.restart_counter += 1
-        # After the restart of the streaming, set is_final to False
-        # to resume populating audio data
         self.is_final = False
         total_processed_time = self.last_start_time + self.is_final_offset
-        # ApproximatesBytes = Rate(Sample per Second) * Duration(Seconds) *  BitRate(Bits per Sample) / 8
-        # MULAW audio format is 8bit depth, 8000HZ then convert bits to bytes by
-        # dividing 8
-        # reference https://en.wikipedia.org/wiki/G.711
-        processed_bytes_length = (
-            int(total_processed_time * self._rate) / 1000
-        )
+        processed_bytes_length = int(total_processed_time * self._rate) / 1000
         logging.debug(
             "last start time is %s, is final offset: %s, total processed time %s",
             self.last_start_time,
             self.is_final_offset,
-            total_processed_time)
+            total_processed_time,
+        )
         self.last_start_time = total_processed_time
         self.is_final_offset = 0  # already counted; don't add it again next restart
-        # Send out bytes stored in self.audio_input_chunks that is after the
-        # processed_bytes_length.
-        # For chirp3 model, we do not need to send the lookback audio chunks.
-        if processed_bytes_length != 0 and self.stt_model != "chirp_3":
-            audio_bytes = b"".join(self.audio_input_chunks)
-            # Lookback for unprocessed audio data.
-            # ApproximatesBytes = Rate(Sample per Second) * Duration(Seconds) *  BitRate(Bits per Sample) / 8
-            # reference https://en.wikipedia.org/wiki/G.711
-            need_to_process_length = min(
-                int(len(audio_bytes) - processed_bytes_length),
-                int(config.max_lookback * self._rate),
-            )
-            # Note that you need to explicitly use `int` type for
-            # substring.
-            if need_to_process_length > 0:
-                need_to_process_bytes = audio_bytes[-need_to_process_length:]
+
+        lookback_bytes = self._get_lookback_bytes(processed_bytes_length)
+        if lookback_bytes:
+            try:
+                yield lookback_bytes
+            except GeneratorExit as e:
                 logging.debug(
-                    "Sending need to process bytes length %s, total audio byte length %s, processed byte length %s ",
-                    len(need_to_process_bytes),
-                    len(audio_bytes),
-                    processed_bytes_length)
-                try:
-                    yield need_to_process_bytes
-                except GeneratorExit as e:
-                    logging.debug(
-                        "Generator exit from the need to process step %s", e)
-                    return
+                    "Generator exit from the need to process step %s", e
+                )
+                return
+
         try:
             while not self.closed:
-                if self.is_final:
-                    # Check if the stream has been running for more than 90 seconds
-                    if self.speech_end_offset > SINGLE_STREAM_MAX_DURATION:
-                        logging.info("Stream running for > 90s (%s ms), closing current stream.", self.speech_end_offset)
-                        break
-                data = []
-                # Use a blocking get() to ensure there's at least one chunk of
-                # data, and stop iteration if the chunk is None, indicating the
-                # end of the audio stream.
+                if self.is_final and self.speech_end_offset > SINGLE_STREAM_MAX_DURATION:
+                    logging.info(
+                        "Stream running for > 90s (%s ms), closing current stream.",
+                        self.speech_end_offset,
+                    )
+                    break
                 try:
                     chunk = self._buff.get(block=True, timeout=0.5)
                     with self._lock:
                         self.buffer_byte_size -= len(chunk)
                 except queue.Empty:
-                    logging.debug(
-                        "queue is empty break the loop and stop generator")
+                    logging.debug("queue is empty break the loop and stop generator")
                     break
                 if chunk is None:
                     logging.debug(
-                        "chunk is none half close the stream by stopping generates requests")
+                        "chunk is none half close the stream by stopping generates requests"
+                    )
                     return
-                data.append(chunk)
-                # Now try to the rest of chunks if there are any left in the
-                # _buff.
-                while True:
-                    try:
-                        chunk = self._buff.get(block=False)
-                        if chunk is None:
-                            logging.debug(
-                                "Remaining chunk is none half close the stream")
-                            return
-                        with self._lock:
-                            self.buffer_byte_size -= len(chunk)
-                        data.append(chunk)
-                    except queue.Empty:
-                        # queue is empty quitting the loop
-                        break
+                data, stop_stream = self._drain_queued_chunks(chunk)
+                if stop_stream:
+                    return
                 self.audio_input_chunks.extend(data)
-
                 if data:
                     yield b"".join(data)
         except GeneratorExit as e:

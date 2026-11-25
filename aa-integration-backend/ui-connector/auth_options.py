@@ -13,12 +13,14 @@
 # limitations under the License.
 
 import hmac
-import re
-import requests
 import logging
-import jwt
-import config
+import re
 
+import config
+import requests
+
+_BEARER_PREFIX = "Bearer "
+_TOKEN_VERIFY_FAILED_LOG = "Failed to verify the access token, %s, %s."
 _HOSTNAME_REGEX = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$")
 
 
@@ -41,7 +43,7 @@ def check_salesforce_token(token):
     if not _is_valid_hostname(config.SALESFORCE_DOMAIN):
         logging.error("SALESFORCE_DOMAIN is invalid. Auth will fail.")
         return False
-    request_headers = {"Authorization": "Bearer " + token}
+    request_headers = {"Authorization": _BEARER_PREFIX + token}
     # Get the user info.
     user_info_resp = requests.get(
         f"https://{config.SALESFORCE_DOMAIN}/services/oauth2/userinfo",
@@ -63,7 +65,7 @@ def check_salesforce_token(token):
             )
     else:
         logging.warning(
-            "Failed to verify the access token, %s, %s.",
+            _TOKEN_VERIFY_FAILED_LOG,
             repr(user_info_resp.status_code),
             repr(user_info_resp.reason),
         )
@@ -90,7 +92,10 @@ def check_salesforce_lwc_token(token):
     Reference: https://help.salesforce.com/s/articleView?id=sf.remoteaccess_oauth_client_credentials_flow.htm&type=5
 
     """
-    access_token = re.sub(r"^Bearer ", "", token, flags=re.IGNORECASE)
+    if token.lower().startswith(_BEARER_PREFIX.lower()):
+        access_token = token[len(_BEARER_PREFIX):]
+    else:
+        access_token = token
     if config.SALESFORCE_DOMAIN == "login.salesforce.com":
         logging.error("SALESFORCE_DOMAIN is not set. Auth will fail.")
     if not config.SALESFORCE_ORGANIZATION_ID:
@@ -153,7 +158,7 @@ def check_genesyscloud_token(token):
         logging.error("GENESYS_CLOUD_REGION is invalid. Auth will fail.")
         return False
     # Prepare for GET /api/v2/users/me request.
-    request_headers = {"Authorization": "Bearer " + token}
+    request_headers = {"Authorization": _BEARER_PREFIX + token}
     response = requests.get(
         f"https://api.{config.GENESYS_CLOUD_REGION}/api/v2/users/me?expand=organization",
         headers=request_headers,
@@ -180,7 +185,7 @@ def check_genesyscloud_token(token):
             )
     else:
         logging.warning(
-            "Failed to verify the access token, %s, %s.",
+            _TOKEN_VERIFY_FAILED_LOG,
             repr(response.status_code),
             repr(response.reason),
         )
@@ -220,7 +225,7 @@ def check_twilio_token(token):
         return True
     else:
         logging.warning(
-            "Failed to verify the access token, %s, %s.",
+            _TOKEN_VERIFY_FAILED_LOG,
             repr(response.status_code),
             repr(response.reason),
         )
@@ -235,7 +240,7 @@ def check_five9_token(token):
     if not config.FIVE9_TRUST_TOKEN:
         logging.error("FIVE9_TRUST_TOKEN is not configured. Auth will fail.")
         return False
-    if not token or not token.startswith("Bearer "):
+    if not token or not token.startswith(_BEARER_PREFIX):
         logging.warning("Missing or malformed Authorization header.")
         return False
 
@@ -271,23 +276,20 @@ def check_google_oidc_token(token):
     Returns:
         tuple[bool, str]: (is_valid, message)
     """
-    if token.startswith("Bearer "):
+    if token.startswith(_BEARER_PREFIX):
         token = token.split(" ", 1)[1]
 
     try:
         from google.oauth2 import id_token
         from google.auth.transport import requests as google_requests
 
-        # Verify the OIDC token
+        # Verify the OIDC token cryptographically; when OIDC_AUDIENCE is
+        # unset, pass audience=None so verify_oauth2_token still validates the
+        # Google signature, issuer, and expiry without an unverified decode.
         req = google_requests.Request()
-
-        # If OIDC_AUDIENCE is not explicitly configured, fallback to the unverified claim 
-        # to preserve backwards compatibility for existing deployments without breaking POCs
-        unverified_claims = jwt.decode(token, options={"verify_signature": False})
-        fallback_audience = unverified_claims.get("aud")
-        expected_audience = config.OIDC_AUDIENCE or fallback_audience
-
-        id_info = id_token.verify_oauth2_token(token, req, audience=expected_audience)
+        id_info = id_token.verify_oauth2_token(
+            token, req, audience=config.OIDC_AUDIENCE or None
+        )
 
         if id_info.get('iss') in ['https://accounts.google.com', 'accounts.google.com']:
             email = id_info.get('email', '')

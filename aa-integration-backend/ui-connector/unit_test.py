@@ -455,10 +455,8 @@ class TestRestAPI(unittest.TestCase):
         self.assertFalse(is_valid)
 
     @patch("google.oauth2.id_token.verify_oauth2_token")
-    @patch("jwt.decode")
-    def test_auth_options_check_google_oidc_token_success(self, mock_jwt_decode, mock_verify):
+    def test_auth_options_check_google_oidc_token_success(self, mock_verify):
         import auth_options
-        mock_jwt_decode.return_value = {"aud": "fake_audience"}
         mock_verify.return_value = {
             "iss": "https://accounts.google.com",
             "email": f"fake-sa@{auth_options.config.GCP_PROJECT_ID}.iam.gserviceaccount.com",
