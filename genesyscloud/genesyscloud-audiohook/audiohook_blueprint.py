@@ -19,6 +19,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from threading import Thread
+from typing import Optional, Tuple
 
 import numpy as np
 from flask import Blueprint, request
@@ -281,8 +282,115 @@ def run_audiohook_connection(ws: Server):
         customer_stream.stop()
 
 
-def handle_audiohook_session(ws: Server, agent_stream: Stream,
-                             customer_stream: Stream):
+def _handle_open_message(
+    conversation_id: str,
+    dialogflow_api: DialogflowAPI,
+    agent_stream: Stream,
+    customer_stream: Stream,
+    open_conversation_state: Optional[OpenConversationState],
+    ws: Server,
+    audiohook: AudioHook,
+) -> Optional[OpenConversationState]:
+    """Handles an AudioHook 'open' control message."""
+    if conversation_id == DEFAULT_CONVERSATION_ID:
+        logging.debug("Connection Probe, not creating Dialogflow Conversation")
+        ws.send(json.dumps(audiohook.create_opened_message()))
+        return open_conversation_state
+    if open_conversation_state is not None:
+        return open_conversation_state
+
+    open_conversation_state = process_open_conversation_message(
+        conversation_id,
+        dialogflow_api,
+        agent_stream,
+        customer_stream,
+        ws,
+        audiohook,
+    )
+    logging.debug("open conversation message %s ", repr(open_conversation_state))
+    await_redis_thread = Thread(
+        target=wait_for_redis_resume,
+        args=(open_conversation_state, audiohook, ws),
+        daemon=True,
+    )
+    await_redis_thread.start()
+    return open_conversation_state
+
+
+def _handle_text_message(
+    data: str,
+    dialogflow_api: DialogflowAPI,
+    audiohook: AudioHook,
+    agent_stream: Stream,
+    customer_stream: Stream,
+    open_conversation_state: Optional[OpenConversationState],
+    ws: Server,
+) -> Tuple[Optional[OpenConversationState], bool]:
+    """Parses and dispatches a single JSON control message from AudioHook."""
+    try:
+        json_message = json.loads(data)
+    except ValueError as e:
+        logging.warning(
+            "Not a valid JSON message %s, error details %s ",
+            repr(data),
+            repr(e),
+        )
+        return open_conversation_state, False
+
+    message_type = json_message.get("type")
+    logging.info("Handle %s message %s", repr(message_type), repr(json_message))
+    conversation_id = json_message.get("parameters", {}).get(
+        "conversationId", DEFAULT_CONVERSATION_ID
+    )
+    audiohook.set_session_id(json_message.get("id", 0))
+    audiohook.set_client_sequence(json_message.get("seq"))
+
+    if message_type == "open":
+        open_conversation_state = _handle_open_message(
+            conversation_id,
+            dialogflow_api,
+            agent_stream,
+            customer_stream,
+            open_conversation_state,
+            ws,
+            audiohook,
+        )
+        return open_conversation_state, False
+    if message_type == "ping":
+        ws.send(json.dumps(audiohook.create_pong_message()))
+        return open_conversation_state, False
+    if message_type == "close" and open_conversation_state is None:
+        ws.send(json.dumps(audiohook.create_close_message()))
+        return open_conversation_state, True
+    if open_conversation_state is not None:
+        should_close = process_ongoing_conversation_messages(
+            json_message,
+            dialogflow_api,
+            audiohook,
+            agent_stream,
+            customer_stream,
+            open_conversation_state,
+            ws,
+        )
+        if should_close:
+            logging.info("Disconnecting Audiohook with the server")
+            return open_conversation_state, True
+    return open_conversation_state, False
+
+
+def _handle_audio_frame(
+    data: bytes, customer_stream: Stream, agent_stream: Stream
+):
+    """Splits interleaved 2-channel 8-bit PCMU audio into customer/agent buffers."""
+    array = np.frombuffer(data, dtype=np.int8)
+    reshaped = array.reshape((int(len(array) / 2), 2))
+    customer_stream.fill_buffer(reshaped[:, 0].tobytes())
+    agent_stream.fill_buffer(reshaped[:, 1].tobytes())
+
+
+def handle_audiohook_session(
+    ws: Server, agent_stream: Stream, customer_stream: Stream
+):
     """Receive and process Audiohook messages until the session ends.
 
     Args:
@@ -292,83 +400,21 @@ def handle_audiohook_session(ws: Server, agent_stream: Stream,
     """
     dialogflow_api = DialogflowAPI()
     audiohook = AudioHook()
-    logging.info(
-        "Audiohook client connected with the interceptor server")
+    logging.info("Audiohook client connected with the interceptor server")
     open_conversation_state = None
     while True:
         data = ws.receive()
         if isinstance(data, str):
-            try:
-                json_message = json.loads(data)
-            except ValueError as e:
-                logging.warning(
-                    "Not a valid JSON message %s, error details %s ",
-                    repr(data), repr(e))
-                continue
-            message_type = json_message.get("type")
-            logging.info(
-                "Handle %s message %s", repr(message_type), repr(json_message))
-            conversation_id = json_message.get("parameters", {}).get(
-                "conversationId", DEFAULT_CONVERSATION_ID)
-            audiohook.set_session_id(json_message.get("id", 0))
-            audiohook.set_client_sequence(json_message.get("seq"))
-            if message_type == "open":
-                if conversation_id == DEFAULT_CONVERSATION_ID:
-                    logging.debug(
-                        "Connection Probe, not creating Dialogflow Conversation")
-                    ws.send(json.dumps(audiohook.create_opened_message()))
-                elif conversation_id != DEFAULT_CONVERSATION_ID and open_conversation_state is None:
-                    # Get the first "open" message for real conversation
-                    # open_state contains the agent and user thread for
-                    # calling streaming_analyze_content
-                    # a bool flag indicating if conversation, participants have been initialized
-                    # and the conversation_name for the dialogflow.Conversation object
-                    open_conversation_state = process_open_conversation_message(
-                        conversation_id,
-                        dialogflow_api,
-                        agent_stream,
-                        customer_stream,
-                        ws,
-                        audiohook,
-                    )
-                    logging.debug(
-                        "open conversation message %s ",
-                        repr(open_conversation_state))
-                    # Check if the redis client has join_room called from the
-                    # agent assist backend. Before setting conversation_name in the redis client,
-                    # we should not publish any messages to the redis client
-                    # otherwise e UI modules will not receive pub/subs until redis connects the conversation
-                    await_redis_thread = Thread(target=wait_for_redis_resume, args=(
-                        open_conversation_state, audiohook, ws), daemon=True)
-                    await_redis_thread.start()
-            elif message_type == "ping":
-                ws.send(json.dumps(audiohook.create_pong_message()))
-            elif message_type == "close" and open_conversation_state is None:
-                # This "close" is for a connection prob, we don't need to call dialogflow
-                # to complete conversation and terminate the stream in this case
-                ws.send(json.dumps(audiohook.create_close_message()))
+            open_conversation_state, should_break = _handle_text_message(
+                data,
+                dialogflow_api,
+                audiohook,
+                agent_stream,
+                customer_stream,
+                open_conversation_state,
+                ws,
+            )
+            if should_break:
                 break
-            elif open_conversation_state is not None:
-                # Close websocket connection when receive a "close message"
-                if (process_ongoing_conversation_messages(json_message,
-                                                          dialogflow_api,
-                                                          audiohook,
-                                                          agent_stream,
-                                                          customer_stream,
-                                                          open_conversation_state, ws,
-                                                          )):
-                    logging.info(
-                        "Disconnecting Audiohook with the server")
-                    break
         else:
-            # audio is a 2-channel interleaved 8-bit PCMU audio stream
-            # which is separated into single streams
-            # using numpy
-            # stream the audio to pub/sub
-            array = np.frombuffer(data, dtype=np.int8)
-            reshaped = array.reshape(
-                (int(len(array) / 2), 2))
-            # append audio to customer audio buffer
-            customer_stream.fill_buffer(reshaped[:, 0].tobytes())
-            # append audio to agent audio buffer
-            agent_stream.fill_buffer(reshaped[:, 1].tobytes())
+            _handle_audio_frame(data, customer_stream, agent_stream)

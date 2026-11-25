@@ -57,117 +57,165 @@ def get_conversation_servers_key(conversation_name):
     return f'{conversation_name}:servers'
 
 
-def cloud_pubsub_handler(request, data_type):
-    """Verifies and checks requests from Cloud Pub/Sub."""
-    envelope = request.get_json(silent=True)
+_WARNING_LOG_FMT = 'Warning: %s'
+
+
+def _extract_pubsub_message(envelope):
+    """Validates the Cloud Pub/Sub HTTP envelope and returns its message dict."""
     if not envelope:
-        msg = 'No Pub/Sub message received.'
-        logging.warning('Warning: {}'.format(msg))
-        return True
-
+        logging.warning(_WARNING_LOG_FMT, 'No Pub/Sub message received.')
+        return None
     if not isinstance(envelope, dict) or 'message' not in envelope:
-        msg = 'Invalid Pub/Sub message format.'
-        logging.warning('Warning: {}'.format(msg))
-        return True
-
+        logging.warning(_WARNING_LOG_FMT, 'Invalid Pub/Sub message format.')
+        return None
     pubsub_message = envelope['message']
-    participant_role = ""
-    new_recognition_result_message_id = ''
-
     if not isinstance(pubsub_message, dict):
-        msg = 'Invalid Pub/Sub message, message inside the envelope should be valid JSON format https://cloud.google.com/pubsub/docs/reference/rest/v1/PubsubMessage.'
-        logging.warning('Warning: {}'.format(msg))
-        return True
+        logging.warning(
+            _WARNING_LOG_FMT,
+            'Invalid Pub/Sub message, message inside the envelope should be '
+            'valid JSON format https://cloud.google.com/pubsub/docs/reference/rest/v1/PubsubMessage.',
+        )
+        return None
+    return pubsub_message
 
-    if 'attributes' in pubsub_message:
-        attributes = pubsub_message['attributes']
-        if attributes is not None and isinstance(attributes, dict):
-            if "participant_role" in attributes:
-                participant_role = attributes['participant_role']
-            if "message_id" in attributes:
-                new_recognition_result_message_id = attributes['message_id']
 
-    if 'data' in pubsub_message:
+def _extract_recognition_attributes(pubsub_message):
+    """Extracts participant_role and message_id from Pub/Sub message attributes."""
+    attributes = pubsub_message.get('attributes')
+    if not isinstance(attributes, dict):
+        return '', ''
+    return attributes.get('participant_role', ''), attributes.get('message_id', '')
+
+
+def _publish_conversation_event(
+    conversation_name,
+    data,
+    data_type,
+    pubsub_message,
+    participant_role,
+    new_recognition_result_message_id,
+):
+    """Builds the Redis payload and fans it out to all serving UI Connectors."""
+    msg_data = {
+        'conversation_name': conversation_name,
+        'data': data,
+        'data_type': data_type,
+        # The timestamp when the server receives this message.
+        # It could help with analyzing service time of each part of the backend
+        # infrastructure, which can be used for load testing.
+        'ack_time': datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'publish_time': pubsub_message.get('publishTime', ''),
+        'message_id': pubsub_message.get('messageId', ''),
+    }
+    if data_type == 'new-recognition-result-notification-event':
+        msg_data['participant_role'] = participant_role
+        msg_data['new_recognition_result_message_id'] = new_recognition_result_message_id
+        logging.debug(
+            'participant role %s message id %s for new recognition result',
+            participant_role,
+            new_recognition_result_message_id,
+        )
+
+    server_ids = redis_client.smembers(
+        get_conversation_servers_key(conversation_name)
+    )
+    if not server_ids:
+        logging.warning(
+            'No SERVER_ID (UI Connector instance) for conversation name %s. '
+            'Please subscribe to the conversation by sending join-conversation event.',
+            conversation_name,
+        )
+        return
+
+    # Multiple UI Connector instances can serve one conversation (e.g.
+    # agents on different instances during a transfer); publish to each.
+    msg_json = json.dumps(msg_data)
+    for server_id in server_ids:
+        server = server_id.decode('utf-8')
+        channel = '{}:{}'.format(server, conversation_name)
+        redis_client.publish(channel, msg_json)
+        logging.debug(
+            'Redis publish (message_id: %s, publish_time: %s, conversation_name: %s, channel: %s, data_type: %s.',
+            pubsub_message.get('messageId', ''),
+            pubsub_message.get('publishTime', ''),
+            conversation_name,
+            channel,
+            data_type,
+        )
+
+
+def cloud_pubsub_handler(request, data_type):
+    """Verifies and forwards requests from Cloud Pub/Sub to Redis."""
+    pubsub_message = _extract_pubsub_message(request.get_json(silent=True))
+    if pubsub_message is None:
+        return
+
+    participant_role, new_recognition_result_message_id = (
+        _extract_recognition_attributes(pubsub_message)
+    )
+    if 'data' not in pubsub_message:
+        return
+
+    try:
         data = base64.b64decode(pubsub_message['data']).decode('utf-8')
-        logging.debug('Subscribed Pub/Sub message: {}'.format(data))
+        logging.debug('Subscribed Pub/Sub message: %s', data)
         data_object = json.loads(data)
-        if 'conversation' not in data_object:
-            msg = 'Cannot extract conversation id from Pub/Sub request.'
-            logging.warning('Warning: {}'.format(msg))
-            return True
+    except ValueError as e:
+        logging.warning(
+            _WARNING_LOG_FMT,
+            f'Failed to decode/parse Pub/Sub message data: {e}',
+        )
+        return
+    if not isinstance(data_object, dict) or 'conversation' not in data_object:
+        logging.warning(
+            _WARNING_LOG_FMT,
+            'Cannot extract conversation id from Pub/Sub request.',
+        )
+        return
 
-        conversation_name = data_object['conversation']
-        conversation_name = get_conversation_name_without_location(conversation_name)
-        logging.debug('conversation_name: {0}, conversation_name_without_location: {1}'.format(data_object['conversation'], conversation_name))
-
-        # Emits messages to redis pub/sub
-        msg_data = {'conversation_name': conversation_name,
-                    'data': data,
-                    'data_type': data_type,
-                    # The timestamp when the server receives this message.
-                    # It could help with analyzing service time of each part of the backend
-                    # infrastructure, which can be used for load testing.
-                    'ack_time': datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ'),
-                    'publish_time': pubsub_message['publishTime'],
-                    'message_id': pubsub_message['messageId']}
-        if data_type == 'new-recognition-result-notification-event':
-            msg_data['participant_role'] = participant_role
-            msg_data['new_recognition_result_message_id'] = new_recognition_result_message_id
-            logging.debug('participant role {0} message id {1} for new recognition result'.format(
-                participant_role, new_recognition_result_message_id))
-        server_ids = redis_client.smembers(
-            get_conversation_servers_key(conversation_name))
-        if not server_ids:
-            logging.warning(
-                'No SERVER_ID (UI Connector instance) for conversation name {}. Please subscribe to the conversation by sending join-conversation event.'.format(conversation_name))
-            return True
-
-        # Multiple UI Connector instances can serve one conversation (e.g.
-        # agents on different instances during a transfer); publish to each.
-        msg_json = json.dumps(msg_data)
-        for server_id in server_ids:
-            server = server_id.decode('utf-8')
-            channel = '{}:{}'.format(server, conversation_name)
-            redis_client.publish(channel, msg_json)
-            logging.debug(
-                'Redis publish (message_id: {0}, publish_time: {1}, conversation_name: {2}, channel: {3}, data_type: {4}.'.format(
-                    pubsub_message['messageId'], pubsub_message['publishTime'], conversation_name, channel, data_type))
-    return True
+    conversation_name = get_conversation_name_without_location(
+        data_object['conversation']
+    )
+    logging.debug(
+        'conversation_name: %s, conversation_name_without_location: %s',
+        data_object['conversation'],
+        conversation_name,
+    )
+    _publish_conversation_event(
+        conversation_name,
+        data,
+        data_type,
+        pubsub_message,
+        participant_role,
+        new_recognition_result_message_id,
+    )
 
 
 @app.route('/human-agent-assistant-event', methods=['POST'])
 def subscribe_suggestions():
     """Receives new human agent assist events from pre-configured dialogflow Pub/Sub topic."""
-    if not cloud_pubsub_handler(request, 'human-agent-assistant-event'):
-        return f'Bad Request', 400
-
+    cloud_pubsub_handler(request, 'human-agent-assistant-event')
     return ('Received by cloud run service as a HumanAgentAssistantEvent.', 204)
 
 
 @app.route('/conversation-lifecycle-event', methods=['POST'])
 def subscribe_lifecycle_events():
     """Receives new conversation events from pre-configured dialogflow Pub/Sub topic."""
-    if not cloud_pubsub_handler(request, 'conversation-lifecycle-event'):
-        return f'Bad Request', 400
-
+    cloud_pubsub_handler(request, 'conversation-lifecycle-event')
     return ('Received by cloud run service as a ConversationEvent.', 204)
 
 
 @app.route('/new-message-event', methods=['POST'])
 def subscribe_message_events():
     """Receives new message events from pre-configured dialogflow Pub/Sub topic."""
-    if not cloud_pubsub_handler(request, 'new-message-event'):
-        return f'Bad Request', 400
-
+    cloud_pubsub_handler(request, 'new-message-event')
     return ('Received by cloud run service as a ConversationEvent.', 204)
 
 
 @app.route('/new-recognition-result-notification-event', methods=['POST'])
 def subscribe_new_recognition_result_events():
     """Receives new recognition result events from pre-configured dialogflow Pub/Sub topic."""
-    if not cloud_pubsub_handler(request, 'new-recognition-result-notification-event'):
-        return f'Bad Request', 400
-
+    cloud_pubsub_handler(request, 'new-recognition-result-notification-event')
     return ('Received by cloud run service as a New recognition result notification.', 204)
 
 
