@@ -45,7 +45,7 @@ pyzmq==27.1.0
 requests==2.32.5
 requests-oauthlib==2.0.0
 rsa==4.9.1
-setuptools==80.10.2
+setuptools==83.0.0
 simple-websocket==1.1.0
 typing-extensions==4.15.0
 urllib3==2.6.3
