@@ -76,7 +76,8 @@ export APP_AUTH_OPTION=${APP_AUTH_OPTION:=''}
 
 # TODO: Check the secret key you plan to use.
 # We recommend generating a random hash as the JWT secret key so that it cannot be guessed by attackers.
-export JWT_SECRET_KEY="$(openssl rand -hex 32)"
+JWT_SECRET_KEY="$(openssl rand -hex 32)"
+export JWT_SECRET_KEY
 
 # The region where your resources will be located at.
 export SERVICE_REGION='us-central1'
