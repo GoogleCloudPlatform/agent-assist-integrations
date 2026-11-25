@@ -27,6 +27,7 @@ import {
 import { StringTemplates as AgentAssistStringTemplates } from '../../../flex-hooks/strings/AgentAssist';
 import defaultConfigurationValues from '../../../../../../../flex-config/ui_attributes.common.json';
 import { renderWithProviders } from '../../../../../../test-utils/test-utils';
+import { reduxNamespace } from '../../../../../utils/state';
 
 describe('AgentAssistAdminFeatureSettings', () => {
   describe.skip('When configuration values are stored in the configuration service', () => {
@@ -139,7 +140,18 @@ describe('AgentAssistAdminFeatureSettings', () => {
 
   describe('When the user edits values in admin panel', () => {
     beforeEach(() => {
-      renderWithProviders(<AgentAssistAdminFeatureSettings />);
+      renderWithProviders(<AgentAssistAdminFeatureSettings />, {
+        preloadedState: {
+          [reduxNamespace]: {
+            agentAssistAdmin: {
+              agent_coaching: true,
+              conversation_summary: true,
+              smart_reply: true,
+              knowledge_assist: true,
+            },
+          },
+        } as any,
+      });
     });
 
     it('should be able to toggle agent coaching', async () => {
@@ -178,7 +190,7 @@ describe('AgentAssistAdminFeatureSettings', () => {
   });
 
   it('should pass accessibility test', async () => {
-    const { container } = render(<AgentAssistAdminFeatureSettings />);
+    const { container } = renderWithProviders(<AgentAssistAdminFeatureSettings />);
     expect(await axe(container)).toHaveNoViolations();
   });
 });

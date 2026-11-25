@@ -1,0 +1,152 @@
+name: Platform Connector Tests
+
+on:
+  pull_request:
+    paths:
+      - "aa-integration-backend/platforms/five9/**"
+      - "salesforce/aa-lwc/**"
+      - "twilioflex/flex-template-agent-assist/**"
+      - ".github/workflows/platform-tests.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "aa-integration-backend/platforms/five9/**"
+      - "salesforce/aa-lwc/**"
+      - "twilioflex/flex-template-agent-assist/**"
+      - ".github/workflows/platform-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect Changed Platforms
+    runs-on: ubuntu-latest
+    outputs:
+      five9-grpc: ${{ steps.filter.outputs.five9-grpc }}
+      five9-http: ${{ steps.filter.outputs.five9-http }}
+      salesforce: ${{ steps.filter.outputs.salesforce }}
+      twilioflex: ${{ steps.filter.outputs.twilioflex }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Filter Changed Paths
+        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
+        id: filter
+        with:
+          filters: |
+            five9-grpc:
+              - 'aa-integration-backend/platforms/five9/mediastream-grpc/**'
+              - 'aa-integration-backend/platforms/five9/tests/grpc_integration_test.py'
+              - '.github/workflows/platform-tests.yml'
+            five9-http:
+              - 'aa-integration-backend/platforms/five9/mediastream-http/**'
+              - 'aa-integration-backend/platforms/five9/tests/http_integration_test.py'
+              - '.github/workflows/platform-tests.yml'
+            salesforce:
+              - 'salesforce/aa-lwc/**'
+              - '.github/workflows/platform-tests.yml'
+            twilioflex:
+              - 'twilioflex/flex-template-agent-assist/**'
+              - '.github/workflows/platform-tests.yml'
+
+  test-five9:
+    name: Run Five9 Tests
+    needs: changes
+    if: >-
+      needs.changes.outputs.five9-grpc == 'true' ||
+      needs.changes.outputs.five9-http == 'true' ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Run Five9 MediaStream gRPC Unit & Integration Tests
+        if: needs.changes.outputs.five9-grpc == 'true' || github.event_name == 'workflow_dispatch'
+        env:
+          PROJECT_ID: test-project
+        run: |
+          python -m venv /tmp/venv-five9-grpc
+          /tmp/venv-five9-grpc/bin/pip install --upgrade pip
+          /tmp/venv-five9-grpc/bin/pip install -r aa-integration-backend/platforms/five9/mediastream-grpc/requirements.txt pytest pytest-asyncio
+          PYTHONPATH=aa-integration-backend/platforms/five9/mediastream-grpc \
+            /tmp/venv-five9-grpc/bin/pytest -v \
+            aa-integration-backend/platforms/five9/mediastream-grpc/test/
+          /tmp/venv-five9-grpc/bin/pytest -v \
+            aa-integration-backend/platforms/five9/tests/grpc_integration_test.py
+          rm -rf /tmp/venv-five9-grpc
+
+      - name: Run Five9 MediaStream HTTP Real-Protocol Integration Tests
+        if: needs.changes.outputs.five9-http == 'true' || github.event_name == 'workflow_dispatch'
+        run: |
+          python -m venv /tmp/venv-five9-http
+          /tmp/venv-five9-http/bin/pip install --upgrade pip
+          /tmp/venv-five9-http/bin/pip install -r aa-integration-backend/platforms/five9/mediastream-http/requirements.txt pytest
+          /tmp/venv-five9-http/bin/pytest -v aa-integration-backend/platforms/five9/tests/http_integration_test.py
+          rm -rf /tmp/venv-five9-http
+
+  test-salesforce-lwc:
+    name: Run Salesforce LWC Unit Tests
+    needs: changes
+    if: needs.changes.outputs.salesforce == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: salesforce/aa-lwc
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run LWC Jest Unit Tests
+        run: npm test
+
+  test-twilioflex:
+    name: Run Twilio Flex Tests
+    needs: changes
+    if: needs.changes.outputs.twilioflex == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: twilioflex/flex-template-agent-assist
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "18"
+
+      - name: Install Dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Run Twilio Flex Jest Unit Tests
+        run: npm test
