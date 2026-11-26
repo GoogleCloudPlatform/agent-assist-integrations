@@ -170,7 +170,8 @@ export GENESYS_CLOUD_ENVIRONMENT="usw2.pure.cloud"
 export GENESYS_OAUTH_CLIENT_ID="<your-genesys-oauth-client-id>"
 export GENESYS_OAUTH_CLIENT_SECRET="<your-genesys-oauth-client-secret>"
 export AUDIOHOOK_CREDENTIAL_ID="<your-audiohook-credential-id>"
-export AUDIOHOOK_API_KEY="<your-audiohook-shared-api-key>"
+export AUDIOHOOK_API_KEY="<your-audiohook-shared-api-key>" # Required unless CLIENT_SECRET is set
+export OIDC_AUDIENCE="https://<your-ui-connector-host>" # Optional: expected aud claim for OIDC service auth
 
 # ==========================================
 # Salesforce Configuration
@@ -183,7 +184,10 @@ export SF_CONNECTED_APP_CONSUMER_SECRET="<your-connected-app-client-secret>"
 ```
 
 > [!NOTE]
-> **Fail-Closed Auth & Hostname Validation (`ui-connector`):** Auth configuration variables (`SALESFORCE_ORGANIZATION_ID`, `TWILIO_FLEX_ENVIRONMENT`, `TWILIO_ACCOUNT_SID`, `FIVE9_TRUST_TOKEN`) have no placeholder defaults and fail closed if left unset. Configured hostnames (`SALESFORCE_DOMAIN`, `GENESYS_CLOUD_REGION`, `TWILIO_FLEX_ENVIRONMENT`) must be plain hostnames without schemes (`https://`) or path segments.
+> **Fail-Closed Auth, Hostname Validation & VPC Defaults (`ui-connector` & `genesyscloud-audiohook`):**
+> * **`genesyscloud-audiohook`:** WebSocket `/connect` fails closed with close code `1008 (Policy Violation)` unless at least one of `API_KEY` (`AUDIOHOOK_API_KEY`) or `CLIENT_SECRET` (`AUDIOHOOK_CLIENT_SECRET`) is configured.
+> * **`ui-connector`:** Fails closed on startup if neither `/secret/jwt_secret_key` (`JWT_SECRET_KEY_PATH`) nor `JWT_SECRET_KEY` is configured (`deploy.sh` generates one via `openssl rand -hex 32`). `SALESFORCE_ORGANIZATION_ID` fails closed if unset (when using Salesforce auth), `GENESYS_CLOUD_ORGANIZATION_ID` stays optional (opt-in org check), and `SALESFORCE_DOMAIN` / `GENESYS_CLOUD_REGION` must be plain hostnames without `https://` or path segments. If `OIDC_AUDIENCE` is set, service-to-service OIDC callers must present tokens with that matching audience.
+> * **VPC mode (`aa-integration-backend/deploy.sh`):** Uses Cloud Run Direct Egress by default unless `VPC_CONNECTOR_NAME` is set in `.env`.
 
 ---
 
@@ -345,7 +349,7 @@ The AudioHook Interceptor receives dual-channel WebSockets from Genesys Cloud, s
 1. **Configure Environment**:
    ```bash
    cd genesyscloud/genesyscloud-audiohook
-   cp .env.example .env
+   cp .env.sample .env
    ```
 
 2. **Deploy to Cloud Run**:
