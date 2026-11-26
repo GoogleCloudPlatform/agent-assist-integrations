@@ -16,7 +16,6 @@
 """
 
 import base64
-import binascii
 import hashlib
 import hmac
 import logging
@@ -49,7 +48,7 @@ def decode_secret(secret: str) -> bytes:
         return b''
     try:
         return base64.b64decode(secret, validate=True)
-    except (binascii.Error, ValueError):
+    except ValueError:
         return secret.encode('utf-8')
 
 

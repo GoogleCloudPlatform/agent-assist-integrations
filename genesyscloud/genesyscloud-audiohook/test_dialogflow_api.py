@@ -73,7 +73,7 @@ class TestDialogflowAPI(unittest.TestCase):
         dialogflow_api.store_conversation_mapping('fake_integration_key', 'fake_conversation_name')
 
         mock_post.assert_called_once()
-        args, kwargs = mock_post.call_args
+        _, kwargs = mock_post.call_args
         self.assertEqual(kwargs['json'], {
             'conversationIntegrationKey': 'fake_integration_key',
             'conversationName': 'fake_conversation_name'
@@ -142,7 +142,7 @@ class TestDialogflowAPI(unittest.TestCase):
         dialogflow_api.store_conversation_mapping('fake_key', 'fake_name')
         mock_warning.assert_called()
         mock_post.assert_called_once()
-        args, kwargs = mock_post.call_args
+        _, kwargs = mock_post.call_args
         # Should proceed without Authorization header if token fetch fails
         self.assertNotIn('Authorization', kwargs['headers'])
 
