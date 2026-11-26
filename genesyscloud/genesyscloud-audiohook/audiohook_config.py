@@ -14,16 +14,49 @@
 
 """Module used for managing all environmental variables
 """
+import json
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
 # # Comment out for local dev
 # from dotenv import load_dotenv
 # load_dotenv()  # Load environment variables from .env file
+
+# Queue / DNIS to Business Unit (LOB) & ConversationProfile Mapping.
+# Set the QUEUE_CONFIG_JSON environment variable to map queueIds, LOB keys, or
+# trailing 8-digit DNIS suffixes to {"lob": "...", "conversation_profile": "..."}.
+DEFAULT_QUEUE_CONFIG = {
+    "default": {
+        "lob": os.environ.get("DEFAULT_LOB", "default"),
+        "conversation_profile": os.environ.get("CONVERSATION_PROFILE_NAME"),
+    },
+}
+
+
+def parse_queue_config() -> Dict[str, Any]:
+    """Parses QUEUE_CONFIG_JSON from environment or returns DEFAULT_QUEUE_CONFIG.
+    If QUEUE_CONFIG_JSON does not define a "default" entry, the "default" entry
+    from DEFAULT_QUEUE_CONFIG (DEFAULT_LOB / CONVERSATION_PROFILE_NAME) is added.
+    """
+    raw_json = os.environ.get("QUEUE_CONFIG_JSON")
+    if raw_json:
+        try:
+            parsed = json.loads(raw_json)
+            if not isinstance(parsed, dict):
+                raise ValueError("QUEUE_CONFIG_JSON must be a JSON object")
+            parsed = {str(k).strip(): v for k, v in parsed.items()}
+            parsed.setdefault("default", DEFAULT_QUEUE_CONFIG["default"])
+            logger.info("Loaded QUEUE_CONFIG_JSON keys: %s", list(parsed.keys()))
+            return parsed
+        except Exception as e:
+            logger.error(
+                "Failed to parse QUEUE_CONFIG_JSON, falling back to defaults: %s", e
+            )
+    return DEFAULT_QUEUE_CONFIG
 
 
 @dataclass
@@ -35,6 +68,12 @@ class AudiohookConfig:
     ui_connector_endpoint: str
     redis_host: str
     redis_port: Optional[int]
+    redis_tls_enabled: bool = field(default=False)
+    redis_ca_cert_path: str = field(default='/secret/redis_ca_cert.pem')
+    redis_ca_cert_pem: str = field(default='')
+    datastore_id: Optional[str] = field(default=None)
+    datastore_location: Optional[str] = field(default=None)
+    language_code: str = field(default="ja")
     api_key: Optional[str] = field(default=None)
     client_secret: Optional[str] = field(default=None)
     log_level: str = field(default='INFO')
@@ -42,6 +81,7 @@ class AudiohookConfig:
     rate: int = field(default=8000)
     chunk_size: int = field(default=1600)
     max_lookback: int = field(default=3)
+    queue_config: Dict[str, Any] = field(default_factory=parse_queue_config)
 
     def __post_init__(self):
         """The os.environ can possibly return NONE value, need a post process to handle missing values"""
@@ -84,5 +124,17 @@ config = AudiohookConfig(
     ui_connector_endpoint=os.environ.get("UI_CONNECTOR"),
     redis_host=os.environ.get('REDISHOST'),
     redis_port=int(redis_port_env) if redis_port_env is not None else None,
-    log_level=os.environ.get('LOG_LEVEL', 'INFO')
+    redis_tls_enabled=os.environ.get('REDIS_TLS_ENABLED', '').strip().lower() in (
+        'true',
+        '1',
+        'yes',
+    ),
+    redis_ca_cert_path=os.environ.get(
+        'REDIS_CA_CERT_PATH', '/secret/redis_ca_cert.pem'
+    ),
+    redis_ca_cert_pem=os.environ.get('REDIS_CA_CERT_PEM', ''),
+    log_level=os.environ.get('LOG_LEVEL', 'INFO'),
+    datastore_id=os.environ.get("DATASTORE_ID"),
+    datastore_location=os.environ.get("DATASTORE_LOCATION"),
+    language_code=os.environ.get("LANGUAGE_CODE", "ja"),
 )

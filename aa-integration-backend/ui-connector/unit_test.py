@@ -24,19 +24,20 @@ import hmac
 import json
 import jwt
 import os
+import secrets
 import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
-os.environ.setdefault("GCP_PROJECT_ID", "fake_project_id")
+sys.path.append(os.path.dirname(os.path.realpath(__file__)))
+_SERVER_ID = "fake_server_id"
+_PROJECT_ID = "fake_project_id"
+_LOCATION = "global"
+_TEST_JWT_TOKEN_MATERIAL = secrets.token_urlsafe(24)
+
+os.environ.setdefault("GCP_PROJECT_ID", _PROJECT_ID)
 os.environ.setdefault("LOGGING_FILE", "/tmp/test.log")
-os.environ.setdefault("JWT_SECRET_KEY_PATH", "/tmp/jwt_secret_key")
-os.environ.setdefault("JWT_SECRET_KEY", "fake_jwt_secret_key_32_bytes_len!")
-try:
-    with open("/tmp/jwt_secret_key", "w", encoding="utf-8") as _f:
-        _f.write("fake_jwt_secret_key_32_bytes_len!")
-except Exception:
-    pass
+os.environ["JWT_SECRET_KEY"] = _TEST_JWT_TOKEN_MATERIAL
 
 # Mock redis library before importing main to prevent actual connections during unit tests
 mock_redis = MagicMock()
@@ -46,17 +47,13 @@ sys.modules["redis"] = mock_redis
 
 import google.auth
 
-google.auth.default = MagicMock(return_value=(MagicMock(), "fake_project_id"))
+google.auth.default = MagicMock(return_value=(MagicMock(), _PROJECT_ID))
 
 import auth
 import dialogflow
 import main
 from main import app, redis_pubsub_handler, socketio
 import webchannel  # pylint: disable=unused-import
-
-_SERVER_ID = "fake_server_id"
-_PROJECT_ID = "fake_project_id"
-_LOCATION = "global"
 
 
 def get_conversation_profile_name(conversation_profile_id):
@@ -487,6 +484,51 @@ class TestRestAPI(unittest.TestCase):
     def tearDown(self):
         pass
 
+    @patch("google.oauth2.id_token.verify_oauth2_token")
+    @patch("jwt.decode")
+    def test_check_jwt_valid_oidc(self, mock_jwt_decode, mock_verify):
+        mock_jwt_decode.return_value = {"aud": "fake_audience"}
+        mock_verify.return_value = {
+            "iss": "https://accounts.google.com",
+            "email": f"fake-sa@{auth.config.GCP_PROJECT_ID}.iam.gserviceaccount.com",
+        }
+        is_valid, msg = auth.check_jwt("Bearer fake_oidc_token")
+        self.assertTrue(is_valid)
+        self.assertEqual(msg, "Your Google ID token is valid.")
+
+    @patch("google.oauth2.id_token.verify_oauth2_token")
+    @patch("jwt.decode")
+    def test_check_jwt_oidc_unauthorized_email(self, mock_jwt_decode, mock_verify):
+        mock_jwt_decode.return_value = {"aud": "fake_audience"}
+        mock_verify.return_value = {
+            "iss": "https://accounts.google.com",
+            "email": "unauthorized-sa@other-project.iam.gserviceaccount.com",
+        }
+        is_valid, _ = auth.check_jwt("Bearer fake_oidc_token")
+        self.assertFalse(is_valid)
+
+    @patch("google.oauth2.id_token.verify_oauth2_token")
+    @patch("jwt.decode")
+    def test_check_jwt_oidc_wrong_issuer(self, mock_jwt_decode, mock_verify):
+        mock_jwt_decode.return_value = {"aud": "fake_audience"}
+        mock_verify.return_value = {
+            "iss": "https://untrusted-issuer.com",
+            "email": f"fake-sa@{auth.config.GCP_PROJECT_ID}.iam.gserviceaccount.com",
+        }
+        is_valid, _ = auth.check_jwt("Bearer fake_oidc_token")
+        self.assertFalse(is_valid)
+
+    @patch("google.oauth2.id_token.verify_oauth2_token")
+    def test_auth_options_check_google_oidc_token_success(self, mock_verify):
+        import auth_options
+        mock_verify.return_value = {
+            "iss": "https://accounts.google.com",
+            "email": f"fake-sa@{auth_options.config.GCP_PROJECT_ID}.iam.gserviceaccount.com",
+        }
+        is_valid, msg = auth_options.check_google_oidc_token("Bearer fake_oidc_token")
+        self.assertTrue(is_valid)
+        self.assertEqual(msg, "Your Google ID token is valid.")
+
     def test_register_jwt_auth_unset(self):
         client = app.test_client()
         response = client.post("/register",
@@ -561,6 +603,20 @@ class TestRestAPI(unittest.TestCase):
         self.assertIn("startTime", json_data)
         self.assertIn("conversationStage", json_data)
 
+    def test_dialogflow_list_participants(self):
+        """Lists participants with valid JWT."""
+        client = app.test_client()
+        list_participants_response = self.FakeListAnswerRecordResponse(
+            self.answer_record, self.header)
+        with patch("dialogflow.get_dialogflow", return_value=list_participants_response):
+            response = client.get(
+                f"/v2beta1/projects/{_PROJECT_ID}/locations/{_LOCATION}/conversations/{self.conversation_id}/participants",
+                headers={"Authorization": self.valid_jwt},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.headers["Content-Type"], "application/json; charset=UTF-8")
+
     def test_dialogflow_update_answerrecord(self):
         """Updates an answer record with valid JWT."""
         client = app.test_client()
@@ -620,6 +676,29 @@ class TestRestAPI(unittest.TestCase):
         self.assertIn(b"Not Found", response.data)
         self.assertEqual(response.headers["Content-Type"],
                          "text/html; charset=utf-8")
+        method_resp = client.delete(
+            f"/v2beta1/projects/{_PROJECT_ID}/locations/{_LOCATION}/conversationProfiles/{self.conversation_profile_id}"
+        )
+        self.assertEqual(method_resp.status_code, 405)
+
+    def test_socketio_join_leave_validation_and_multi_agent(self):
+        """Rejects invalid conversation names and non-member leave while allowing multi-agent join."""
+        c1 = socketio.test_client(app, auth={"token": self.valid_jwt})
+        c2 = socketio.test_client(app, auth={"token": self.valid_jwt})
+        ack_bad, msg_bad = c1.emit("join-conversation", "invalid/key:servers", callback=True)
+        self.assertFalse(ack_bad)
+        self.assertEqual(msg_bad, "invalid conversation name")
+
+        conv = get_conversation_name("conv_shared_1")
+        ack_1, _ = c1.emit("join-conversation", conv, callback=True)
+        self.assertTrue(ack_1)
+        ack_leave_2, msg_leave_2 = c2.emit("leave-conversation", conv, callback=True)
+        self.assertFalse(ack_leave_2)
+        self.assertEqual(msg_leave_2, "not authorized for this conversation")
+        ack_2, _ = c2.emit("join-conversation", conv, callback=True)
+        self.assertTrue(ack_2)
+        c1.disconnect()
+        c2.disconnect()
 
     @patch("main.redis_client.set", return_value=True)
     def test_set_conversation_name_success(self, mock_redis_set):
@@ -803,13 +882,14 @@ class TestRestAPI(unittest.TestCase):
 
     def test_forged_jwt_fails_verification(self):
         """Rejects forged tokens signed with wrong secret."""
+        forged_secret = secrets.token_urlsafe(24)
         forged = jwt.encode(
             {
                 "exp": datetime.now(timezone.utc) + timedelta(minutes=60),
                 "gcp_agent_assist_project": _PROJECT_ID,
                 "gcp_agent_assist_user": "attacker",
             },
-            "unauthorized_secret_key_32_chars_long!!",
+            forged_secret,
             algorithm="HS256",
         )
         is_valid, msg = auth.check_jwt(forged)
@@ -839,17 +919,17 @@ class TestRestAPI(unittest.TestCase):
 
     def test_load_jwt_secret_key_empty_file_falls_back(self):
         """Falls back safely if secret key file exists but contains only whitespace or is empty."""
+        fallback_secret = secrets.token_urlsafe(24)
         with patch.object(auth, "jwt_secret_key", ""):
             with patch("os.path.exists", return_value=True):
                 with patch("builtins.open",
                            unittest.mock.mock_open(read_data="   \n")):
                     with patch.dict(
                             os.environ,
-                        {"JWT_SECRET_KEY": "env-fallback-secret-key-32bytes!"},
+                        {"JWT_SECRET_KEY": fallback_secret},
                     ):
                         key = auth.load_jwt_secret_key()
-                        self.assertEqual(key,
-                                         "env-fallback-secret-key-32bytes!")
+                        self.assertEqual(key, fallback_secret)
 
     def test_dialogflow_invalid_location(self):
         """Rejects locations that would change the Dialogflow host."""
@@ -918,6 +998,226 @@ class TestRestAPI(unittest.TestCase):
             self.assertFalse(
                 auth.auth_options.check_genesyscloud_token("fake-token"))
 
+        # Verify TLS and timeout flags are explicitly enforced
+        _, kwargs = mock_get.call_args
+        self.assertTrue(kwargs.get("verify"))
+        self.assertEqual(kwargs.get("timeout"), 10)
+
+        # Invalid region fails closed without making an outbound request
+        mock_get.reset_mock()
+        with patch.object(main.config, "GENESYS_CLOUD_REGION",
+                          "evil.example/path"):
+            self.assertFalse(
+                auth.auth_options.check_genesyscloud_token("fake-token"))
+        mock_get.assert_not_called()
+
+    @patch("auth.requests.get")
+    def test_check_app_auth_twilio(self, mock_get):
+        """Validates Twilio app auth fails closed on bad config/inputs and enforces HTTPS."""
+        runtime_sid = f"AC{secrets.token_hex(16)}"
+        runtime_secret = secrets.token_hex(16)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"sid": runtime_sid}
+        mock_get.return_value = mock_resp
+
+        with patch.object(main.config, "APP_AUTH_OPTION", "Twilio"):
+            # Unconfigured TWILIO_ACCOUNT_SID fails closed
+            with patch.object(main.config, "TWILIO_ACCOUNT_SID", ""):
+                self.assertFalse(
+                    auth.check_app_auth({
+                        "accountSid": runtime_sid,
+                        "authToken": runtime_secret,
+                    }))
+            mock_get.assert_not_called()
+
+            # Invalid SID format fails closed
+            with patch.object(main.config, "TWILIO_ACCOUNT_SID", "../evil"):
+                self.assertFalse(
+                    auth.check_app_auth({
+                        "accountSid": runtime_sid,
+                        "authToken": runtime_secret,
+                    }))
+            mock_get.assert_not_called()
+
+            # Missing runtime credentials fail closed
+            with patch.object(main.config, "TWILIO_ACCOUNT_SID", runtime_sid):
+                self.assertFalse(auth.check_app_auth({"accountSid": runtime_sid}))
+                self.assertFalse(auth.check_app_auth({"authToken": runtime_secret}))
+                mock_get.assert_not_called()
+
+                # Valid runtime credentials succeed with explicit verify=True and timeout=10
+                self.assertTrue(
+                    auth.check_app_auth({
+                        "accountSid": runtime_sid,
+                        "authToken": runtime_secret,
+                    }))
+                mock_get.assert_called_once()
+                url = mock_get.call_args.args[0]
+                kwargs = mock_get.call_args.kwargs
+                self.assertEqual(
+                    url,
+                    f"https://api.twilio.com/2010-04-01/Accounts/{runtime_sid}.json",
+                )
+                self.assertTrue(kwargs.get("verify"))
+                self.assertEqual(kwargs.get("timeout"), 10)
+
+    @patch("auth_options.requests.get")
+    def test_check_salesforce_token_validation_and_tls(self, mock_get):
+        """Validates Salesforce token checks require org ID, valid host, and TLS verify."""
+        runtime_token = secrets.token_hex(16)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "user_id": "sf-user-1",
+            "organization_id": "00D000000000001",
+        }
+        mock_get.return_value = mock_resp
+
+        # Unconfigured org ID fails closed
+        with patch.object(main.config, "SALESFORCE_ORGANIZATION_ID", ""):
+            self.assertFalse(
+                auth.auth_options.check_salesforce_token(runtime_token))
+        mock_get.assert_not_called()
+
+        # Invalid domain fails closed
+        with patch.object(main.config, "SALESFORCE_ORGANIZATION_ID",
+                          "00D000000000001"), \
+             patch.object(main.config, "SALESFORCE_DOMAIN",
+                          "evil.example/userinfo"):
+            self.assertFalse(
+                auth.auth_options.check_salesforce_token(runtime_token))
+        mock_get.assert_not_called()
+
+        # Valid config succeeds with verify=True and timeout=10
+        with patch.object(main.config, "SALESFORCE_ORGANIZATION_ID",
+                          "00D000000000001"), \
+             patch.object(main.config, "SALESFORCE_DOMAIN",
+                          "login.salesforce.com"):
+            self.assertTrue(
+                auth.auth_options.check_salesforce_token(runtime_token))
+        mock_get.assert_called_once_with(
+            "https://login.salesforce.com/services/oauth2/userinfo",
+            headers={"Authorization": f"Bearer {runtime_token}"},
+            timeout=10,
+            verify=True,
+        )
+
+    @patch("auth_options.requests.get")
+    def test_check_salesforce_lwc_token_uses_bearer_header(self, mock_get):
+        """Verifies Salesforce LWC auth sends token in Authorization header, not URL query."""
+        runtime_token = secrets.token_hex(16)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "user_id": "sf-user-2",
+            "organization_id": "00D000000000002",
+        }
+        mock_get.return_value = mock_resp
+
+        with patch.object(main.config, "SALESFORCE_ORGANIZATION_ID", ""):
+            self.assertFalse(
+                auth.auth_options.check_salesforce_lwc_token(
+                    f"Bearer {runtime_token}"))
+        mock_get.assert_not_called()
+
+        with patch.object(main.config, "SALESFORCE_ORGANIZATION_ID",
+                          "00D000000000002"), \
+             patch.object(main.config, "SALESFORCE_DOMAIN",
+                          "myorg.my.salesforce.com"):
+            self.assertTrue(
+                auth.auth_options.check_salesforce_lwc_token(
+                    f"Bearer {runtime_token}"))
+        mock_get.assert_called_once_with(
+            "https://myorg.my.salesforce.com/services/oauth2/userinfo",
+            headers={"Authorization": f"Bearer {runtime_token}"},
+            timeout=10,
+            verify=True,
+        )
+
+    @patch("auth_options.requests.post")
+    def test_check_twilio_token_validation_and_tls(self, mock_post):
+        """Validates Twilio Flex token check requires valid host and enforces TLS verify."""
+        runtime_token = secrets.token_hex(16)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_post.return_value = mock_resp
+
+        with patch.object(main.config, "TWILIO_FLEX_ENVIRONMENT", ""):
+            self.assertFalse(
+                auth.auth_options.check_twilio_token(runtime_token))
+        mock_post.assert_not_called()
+
+        with patch.object(main.config, "TWILIO_FLEX_ENVIRONMENT",
+                          "example-1234.twil.io"):
+            self.assertTrue(
+                auth.auth_options.check_twilio_token(runtime_token))
+        mock_post.assert_called_once_with(
+            "https://example-1234.twil.io/verify",
+            json={"Token": runtime_token},
+            timeout=10,
+            verify=True,
+        )
+
+    def test_check_five9_token_fails_closed_when_unconfigured(self):
+        """Validates Five9 trust token fails closed when unset and uses exact match."""
+        runtime_token = secrets.token_hex(16)
+        with patch.object(main.config, "FIVE9_TRUST_TOKEN", ""):
+            self.assertFalse(
+                auth.auth_options.check_five9_token(f"Bearer {runtime_token}"))
+
+        with patch.object(main.config, "FIVE9_TRUST_TOKEN", runtime_token):
+            self.assertTrue(
+                auth.auth_options.check_five9_token(f"Bearer {runtime_token}"))
+            self.assertFalse(
+                auth.auth_options.check_five9_token(
+                    f"Bearer {secrets.token_hex(16)}"))
+
+    def test_get_redis_tls_kwargs_progressive_upgrade(self):
+        """Verifies Redis TLS is opt-in and enforces TLS 1.2+ with CA verification."""
+        import ssl
+        import tempfile
+
+        # Disabled by default -> no TLS kwargs
+        self.assertEqual(
+            main.get_redis_tls_kwargs(False, "/secret/redis_ca_cert.pem", ""),
+            {},
+        )
+
+        # Enabled with mounted CA file -> uses ssl_ca_certs and TLS 1.2+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".pem") as ca_file:
+            ca_file.write("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n")
+            ca_file.flush()
+            kwargs = main.get_redis_tls_kwargs(True, ca_file.name, "")
+            self.assertEqual(
+                kwargs,
+                {
+                    "ssl": True,
+                    "ssl_cert_reqs": "required",
+                    "ssl_min_version": ssl.TLSVersion.TLSv1_2,
+                    "ssl_ca_certs": ca_file.name,
+                },
+            )
+
+        # Enabled with PEM env var fallback -> normalizes escaped newlines into ssl_ca_data
+        kwargs = main.get_redis_tls_kwargs(
+            True,
+            "/nonexistent/redis_ca_cert.pem",
+            "-----BEGIN CERTIFICATE-----\\nFAKE\\n-----END CERTIFICATE-----",
+        )
+        self.assertEqual(
+            kwargs,
+            {
+                "ssl": True,
+                "ssl_cert_reqs": "required",
+                "ssl_min_version": ssl.TLSVersion.TLSv1_2,
+                "ssl_ca_data": "-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----",
+            },
+        )
+
+        # Enabled without CA cert file or PEM -> fails closed
+        with self.assertRaises(ValueError):
+            main.get_redis_tls_kwargs(True, "/nonexistent/redis_ca_cert.pem", "")
 
 class TestDialogflowModule(unittest.TestCase):
     """Unit tests for dialogflow.py helper functions and session handling."""

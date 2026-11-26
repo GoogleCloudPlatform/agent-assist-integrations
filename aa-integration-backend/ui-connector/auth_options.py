@@ -12,21 +12,45 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import re
-import requests
+import hmac
 import logging
+import re
+
 import config
-from urllib.parse import urlencode
+import requests
+
+_BEARER_PREFIX = "Bearer "
+_TOKEN_VERIFY_FAILED_LOG = "Failed to verify the access token, %s, %s."
+_HOSTNAME_REGEX = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$")
+
+
+def _is_valid_hostname(host):
+    """Validates that a configured hostname contains no scheme, path, or injection characters."""
+    return (
+        isinstance(host, str)
+        and bool(_HOSTNAME_REGEX.fullmatch(host))
+        and ".." not in host
+    )
 
 
 def check_salesforce_token(token):
     """Verifies the access token using Salesforce OpenID Connect.
     Reference: https://help.salesforce.com/s/articleView?id=sf.remoteaccess_using_userinfo_endpoint.htm
     """
-    request_headers = {"Authorization": "Bearer " + token}
+    if not config.SALESFORCE_ORGANIZATION_ID:
+        logging.error("SALESFORCE_ORGANIZATION_ID is not set. Auth will fail.")
+        return False
+    if not _is_valid_hostname(config.SALESFORCE_DOMAIN):
+        logging.error("SALESFORCE_DOMAIN is invalid. Auth will fail.")
+        return False
+    request_headers = {"Authorization": _BEARER_PREFIX + token}
     # Get the user info.
-    user_info_url = f"https://{config.SALESFORCE_DOMAIN}/services/oauth2/userinfo"
-    user_info_resp = requests.get(user_info_url, headers=request_headers)
+    user_info_resp = requests.get(
+        f"https://{config.SALESFORCE_DOMAIN}/services/oauth2/userinfo",
+        headers=request_headers,
+        timeout=10,
+        verify=True,
+    )
     # Check response.
     if user_info_resp.status_code == 200:
         user_info = user_info_resp.json()
@@ -41,7 +65,7 @@ def check_salesforce_token(token):
             )
     else:
         logging.warning(
-            "Failed to verify the access token, %s, %s.",
+            _TOKEN_VERIFY_FAILED_LOG,
             repr(user_info_resp.status_code),
             repr(user_info_resp.reason),
         )
@@ -68,14 +92,24 @@ def check_salesforce_lwc_token(token):
     Reference: https://help.salesforce.com/s/articleView?id=sf.remoteaccess_oauth_client_credentials_flow.htm&type=5
 
     """
-    access_token = re.sub(r"Bearer ", "", token, re.IGNORECASE)
+    if token.lower().startswith(_BEARER_PREFIX.lower()):
+        access_token = token[len(_BEARER_PREFIX):]
+    else:
+        access_token = token
     if config.SALESFORCE_DOMAIN == "login.salesforce.com":
         logging.error("SALESFORCE_DOMAIN is not set. Auth will fail.")
-    if config.SALESFORCE_ORGANIZATION_ID == "YOUR_ORGANIZATION_ID":
+    if not config.SALESFORCE_ORGANIZATION_ID:
         logging.error("SALESFORCE_ORGANIZATION_ID is not set. Auth will fail.")
+        return False
+    if not _is_valid_hostname(config.SALESFORCE_DOMAIN):
+        logging.error("SALESFORCE_DOMAIN is invalid. Auth will fail.")
+        return False
+    request_headers = {"Authorization": f"Bearer {access_token}"}
     user_info_resp = requests.get(
-        f"https://{config.SALESFORCE_DOMAIN}/services/oauth2/userinfo?"
-        + urlencode({"access_token": access_token})
+        f"https://{config.SALESFORCE_DOMAIN}/services/oauth2/userinfo",
+        headers=request_headers,
+        timeout=10,
+        verify=True,
     )
     if user_info_resp.status_code == 200:
         user_info = user_info_resp.json()
@@ -95,6 +129,7 @@ def check_salesforce_lwc_token(token):
             repr(user_info_resp.status_code),
             repr(user_info_resp.reason),
         )
+    return False
 
 
 def check_genesyscloud_token(token):
@@ -119,12 +154,16 @@ def check_genesyscloud_token(token):
     Reference: https://developer.genesys.cloud/devapps/api-explorer#get-api-v2-users-me
 
     """
+    if not _is_valid_hostname(config.GENESYS_CLOUD_REGION):
+        logging.error("GENESYS_CLOUD_REGION is invalid. Auth will fail.")
+        return False
     # Prepare for GET /api/v2/users/me request.
-    request_headers = {"Authorization": "Bearer " + token}
+    request_headers = {"Authorization": _BEARER_PREFIX + token}
     response = requests.get(
         f"https://api.{config.GENESYS_CLOUD_REGION}/api/v2/users/me?expand=organization",
         headers=request_headers,
         timeout=10,
+        verify=True,
     )
     # Check response.
     if response.status_code == 200:
@@ -146,7 +185,7 @@ def check_genesyscloud_token(token):
             )
     else:
         logging.warning(
-            "Failed to verify the access token, %s, %s.",
+            _TOKEN_VERIFY_FAILED_LOG,
             repr(response.status_code),
             repr(response.reason),
         )
@@ -171,19 +210,26 @@ def check_twilio_token(token):
          https://www.twilio.com/docs/flex/developer/ui/add-components-flex-ui
 
     """
+    if not _is_valid_hostname(config.TWILIO_FLEX_ENVIRONMENT):
+        logging.error("TWILIO_FLEX_ENVIRONMENT is not configured or invalid. Auth will fail.")
+        return False
     body = {"Token": token}
     response = requests.post(
-        f"https://{config.TWILIO_FLEX_ENVIRONMENT}/verify", json=body
+        f"https://{config.TWILIO_FLEX_ENVIRONMENT}/verify",
+        json=body,
+        timeout=10,
+        verify=True,
     )
     # If the endpoint return 200 then the token was validated
     if response.status_code == 200:
         return True
     else:
         logging.warning(
-            "Failed to verify the access token, %s, %s.",
+            _TOKEN_VERIFY_FAILED_LOG,
             repr(response.status_code),
             repr(response.reason),
         )
+    return False
 
 
 def check_five9_token(token):
@@ -191,7 +237,10 @@ def check_five9_token(token):
     Verifies the internal shared secret (FIVE9_TRUST_TOKEN) sent in the Authorization header.
     Expects: 'Bearer <FIVE9_TRUST_TOKEN>'
     """
-    if not token or not token.startswith("Bearer "):
+    if not config.FIVE9_TRUST_TOKEN:
+        logging.error("FIVE9_TRUST_TOKEN is not configured. Auth will fail.")
+        return False
+    if not token or not token.startswith(_BEARER_PREFIX):
         logging.warning("Missing or malformed Authorization header.")
         return False
 
@@ -199,8 +248,8 @@ def check_five9_token(token):
     token = token.split(" ")[1]
 
     try:
-        # Secure string comparison
-        if token == config.FIVE9_TRUST_TOKEN:
+        # Secure constant-time string comparison
+        if hmac.compare_digest(token, config.FIVE9_TRUST_TOKEN):
             return True
         else:
             logging.warning("Failed to verify the Five9 trust token.")
@@ -208,3 +257,47 @@ def check_five9_token(token):
     except Exception as e:
         logging.error("Error during token verification: %s", repr(e))
         return False
+
+
+def check_google_oidc_token(token):
+    """Verifies a Google IAM OIDC (OpenID Connect) identity token for service-to-service auth.
+
+    Allows other Cloud Run services in the same GCP project to authenticate
+    with this UI Connector securely and natively.
+
+    Example use case:
+    The Genesys Cloud AudioHook backend service calls POST /conversation-name
+    using a Google IAM OIDC token to store the conversationIntegrationKey:conversationName
+    mapping in Redis so agent desktops can look up and retrieve the Dialogflow conversation.
+
+    Args:
+        token: JWT string (with or without 'Bearer ' prefix).
+
+    Returns:
+        tuple[bool, str]: (is_valid, message)
+    """
+    if token.startswith(_BEARER_PREFIX):
+        token = token.split(" ", 1)[1]
+
+    try:
+        from google.oauth2 import id_token
+        from google.auth.transport import requests as google_requests
+
+        # Verify the OIDC token cryptographically; when OIDC_AUDIENCE is
+        # unset, pass audience=None so verify_oauth2_token still validates the
+        # Google signature, issuer, and expiry without an unverified decode.
+        req = google_requests.Request()
+        id_info = id_token.verify_oauth2_token(
+            token, req, audience=config.OIDC_AUDIENCE or None
+        )
+
+        if id_info.get('iss') in ['https://accounts.google.com', 'accounts.google.com']:
+            email = id_info.get('email', '')
+            # Ensure the calling service account belongs to our exact GCP project.
+            # This guarantees that only our own internal services can authorize this way.
+            if email.endswith(f"@{config.GCP_PROJECT_ID}.iam.gserviceaccount.com"):
+                return True, 'Your Google ID token is valid.'
+    except Exception:
+        pass  # Fall back to standard token verification
+
+    return False, 'Invalid Google ID token.'

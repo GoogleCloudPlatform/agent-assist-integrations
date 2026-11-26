@@ -16,11 +16,21 @@ import os
 import logging
 
 # The id of the GCP project where Cloud Run services are deployed on.
-GCP_PROJECT_ID = os.environ['GCP_PROJECT_ID']
+GCP_PROJECT_ID = os.environ.get('GCP_PROJECT_ID', '')
 
 # Set up the connection with Redis database
 REDIS_HOST = os.environ.get('REDISHOST', 'localhost')
 REDIS_PORT = int(os.environ.get('REDISPORT', 6379))
+# Progressive upgrade: only enable TLS 1.2+ when REDIS_TLS_ENABLED=true.
+REDIS_TLS_ENABLED = os.environ.get('REDIS_TLS_ENABLED', '').strip().lower() in (
+    'true',
+    '1',
+    'yes',
+)
+REDIS_CA_CERT_PATH = os.environ.get(
+    'REDIS_CA_CERT_PATH', '/secret/redis_ca_cert.pem'
+)
+REDIS_CA_CERT_PEM = os.environ.get('REDIS_CA_CERT_PEM', '')
 
 # TTL for the conversation -> UI Connector instances routing set in Redis.
 # Refreshed on every join-conversation. Must exceed the maximum WebSocket
@@ -42,9 +52,16 @@ logging.basicConfig(filename=os.environ.get(
 JWT_SECRET_KEY_PATH = os.environ.get('JWT_SECRET_KEY_PATH',
                                      '/secret/jwt_secret_key')
 
-# TODO replace '*' with a list of allowed origins to limit the access to your server.
-# Origin or list of origins that are allowed to connect to this server.
-CORS_ALLOWED_ORIGINS = '*'
+# The expected audience for OIDC tokens used for service-to-service authentication.
+OIDC_AUDIENCE = os.environ.get('OIDC_AUDIENCE', '')
+
+# Origin or comma-separated list of origins allowed to connect to this server.
+# Set CORS_ALLOWED_ORIGINS in the environment to restrict origins (defaults to '*').
+_cors_allowed_origins_raw = os.environ.get('CORS_ALLOWED_ORIGINS', '*').strip()
+CORS_ALLOWED_ORIGINS = (
+    '*' if _cors_allowed_origins_raw == '*' else
+    [o.strip() for o in _cors_allowed_origins_raw.split(',') if o.strip()]
+)
 
 # Lifetime for generated JWT
 JWT_TOKEN_LIFETIME = 60  # minutes
@@ -71,7 +88,7 @@ APP_AUTH_OPTION = os.environ.get('APP_AUTH_OPTION', '')
 # For sandbox environment, please replace login.salesforce.com with test.salesforce.com.
 # For SalesforceLWC auth option, please replace login.salesforce.com with <your-salesforce-org-domain>.<org-type>.lightning.force.com.
 SALESFORCE_DOMAIN = os.environ.get('SALESFORCE_DOMAIN', 'login.salesforce.com')
-SALESFORCE_ORGANIZATION_ID = os.environ.get('SALESFORCE_ORGANIZATION_ID', 'YOUR_ORGANIZATION_ID')
+SALESFORCE_ORGANIZATION_ID = os.environ.get('SALESFORCE_ORGANIZATION_ID', '')
 
 # Genesys Cloud configuration.
 GENESYS_CLOUD_REGION = os.environ.get('GENESYS_CLOUD_REGION', 'mypurecloud.com')
@@ -79,9 +96,12 @@ GENESYS_CLOUD_ORGANIZATION_ID = os.environ.get(
     'GENESYS_CLOUD_ORGANIZATION_ID', '')
 
 # Twilio configuration.
-TWILIO_FLEX_ENVIRONMENT = os.environ.get('TWILIO_FLEX_ENVIRONMENT', 'YOUR_DOMAIN.twil.io')
-TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID', 'YOUR_TWILIO_ACCOUNT_SID')
-TWILIO_ACCOUNTS_API_URL = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}.json"
+TWILIO_FLEX_ENVIRONMENT = os.environ.get('TWILIO_FLEX_ENVIRONMENT', '')
+TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID', '')
+TWILIO_ACCOUNTS_API_URL = (
+    f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}.json"
+    if TWILIO_ACCOUNT_SID else ''
+)
 
 # Five9 configuration.
-FIVE9_TRUST_TOKEN = os.environ.get('FIVE9_TRUST_TOKEN', 'YOUR_FIVE9_TRUST_TOKEN')
+FIVE9_TRUST_TOKEN = os.environ.get('FIVE9_TRUST_TOKEN', '')

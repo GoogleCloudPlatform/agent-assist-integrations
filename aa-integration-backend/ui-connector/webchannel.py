@@ -530,7 +530,7 @@ class WebChannelClient:
                 if failure is None or failure == "idle":
                     logging.info(
                         "WebChannel backchannel GET ended; reconnecting with "
-                        "AID=%s", self.last_aid)
+                        "AID=%s", repr(self.last_aid))
                     continue
             retries += 1
             cause = failure or "EOF"
@@ -542,8 +542,8 @@ class WebChannelClient:
             delay = BACKCHANNEL_RETRY_BASE_SECONDS * 2**(retries - 1)
             logging.warning(
                 "WebChannel backchannel GET ended without frames (%s); "
-                "retry %d/%d in %.1fs", cause, retries, BACKCHANNEL_MAX_RETRIES,
-                delay)
+                "retry %d/%d in %.1fs", repr(cause), retries,
+                BACKCHANNEL_MAX_RETRIES, delay)
             await asyncio.sleep(delay)
 
     async def _consume_backchannel(self, response) -> bool:
@@ -577,5 +577,5 @@ class WebChannelClient:
             return True
         elif event["type"] == "metadata":
             logging.debug("Ignoring WebChannel metadata frame: %s",
-                          event["payload"])
+                          repr(event["payload"]))
         return False

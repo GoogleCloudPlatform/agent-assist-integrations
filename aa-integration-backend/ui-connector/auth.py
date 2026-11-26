@@ -16,13 +16,17 @@
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 import os
+import re
 
 from flask import jsonify, request
 import jwt
 import requests
+from requests.auth import HTTPBasicAuth
 
 import auth_options
 import config
+
+_TWILIO_ACCOUNT_SID_REGEX = re.compile(r'^[A-Za-z0-9_-]+$')
 
 jwt_secret_key = None  # Loaded from config.JWT_SECRET_KEY_PATH or env.
 
@@ -66,14 +70,23 @@ def check_auth(token):
     return False
 
 
+check_google_oidc_token = auth_options.check_google_oidc_token
+
+
 def check_jwt(token):
-    """Validates and decodes a JWT token."""
+    """Validates and decodes a JWT or Google IAM OIDC token."""
     if not isinstance(token, str) or not token:
         return False, 'Failed to parse your token.'
     try:
-        secret_key = load_jwt_secret_key()
         if token.startswith('Bearer '):
             token = token[7:].strip()
+
+        # Attempt to verify as a Google IAM OIDC token (service-to-service auth)
+        is_oidc_valid, oidc_msg = check_google_oidc_token(token)
+        if is_oidc_valid:
+            return True, oidc_msg
+
+        secret_key = load_jwt_secret_key()
         # Decode the payload to fetch the stored details.
         data = jwt.decode(token, secret_key, algorithms=['HS256'])
         if 'gcp_agent_assist_project' not in data:
@@ -111,17 +124,28 @@ def generate_jwt(user_info=None):
 
 def check_app_auth(auth):
     """Validates application-level authentication (e.g. Twilio)."""
-    if not isinstance(auth, dict):
+    if not isinstance(auth, dict) or config.APP_AUTH_OPTION != 'Twilio':
         return False
-    if config.APP_AUTH_OPTION == 'Twilio':
-        response = requests.get(config.TWILIO_ACCOUNTS_API_URL,
-                                auth=(auth.get('accountSid'),
-                                      auth.get('authToken')),
-                                timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('sid') == config.TWILIO_ACCOUNT_SID:
-                return True
+    configured_sid = config.TWILIO_ACCOUNT_SID
+    if not configured_sid or not _TWILIO_ACCOUNT_SID_REGEX.fullmatch(
+            configured_sid):
+        return False
+    account_sid = auth.get('accountSid')
+    auth_token = auth.get('authToken')
+    if not isinstance(account_sid, str) or not account_sid:
+        return False
+    if not isinstance(auth_token, str) or not auth_token:
+        return False
+    response = requests.get(
+        f"https://api.twilio.com/2010-04-01/Accounts/{configured_sid}.json",
+        auth=HTTPBasicAuth(account_sid, auth_token),
+        timeout=10,
+        verify=True,
+    )
+    if response.status_code == 200:
+        data = response.json()
+        if data.get('sid') == configured_sid:
+            return True
     return False
 
 
