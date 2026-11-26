@@ -16,8 +16,13 @@
 # pylint: disable=wrong-import-position,protected-access,broad-exception-caught
 # pylint: disable=unspecified-encoding,line-too-long,missing-function-docstring,missing-class-docstring
 
+import base64
+from datetime import datetime, timezone, timedelta
 import gzip
+import hashlib
+import hmac
 import json
+import jwt
 import os
 import secrets
 import sys
@@ -100,6 +105,11 @@ class TestSocketIO(unittest.TestCase):
     def test_connect_failure(self):
         """Tries to establish websocket connection without valid JWT."""
         client = socketio.test_client(app, auth={"token": "invalid_jwt"})
+        self.assertFalse(client.is_connected())
+
+    def test_connect_failure_none_token(self):
+        """Refuses websocket connection when auth token is None."""
+        client = socketio.test_client(app, auth={"token": None})
         self.assertFalse(client.is_connected())
 
     def test_connect_failure_does_not_broadcast(self):
@@ -225,6 +235,60 @@ class TestSocketIO(unittest.TestCase):
             main.get_conversation_servers_key("projects/p/conversations/c"),
             "projects/p/conversations/c:servers",
         )
+
+    def test_join_and_leave_rejects_invalid_conversation_name(self):
+        """Rejects malformed conversation resource names in join and leave."""
+        client = socketio.test_client(app, auth={"token": self.valid_jwt})
+        for bad_name in ("not-a-resource", "projects/p/conversations/bad/extra",
+                         123):
+            ack_join, msg_join = client.emit("join-conversation",
+                                             bad_name,
+                                             callback=True)
+            self.assertFalse(ack_join)
+            self.assertEqual(msg_join, "invalid conversation name")
+            ack_leave, msg_leave = client.emit("leave-conversation",
+                                               bad_name,
+                                               callback=True)
+            self.assertFalse(ack_leave)
+            self.assertEqual(msg_leave, "invalid conversation name")
+        client.disconnect()
+
+    @patch("main.redis_client.pipeline")
+    def test_leave_rejects_non_member_socket_and_allows_multi_agent_join(
+            self, unused_mock_pipeline):
+        """Prevents a non-member socket from leaving while allowing multi-agent join."""
+        agent1_jwt = main.generate_jwt(
+            {"gcp_agent_assist_user": "agent1@example.com"})
+        agent2_jwt = main.generate_jwt(
+            {"gcp_agent_assist_user": "agent2@example.com"})
+        conversation = get_conversation_name("shared_conv_001")
+        conv_no_loc = get_conversation_name_without_location("shared_conv_001")
+
+        agent1_client = socketio.test_client(app, auth={"token": agent1_jwt})
+        agent2_client = socketio.test_client(app, auth={"token": agent2_jwt})
+
+        ack_1, data_1 = agent1_client.emit("join-conversation",
+                                           conversation,
+                                           callback=True)
+        self.assertTrue(ack_1)
+        self.assertEqual(data_1, conv_no_loc)
+
+        # Agent 2 has not joined yet; attempting to leave should be rejected.
+        ack_leave_2, data_leave_2 = agent2_client.emit("leave-conversation",
+                                                       conversation,
+                                                       callback=True)
+        self.assertFalse(ack_leave_2)
+        self.assertEqual(data_leave_2, "not authorized for this conversation")
+
+        # Separate agents are allowed to join the same conversation (WAI).
+        ack_2, data_2 = agent2_client.emit("join-conversation",
+                                           conversation,
+                                           callback=True)
+        self.assertTrue(ack_2)
+        self.assertEqual(data_2, conv_no_loc)
+
+        agent1_client.disconnect()
+        agent2_client.disconnect()
 
     def test_redis_pubsub_handler(self):
         """Handles Redis Pub/Sub messages."""
@@ -617,6 +681,25 @@ class TestRestAPI(unittest.TestCase):
         )
         self.assertEqual(method_resp.status_code, 405)
 
+    def test_socketio_join_leave_validation_and_multi_agent(self):
+        """Rejects invalid conversation names and non-member leave while allowing multi-agent join."""
+        c1 = socketio.test_client(app, auth={"token": self.valid_jwt})
+        c2 = socketio.test_client(app, auth={"token": self.valid_jwt})
+        ack_bad, msg_bad = c1.emit("join-conversation", "invalid/key:servers", callback=True)
+        self.assertFalse(ack_bad)
+        self.assertEqual(msg_bad, "invalid conversation name")
+
+        conv = get_conversation_name("conv_shared_1")
+        ack_1, _ = c1.emit("join-conversation", conv, callback=True)
+        self.assertTrue(ack_1)
+        ack_leave_2, msg_leave_2 = c2.emit("leave-conversation", conv, callback=True)
+        self.assertFalse(ack_leave_2)
+        self.assertEqual(msg_leave_2, "not authorized for this conversation")
+        ack_2, _ = c2.emit("join-conversation", conv, callback=True)
+        self.assertTrue(ack_2)
+        c1.disconnect()
+        c2.disconnect()
+
     @patch("main.redis_client.set", return_value=True)
     def test_set_conversation_name_success(self, mock_redis_set):
         """Sets conversationIntegrationKey mapping successfully."""
@@ -648,7 +731,8 @@ class TestRestAPI(unittest.TestCase):
 
     @patch(
         "main.redis_client.get",
-        return_value=b"projects/fake_project_id/locations/global/conversations/fake_conversation_id",
+        return_value=
+        b"projects/fake_project_id/locations/global/conversations/fake_conversation_id",
     )
     def test_get_conversation_name_success(self, mock_redis_get):
         """Gets conversationName by conversationIntegrationKey."""
@@ -734,60 +818,118 @@ class TestRestAPI(unittest.TestCase):
         self.assertFalse(is_valid)
         self.assertEqual(msg, "Failed to parse your token.")
 
-    def test_check_jwt_without_bearer_prefix(self):
-        """Handles tokens passed without Bearer prefix."""
-        is_valid, _ = auth.check_jwt("malformed_raw_token")
+    def test_check_jwt_bearer_with_whitespace(self):
+        """Handles Bearer tokens with extra whitespace padding."""
+        is_valid, msg = auth.check_jwt(f"Bearer    {self.valid_jwt}")
+        self.assertTrue(is_valid)
+        self.assertEqual(msg, "Your token is valid.")
+
+    def test_check_jwt_valid_without_bearer_prefix(self):
+        """Validates legitimate tokens passed without Bearer prefix."""
+        is_valid, msg = auth.check_jwt(self.valid_jwt)
+        self.assertTrue(is_valid)
+        self.assertEqual(msg, "Your token is valid.")
+
+    def test_check_jwt_malformed_without_bearer_prefix(self):
+        """Fails gracefully when malformed token is passed without Bearer prefix."""
+        is_valid, unused_msg = auth.check_jwt("malformed_raw_token")
         self.assertFalse(is_valid)
 
+    def test_check_jwt_none_token(self):
+        """Handles None token safely without raising AttributeError."""
+        is_valid, msg = auth.check_jwt(None)
+        self.assertFalse(is_valid)
+        self.assertEqual(msg, "Failed to parse your token.")
+
+    def test_check_jwt_empty_token(self):
+        """Handles empty token string safely."""
+        is_valid, msg = auth.check_jwt("")
+        self.assertFalse(is_valid)
+        self.assertEqual(msg, "Failed to parse your token.")
+
+    @patch.object(auth, "jwt_secret_key", "")
+    @patch(
+        "auth.load_jwt_secret_key",
+        side_effect=ValueError("Server JWT secret key is not configured."),
+    )
+    def test_check_jwt_empty_secret_fails(self, unused_mock_load):
+        """Rejects JWT validation when server secret is empty."""
+        is_valid, msg = auth.check_jwt(self.valid_jwt)
+        self.assertFalse(is_valid)
+        self.assertEqual(msg, "Server JWT secret key is not configured.")
+
+    @patch.object(auth, "jwt_secret_key", "")
+    @patch(
+        "auth.load_jwt_secret_key",
+        side_effect=ValueError("Server JWT secret key is not configured."),
+    )
+    def test_generate_jwt_empty_secret_raises(self, unused_mock_load):
+        """Raises ValueError when generating JWT with empty secret."""
+        with self.assertRaises(ValueError) as ctx:
+            auth.generate_jwt()
+        self.assertIn("Server JWT secret key is not configured",
+                      str(ctx.exception))
+
     def test_load_jwt_secret_key_raises_when_unconfigured(self):
-        """Fails closed when JWT secret is not configured in file or env."""
-        with patch.object(auth, "jwt_secret_key", None), \
-             patch("os.path.exists", return_value=False), \
-             patch.dict(os.environ, {}, clear=True):
-            with self.assertRaises(ValueError):
-                auth.load_jwt_secret_key()
+        """Raises ValueError when secret key cannot be loaded from file or env."""
+        with patch.object(auth, "jwt_secret_key", ""):
+            with patch("os.path.exists", return_value=False):
+                with patch.dict(os.environ, {}, clear=True):
+                    with self.assertRaises(ValueError) as ctx:
+                        auth.load_jwt_secret_key()
+                    self.assertIn("Server JWT secret key is not configured",
+                                  str(ctx.exception))
 
-    def test_socketio_join_leave_validation_and_multi_agent(self):
-        """Rejects invalid conversation names and non-member leave while allowing multi-agent join."""
-        c1 = socketio.test_client(app, auth={"token": self.valid_jwt})
-        c2 = socketio.test_client(app, auth={"token": self.valid_jwt})
-        ack_bad, msg_bad = c1.emit("join-conversation", "invalid/key:servers", callback=True)
-        self.assertFalse(ack_bad)
-        self.assertEqual(msg_bad, "invalid conversation name")
+    def test_forged_jwt_fails_verification(self):
+        """Rejects forged tokens signed with wrong secret."""
+        forged_secret = secrets.token_urlsafe(24)
+        forged = jwt.encode(
+            {
+                "exp": datetime.now(timezone.utc) + timedelta(minutes=60),
+                "gcp_agent_assist_project": _PROJECT_ID,
+                "gcp_agent_assist_user": "attacker",
+            },
+            forged_secret,
+            algorithm="HS256",
+        )
+        is_valid, msg = auth.check_jwt(forged)
+        self.assertFalse(is_valid)
+        self.assertEqual(msg, "Failed to parse your token.")
 
-        conv = get_conversation_name("conv_shared_1")
-        ack_1, _ = c1.emit("join-conversation", conv, callback=True)
-        self.assertTrue(ack_1)
-        ack_leave_2, msg_leave_2 = c2.emit("leave-conversation", conv, callback=True)
-        self.assertFalse(ack_leave_2)
-        self.assertEqual(msg_leave_2, "not authorized for this conversation")
-        ack_2, _ = c2.emit("join-conversation", conv, callback=True)
-        self.assertTrue(ack_2)
-        c1.disconnect()
-        c2.disconnect()
+    def test_empty_key_signed_jwt_rejected(self):
+        """Rejects forged token signed with empty HMAC secret."""
+        header = base64.urlsafe_b64encode(
+            json.dumps({
+                "alg": "HS256",
+                "typ": "JWT"
+            }).encode("utf-8")).rstrip(b"=").decode("utf-8")
+        payload = base64.urlsafe_b64encode(
+            json.dumps({
+                "exp": 2534023000,
+                "gcp_agent_assist_project": _PROJECT_ID,
+            }).encode("utf-8")).rstrip(b"=").decode("utf-8")
+        msg = f"{header}.{payload}".encode("utf-8")
+        sig = base64.urlsafe_b64encode(
+            hmac.new(b"", msg,
+                     hashlib.sha256).digest()).rstrip(b"=").decode("utf-8")
+        raw_token = f"{header}.{payload}.{sig}"
+        is_valid, msg = auth.check_jwt(raw_token)
+        self.assertFalse(is_valid)
+        self.assertEqual(msg, "Failed to parse your token.")
 
-    def test_server_id_uses_csprng_hex_prefix(self):
-        """Verifies SERVER_ID uses 16-char hex token from secrets.token_hex(8)."""
-        self.assertRegex(main.SERVER_ID, r"^[0-9a-f]{16}-\d+")
-
-    @patch("main.redis_client.set", return_value=True)
-    def test_crlf_log_injection_neutralized(self, unused_mock_set):
-        """Verifies CRLF sequences in untrusted inputs are escaped in logs."""
-        client = app.test_client()
-        with self.assertLogs(level="INFO") as captured:
-            resp = client.post(
-                "/conversation-name",
-                headers={"Authorization": self.valid_jwt},
-                json={
-                    "conversationIntegrationKey": "key\r\nFAKE_LOG: injected",
-                    "conversationName": "conv\r\nFAKE_LOG: injected2",
-                },
-            )
-            self.assertEqual(resp.status_code, 200)
-        for line in captured.output:
-            self.assertNotIn("\r", line)
-            self.assertNotIn("\n", line)
-            self.assertIn("\\r\\nFAKE_LOG:", line)
+    def test_load_jwt_secret_key_empty_file_falls_back(self):
+        """Falls back safely if secret key file exists but contains only whitespace or is empty."""
+        fallback_secret = secrets.token_urlsafe(24)
+        with patch.object(auth, "jwt_secret_key", ""):
+            with patch("os.path.exists", return_value=True):
+                with patch("builtins.open",
+                           unittest.mock.mock_open(read_data="   \n")):
+                    with patch.dict(
+                            os.environ,
+                        {"JWT_SECRET_KEY": fallback_secret},
+                    ):
+                        key = auth.load_jwt_secret_key()
+                        self.assertEqual(key, fallback_secret)
 
     def test_dialogflow_invalid_location(self):
         """Rejects locations that would change the Dialogflow host."""
@@ -1276,6 +1418,32 @@ class TestHttpStreamingCompanion(unittest.TestCase):
             "test-s2",
             main.SOCKET_SESSION_IDS_TO_STREAMS.get("test-sid-2", set()),
         )
+
+    def test_server_id_uses_csprng_hex_prefix(self):
+        """Verifies SERVER_ID uses 16-char hex token from secrets.token_hex(8)."""
+        self.assertRegex(main.SERVER_ID, r"^[0-9a-f]{16}-\d+")
+
+    @patch("main.redis_client.set", return_value=True)
+    def test_crlf_log_injection_neutralized(self, unused_mock_set):
+        """Verifies CRLF sequences in untrusted inputs are escaped in logs."""
+        http_client = app.test_client()
+        token = main.generate_jwt()
+        malicious_key = "key\r\nFAKE_LOG: injected"
+        malicious_conv = "conv\r\nFAKE_LOG: injected2"
+        with self.assertLogs(level="INFO") as captured:
+            resp = http_client.post(
+                "/conversation-name",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "conversationIntegrationKey": malicious_key,
+                    "conversationName": malicious_conv,
+                },
+            )
+            self.assertEqual(resp.status_code, 200)
+        for line in captured.output:
+            self.assertNotIn("\r", line)
+            self.assertNotIn("\n", line)
+            self.assertIn("\\r\\nFAKE_LOG:", line)
 
 
 if __name__ == "__main__":

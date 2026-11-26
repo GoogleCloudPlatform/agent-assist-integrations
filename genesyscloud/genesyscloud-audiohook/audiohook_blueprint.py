@@ -348,6 +348,19 @@ def audiohook_connect(ws: Server):
     Args:
         ws (Server): Websocket server for exchange messages
     """
+    if not config.api_key and not config.client_secret:
+        logging.warning(
+            "Rejecting AudioHook connection: neither API_KEY nor CLIENT_SECRET is configured"
+        )
+        try:
+            ws.close(
+                reason=1008,
+                message="Policy Violation: AudioHook authentication is not configured",
+            )
+        except Exception:  # pylint: disable=broad-except
+            ws.close()
+        return
+
     # Extract raw unparsed request URI to match what Genesys dialed exactly (path + query params)
     raw_uri = request.environ.get('RAW_URI') or request.environ.get('REQUEST_URI')
     if raw_uri:
@@ -370,10 +383,11 @@ def audiohook_connect(ws: Server):
         expected_api_key=config.api_key,
     )
     if not is_valid:
-        logging.warning("Unauthorized AudioHook connection rejected: %s", repr(err_msg))
+        logging.warning("Unauthorized AudioHook connection rejected: %s",
+                        repr(err_msg))
         try:
             ws.close(reason=1008, message=f"Policy Violation: {err_msg}")
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             ws.close()
         return
 

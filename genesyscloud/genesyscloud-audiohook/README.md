@@ -2,17 +2,17 @@
 
 [Genesys Cloud Voice Integration Guide](https://cloud.google.com/agent-assist/docs/genesys-cloud-voice)
 
-## Authentication & Security (Progressive Enhancement)
+## Authentication & Security
 
-The AudioHook WebSocket interceptor supports optional authentication and RFC 9421 HMAC-SHA256 signature verification during the WebSocket handshake (`/connect`):
+The AudioHook WebSocket interceptor enforces authentication on the WebSocket handshake (`/connect`) via `API_KEY` and/or RFC 9421 HMAC-SHA256 signature verification:
 
-| Variable | Description | Mode |
+| Variable | Description | Requirement |
 | :--- | :--- | :--- |
-| `API_KEY` (or `AUDIOHOOK_API_KEY`) | Shared API key validated against `X-API-KEY` header. | Optional |
-| `CLIENT_SECRET` (or `AUDIOHOOK_CLIENT_SECRET`) | Base64-encoded client secret used to verify RFC 9421 HMAC-SHA256 signatures (`Signature-Input` / `Signature`). | Optional |
+| `API_KEY` (or `AUDIOHOOK_API_KEY`) | Shared API key validated against `X-API-KEY` header. | At least one of `API_KEY` or `CLIENT_SECRET` required |
+| `CLIENT_SECRET` (or `AUDIOHOOK_CLIENT_SECRET`) | Base64-encoded client secret used to verify RFC 9421 HMAC-SHA256 signatures (`Signature-Input` / `Signature`). | Optional (Recommended) |
 
-* **Unauthenticated Mode (Default)**: If neither `API_KEY` nor `CLIENT_SECRET` is set, the service accepts incoming WebSocket connections without rejecting requests, preserving full backward compatibility.
-* **Hardened Mode**: When `CLIENT_SECRET` is configured, incoming handshakes must include valid RFC 9421 HTTP Message Signatures computed over request components (`@request-target`, `audiohook-*`, `x-api-key`). Unauthorized or forged requests are rejected with WebSocket close code `1008 (Policy Violation)`.
+* **Fail-Closed Enforcement**: If neither `API_KEY` nor `CLIENT_SECRET` is configured, incoming WebSocket connections are rejected with close code `1008 (Policy Violation)`.
+* **RFC 9421 Hardened Mode**: When `CLIENT_SECRET` is configured, incoming handshakes must include valid RFC 9421 HTTP Message Signatures computed over request components (`@request-target`, `audiohook-*`, `x-api-key`). Unauthorized or forged requests are rejected with WebSocket close code `1008 (Policy Violation)`.
 
 ## Production settings for the Audiohook connector
 

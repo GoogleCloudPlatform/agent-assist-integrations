@@ -16,6 +16,7 @@
 """
 
 import base64
+import binascii
 import hashlib
 import hmac
 import logging
@@ -48,7 +49,7 @@ def decode_secret(secret: str) -> bytes:
         return b''
     try:
         return base64.b64decode(secret, validate=True)
-    except ValueError:
+    except (binascii.Error, ValueError):
         return secret.encode('utf-8')
 
 
@@ -318,8 +319,6 @@ def _verify_hmac_signature(
         'HMAC signature mismatch. Reconstructed base: %s', repr(last_sig_base)
     )
     return 'HMAC signature verification failed'
-
-
 def verify_signature(
     headers: Mapping[str, str],
     method: str,
